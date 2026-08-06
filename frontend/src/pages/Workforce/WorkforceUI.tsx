@@ -1,4 +1,3 @@
-import React from "react";
 import Layout from "../../components/dashboard/Layout";
 import { useWorkforce } from "../../hooks/useWorkforce";
 import EmployeeCard from "../../components/ai/EmployeeCard";

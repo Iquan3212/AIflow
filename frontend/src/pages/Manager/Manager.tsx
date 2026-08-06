@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Layout from "../../components/dashboard/Layout";
 import { useManagerChat } from "../../hooks/useManagerChat";
 import { getConversation as getConv } from "../../services/manager";
-import { ConversationMessage } from "../../types/ai";
+import type { ConversationMessage } from "../../types/ai";
 import AgentBadge from "../../components/ai/AgentBadge";
 import DelegationBadge from "../../components/ai/DelegationBadge";
 import ToolBadge from "../../components/ai/ToolBadge";

@@ -44,7 +44,7 @@ export default function Sidebar(){
                     Appointments
                 </NavLink>
 
-                <NavLink to="/employee">
+                <NavLink to="/manager">
                     <Bot size={20}/>
                     AI Employee
                 </NavLink>

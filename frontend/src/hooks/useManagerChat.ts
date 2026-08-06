@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { chatManager } from "../services/manager";
-import { ManagerChatResponse, ConversationMessage } from "../types/ai";
+import type { ManagerChatResponse } from "../types/ai";
 
 export function useManagerChat() {
   const [loading, setLoading] = useState(false);

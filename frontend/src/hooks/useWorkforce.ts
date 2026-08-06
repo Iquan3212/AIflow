@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { getWorkforce } from "../services/workforce";
-import { EmployeeInfo } from "../types/ai";
+import type { EmployeeInfo } from "../types/ai";
 
 export function useWorkforce(pollIntervalMs = 0) {
   const [employees, setEmployees] = useState<EmployeeInfo[] | null>(null);

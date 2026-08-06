@@ -7,7 +7,7 @@ from app.deps import get_current_business
 from app.services.employee_service import EmployeeService
 
 router = APIRouter(
-    prefix="/employee",
+    prefix="/manager",
     tags=["AI Employee"],
 )
 

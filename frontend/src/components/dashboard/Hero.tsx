@@ -31,7 +31,7 @@ export default function Hero() {
                     <div className="flex gap-5 mt-8">
 
                         <button
-                            onClick={() => navigate("/employee")}
+                            onClick={() => navigate("/manager")}
                             className="bg-white text-blue-700 font-semibold px-6 py-3 rounded-xl hover:bg-gray-100 transition"
                         >
                             Open AI Assistant
