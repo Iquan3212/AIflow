@@ -11,12 +11,34 @@ export interface EmployeeConversation {
     messages: EmployeeMessage[];
 }
 
+export interface Plan {
+    intent: string;
+    confidence: number;
+    priority?: number;
+    employees?: string[];
+    tools?: string[];
+}
+
+export interface EmployeeResult {
+    reply?: string;
+    tool_result?: any;
+    error?: string;
+}
+
+export interface ManagerResult {
+    final_reply?: string;
+    employee_results?: Record<string, EmployeeResult>;
+    unified_context?: any;
+}
+
 export interface EmployeeReply {
     conversation_id: string;
     reply: string;
     intent: string;
     tool: string | null;
     confidence: number;
+    plan?: Plan;
+    manager_result?: ManagerResult;
 }
 
 export async function getEmployeeConversation(
