@@ -1,102 +1,58 @@
-from app.tools.lead_tool import LeadTool
-from app.tools.appointment_tool import AppointmentTool
+from typing import Any, Dict, List, Optional
 
 
-class ToolRegistry:
+class Registry:
     """
-    Central registry for every AI Employee.
+    Dynamic Registry for employees and tools.
 
-    Each employee only receives the tools
-    it is allowed to use.
+    - register_tool(name, instance)
+    - register_employee(name, instance, tools=[])
+    - get_tool(name)
+    - get_employee(name)
+    - tools_for_employee(name) -> dict[name, tool_instance]
+    - employee_has_tool(employee, tool_name) -> bool
+    - all_tools() -> dict
+    - all_employees() -> dict
     """
 
-    def __init__(self, db):
-
+    def __init__(self, db=None):
         self.db = db
+        self._tools: Dict[str, Any] = {}
+        self._employees: Dict[str, Dict[str, Any]] = {}
 
-        self._tool_map = {
+    # Tool registration
+    def register_tool(self, name: str, tool: Any) -> None:
+        self._tools[name] = tool
 
-            "lead": LeadTool(db),
+    def get_tool(self, name: str) -> Optional[Any]:
+        return self._tools.get(name)
 
-            "appointment": AppointmentTool(db),
+    def all_tools(self) -> Dict[str, Any]:
+        return dict(self._tools)
 
-        }
+    # Employee registration
+    def register_employee(self, name: str, instance: Any, tools: Optional[List[str]] = None) -> None:
+        self._employees[name] = {"instance": instance, "tools": list(tools or [])}
 
-        self._employee_tools = {
+    def get_employee(self, name: str) -> Optional[Any]:
+        meta = self._employees.get(name)
+        if meta:
+            return meta.get("instance")
+        return None
 
-            "manager": [
-                "lead",
-                "appointment",
-            ],
+    def employee_tools(self, name: str) -> List[str]:
+        return list(self._employees.get(name, {}).get("tools", []))
 
-            "sales": [
-                "lead",
-            ],
+    def tools_for_employee(self, name: str) -> Dict[str, Any]:
+        allowed = self.employee_tools(name)
+        return {t: self._tools[t] for t in allowed if t in self._tools}
 
-            "receptionist": [
-                "appointment",
-            ],
+    def employee_has_tool(self, employee: str, tool_name: str) -> bool:
+        return tool_name in self.employee_tools(employee)
 
-            "support": [],
+    def all_employees(self) -> Dict[str, Any]:
+        return {k: v["instance"] for k, v in self._employees.items()}
 
-            "marketing": [],
 
-            "finance": [],
-
-            "analytics": [],
-        }
-
-    def get(self, tool_name: str):
-
-        return self._tool_map.get(tool_name)
-
-    def tools_for_employee(
-        self,
-        employee: str,
-    ):
-
-        allowed = self._employee_tools.get(
-            employee,
-            [],
-        )
-
-        return {
-
-            name: self._tool_map[name]
-
-            for name in allowed
-
-            if name in self._tool_map
-
-        }
-
-    def employee_has_tool(
-        self,
-        employee: str,
-        tool_name: str,
-    ):
-
-        return tool_name in self._employee_tools.get(
-            employee,
-            [],
-        )
-
-    def register(
-        self,
-        name: str,
-        tool,
-    ):
-
-        self._tool_map[name] = tool
-
-    def register_employee(
-        self,
-        employee: str,
-        tools: list[str],
-    ):
-
-        self._employee_tools[employee] = tools
-
-    def all_tools(self):
-
-        return self._tool_map
+# Backwards compatibility alias (previous code used ToolRegistry)
+ToolRegistry = Registry

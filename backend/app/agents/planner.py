@@ -1,49 +1,36 @@
 from dataclasses import dataclass
+from typing import List
 
 
 @dataclass
 class Plan:
     intent: str
-    tool: str | None
     confidence: float
-    agent: str
+    priority: int
+    employees: List[str]
+    tools: List[str]
 
 
 class Planner:
+    """
+    Phase 5 Planner: rule-based multi-intent classifier that returns a Plan.
 
-    def plan(self, message: str) -> Plan:
+    - Detects sales, support, receptionist (appointments), marketing, finance, analytics, general
+    - Supports multiple intents in a single message
+    - Returns primary intent (highest priority), confidence, list of employees, required tools, priority
+    """
 
-        text = message.lower()
-
-        # -------------------------
-        # Receptionist
-        # -------------------------
-
-        if any(
-            word in text
-            for word in [
+    def __init__(self):
+        self.intent_keywords = {
+            "receptionist": [
                 "appointment",
                 "book",
                 "schedule",
                 "meeting",
                 "cancel",
                 "reschedule",
-            ]
-        ):
-            return Plan(
-                intent="appointment",
-                tool="appointment",
-                confidence=0.98,
-                agent="receptionist",
-            )
-
-        # -------------------------
-        # Sales
-        # -------------------------
-
-        if any(
-            word in text
-            for word in [
+            ],
+            "sales": [
                 "price",
                 "quotation",
                 "quote",
@@ -51,91 +38,121 @@ class Planner:
                 "buy",
                 "purchase",
                 "discount",
-            ]
-        ):
-            return Plan(
-                intent="sales",
-                tool="lead",
-                confidence=0.96,
-                agent="sales",
-            )
-
-        # -------------------------
-        # Dashboard
-        # -------------------------
-
-        if any(
-            word in text
-            for word in [
+                "pricing",
+            ],
+            "analytics": [
                 "dashboard",
                 "analytics",
                 "summary",
                 "today",
                 "revenue",
                 "lead",
-                "appointment",
                 "conversation",
                 "chat",
-            ]
-        ):
-            return Plan(
-                intent="dashboard",
-                tool="dashboard",
-                confidence=0.95,
-                agent="analytics",
-            )
-
-        # -------------------------
-        # Marketing
-        # -------------------------
-
-        if any(
-            word in text
-            for word in [
+                "trend",
+            ],
+            "marketing": [
                 "instagram",
                 "facebook",
                 "marketing",
                 "campaign",
                 "caption",
                 "post",
-            ]
-        ):
-            return Plan(
-                intent="marketing",
-                tool=None,
-                confidence=0.92,
-                agent="marketing",
-            )
-
-        # -------------------------
-        # Support
-        # -------------------------
-
-        if any(
-            word in text
-            for word in [
+                "ad",
+            ],
+            "support": [
                 "problem",
                 "issue",
                 "error",
                 "refund",
                 "support",
                 "help",
-            ]
-        ):
+                "bug",
+            ],
+            "finance": [
+                "invoice",
+                "billing",
+                "quote",
+                "payment",
+                "refund",
+                "pricing",
+            ],
+        }
+
+        # Which tools are typically required per employee intent
+        self.intent_tools = {
+            "receptionist": ["appointment"],
+            "sales": ["lead"],
+            "analytics": ["dashboard"],
+            "marketing": ["campaign"],
+            "support": [],
+            "finance": ["quotation"],
+            "manager": [],
+        }
+
+        # Lower number = higher priority
+        self.intent_priority = {
+            "receptionist": 10,
+            "finance": 15,
+            "sales": 20,
+            "support": 25,
+            "analytics": 30,
+            "marketing": 40,
+            "general": 50,
+        }
+
+    def plan(self, message: str) -> Plan:
+        text = (message or "").lower()
+        detected = set()
+
+        for intent, keywords in self.intent_keywords.items():
+            if any(k in text for k in keywords):
+                detected.add(intent)
+
+        if not detected:
+            # default to manager/general
             return Plan(
-                intent="support",
-                tool=None,
-                confidence=0.91,
-                agent="support",
+                intent="general",
+                confidence=0.80,
+                priority=self.intent_priority["general"],
+                employees=["manager"],
+                tools=[],
             )
 
-        # -------------------------
-        # Default
-        # -------------------------
+        # Map intents to employees and tools
+        employees = []
+        tools = []
+        confidences = []
+
+        for intent in detected:
+            employees.append(intent if intent in self.intent_tools else "manager")
+            tools.extend(self.intent_tools.get(intent, []))
+            confidences.append(0.9)
+
+        # Deduplicate while preserving order
+        seen = set()
+        employees_unique = []
+        for e in employees:
+            if e not in seen:
+                seen.add(e)
+                employees_unique.append(e)
+
+        tools_unique = []
+        seen_tools = set()
+        for t in tools:
+            if t not in seen_tools:
+                seen_tools.add(t)
+                tools_unique.append(t)
+
+        # Determine primary intent by priority
+        primary = min(detected, key=lambda x: self.intent_priority.get(x, 100))
+        priority = self.intent_priority.get(primary, 50)
+        confidence = max(confidences) if confidences else 0.8
 
         return Plan(
-            intent="chat",
-            tool=None,
-            confidence=0.80,
-            agent="manager",
+            intent=primary,
+            confidence=confidence,
+            priority=priority,
+            employees=employees_unique,
+            tools=tools_unique,
         )

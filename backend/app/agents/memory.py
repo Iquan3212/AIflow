@@ -1,164 +1,83 @@
-from collections import Counter
+from typing import Any, Dict, List
+import re
 
 
 class ConversationMemory:
     """
-    Shared memory used by every AI Employee.
+    Shared conversation memory for the AI workforce.
 
-    The database remains the source of truth.
-    This class simply converts previous messages into
-    useful context for the AI Workforce.
+    Provides:
+    - summarize_messages(history)
+    - important_facts(history)
+    - recent_messages(history)
+    - customer_profile(history)
+    - shared_context(history) -> aggregated structure
     """
 
-    def summarize(
-        self,
-        history,
-        limit: int = 20,
-    ) -> str:
+    def __init__(self, summary_max_messages: int = 20):
+        self.summary_max_messages = summary_max_messages
 
+    def summarize_messages(self, history: List[Any]) -> str:
         if not history:
             return "No previous conversation."
 
-        recent = history[-limit:]
-
-        summary = []
-
-        for msg in recent:
-
-            if isinstance(msg, dict):
-
-                role = msg.get("role", "")
-
-                content = msg.get("content", "")
-
+        recent = history[-self.summary_max_messages :]
+        lines = []
+        for item in recent:
+            if isinstance(item, dict):
+                role = item.get("role", "user")
+                content = item.get("content", "")
             else:
-
-                role = getattr(msg, "role", "")
-
-                content = getattr(msg, "content", "")
-
+                role = getattr(item, "role", "user")
+                content = getattr(item, "content", "")
             if content:
+                lines.append(f"{role}: {content}")
+        return "\n".join(lines)
 
-                summary.append(
-                    f"{role}: {content}"
-                )
-
-        return "\n".join(summary)
-
-    def detect_topics(
-        self,
-        history,
-    ) -> list[str]:
-
+    def important_facts(self, history: List[Any]) -> List[str]:
+        if not history:
+            return []
         text = " ".join(
-
-            msg.content.lower()
-
-            if hasattr(msg, "content")
-
-            else msg.get("content", "").lower()
-
-            for msg in history
-
+            getattr(m, "content", m.get("content", "")) if not isinstance(m, str) else str(m) for m in history[-50:]
         )
+        facts = []
+        # emails
+        emails = re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text)
+        for e in set(emails):
+            facts.append(f"email:{e}")
+        # phones (simple heuristic)
+        phones = re.findall(r"\+?\d[\d\-\s]{6,}\d", text)
+        for p in set(phones):
+            facts.append(f"phone:{p}")
+        # names: look for "my name is X" / "i am X"
+        m = re.search(r"\b(?:my name is|i am|this is)\s+([A-Z][a-zA-Z]{1,20})", text)
+        if m:
+            facts.append(f"name:{m.group(1)}")
+        return facts
 
-        topics = []
+    def customer_profile(self, history: List[Any]) -> Dict[str, Any]:
+        profile: Dict[str, Any] = {}
+        # sample heuristics
+        for item in history[-40:]:
+            content = getattr(item, "content", item.get("content", "")) if not isinstance(item, str) else str(item)
+            if "company" in content.lower():
+                profile["mentioned_company"] = True
+            if "address" in content.lower() or "located in" in content.lower():
+                profile["has_address"] = True
+        return profile
 
-        keywords = {
+    def recent_messages(self, history: List[Any], limit: int = 10) -> List[Any]:
+        return list(history[-limit:]) if history else []
 
-            "appointment": [
-                "appointment",
-                "schedule",
-                "meeting",
-                "book",
-                "reschedule",
-                "cancel",
-            ],
-
-            "sales": [
-                "price",
-                "quotation",
-                "quote",
-                "discount",
-                "buy",
-                "purchase",
-            ],
-
-            "lead": [
-                "phone",
-                "email",
-                "contact",
-                "name",
-            ],
-
-            "support": [
-                "problem",
-                "issue",
-                "error",
-                "refund",
-                "help",
-            ],
-
-            "marketing": [
-                "instagram",
-                "facebook",
-                "campaign",
-                "caption",
-                "promotion",
-            ],
-
-        }
-
-        for topic, words in keywords.items():
-
-            if any(word in text for word in words):
-
-                topics.append(topic)
-
-        return topics
-
-    def conversation_stats(
-        self,
-        history,
-    ) -> dict:
-
-        roles = Counter()
-
-        for msg in history:
-
-            role = (
-
-                msg.role
-
-                if hasattr(msg, "role")
-
-                else msg.get("role", "")
-
-            )
-
-            roles[role] += 1
-
+    def shared_context(self, history: List[Any]) -> Dict[str, Any]:
+        summary = self.summarize_messages(history)
+        facts = self.important_facts(history)
+        profile = self.customer_profile(history)
+        recent = self.recent_messages(history)
         return {
-
-            "messages": len(history),
-
-            "user_messages": roles["user"],
-
-            "assistant_messages": roles["assistant"],
-
-        }
-
-    def shared_context(
-        self,
-        history,
-    ) -> dict:
-
-        return {
-
-            "summary": self.summarize(history),
-
-            "topics": self.detect_topics(history),
-
-            "stats": self.conversation_stats(history),
-
+            "summary": summary,
+            "facts": facts,
+            "recent_messages": recent,
+            "profile": profile,
+            "long_term_hooks": [],  # future integration points for long-term memory stores
         }
