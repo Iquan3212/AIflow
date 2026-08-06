@@ -8,7 +8,7 @@ import Leads from "./pages/Leads/Leads";
 import Appointments from "./pages/Appointments/Appointments";
 
 import ProtectedLayout from "./layouts/ProtectedLayout";
-import Employee from "./pages/Employee/Employee";
+import Manager from "./pages/Manager/Manager";
 
 
 export default function App() {
@@ -48,10 +48,7 @@ export default function App() {
                         path="/appointments"
                         element={<Appointments />}
                     />
-                    <Route
-                        path="/employee"
-                        element={<Employee />}
-                    />
+                   <Route path="/manager" element={<Manager />} />
 
                 </Route>
 

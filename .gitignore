@@ -21,3 +21,6 @@ frontend/.env
 # IDE
 .vscode/
 .idea/
+
+# Archives
+*.zip
