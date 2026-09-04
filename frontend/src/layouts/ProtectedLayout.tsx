@@ -1,9 +1,11 @@
 import { Navigate, Outlet } from "react-router-dom";
 
-export default function ProtectedLayout() {
-    const token = localStorage.getItem("token");
+import { useAuth } from "../context/AuthContext";
 
-    if (!token) {
+export default function ProtectedLayout() {
+    const { isAuthenticated } = useAuth();
+
+    if (!isAuthenticated) {
         return <Navigate to="/" replace />;
     }
 

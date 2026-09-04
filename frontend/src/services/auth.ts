@@ -12,24 +12,20 @@ export interface RegisterRequest {
     password: string;
 }
 
-export async function login(payload: LoginRequest) {
+export interface TokenResponse {
+    access_token: string;
+    refresh_token: string;
+    token_type: string;
+    business_id: string;
+    business_slug: string;
+}
 
-    const response = await api.post(
-        "/auth/login",
-        payload
-    );
-
+export async function login(payload: LoginRequest): Promise<TokenResponse> {
+    const response = await api.post<TokenResponse>("/auth/login", payload);
     return response.data;
 }
 
-export async function register(
-    payload: RegisterRequest
-) {
-
-    const response = await api.post(
-        "/auth/signup",
-        payload
-    );
-
+export async function register(payload: RegisterRequest): Promise<TokenResponse> {
+    const response = await api.post<TokenResponse>("/auth/signup", payload);
     return response.data;
 }
