@@ -32,13 +32,22 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AIFlow API", version="0.3.0", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins(),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# In development, Vite falls back to the next free port whenever 5173 is
+# already taken (e.g. by another project's dev server on the same machine),
+# which silently breaks CORS if only that one port is allowlisted. A regex
+# for any localhost port sidesteps that - production still only trusts the
+# explicit ALLOWED_ORIGINS list from the environment, since app_env there
+# won't be "development".
+cors_kwargs = {
+    "allow_origins": settings.cors_origins(),
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+if settings.app_env == "development":
+    cors_kwargs["allow_origin_regex"] = r"http://(localhost|127\.0\.0\.1):\d+"
+
+app.add_middleware(CORSMiddleware, **cors_kwargs)
 
 # Register all routers (once each).
 app.include_router(auth.router)
