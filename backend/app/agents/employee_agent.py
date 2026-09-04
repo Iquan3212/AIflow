@@ -1,6 +1,9 @@
 """Authenticated, persistent AI Employee for the business dashboard.
 
-EmployeeAgent remains the chat entrypoint only. Business coordination moved into AIOrchestrator/ManagerAgent.
+This is the real execution path for the owner-facing chat: every message
+goes through Planner -> ManagerAgent -> Employee(s) -> ToolRouter -> real
+services (LLM + DB), and the Manager's synthesized reply is what gets
+returned and saved - not a separate generic tool loop.
 """
 
 from typing import Optional
@@ -8,15 +11,12 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app import models
-from app.agents.dashboard_tools import DashboardToolDispatcher, dashboard_tool_definitions
 from app.agents.orchestrator import AIOrchestrator
 from app.repositories.conversation_repository import (
     get_or_create_employee_conversation,
     load_history,
     save_message,
 )
-from app.services.shared.conversation_service import _run_tool_loop
-from app.services.prompt_builder import build_dashboard_prompt
 
 
 class EmployeeAgent:
@@ -35,32 +35,24 @@ class EmployeeAgent:
         orchestrator = AIOrchestrator(self.db, business, conversation, lead=None)
         agent_context = orchestrator.before_llm(message, history)
 
-        # Build the system prompt using the existing helper to preserve behavior
-        system_prompt = build_dashboard_prompt(
-            business=business,
-            config=business.chatbot_config,
-            memory=agent_context.get("memory"),
-        )
-
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend({"role": item.role, "content": item.content} for item in history)
-
-        dispatcher = DashboardToolDispatcher(self.db, business)
-        try:
-            reply = _run_tool_loop(messages, dashboard_tool_definitions(), dispatcher)
-        except Exception as exc:
-            # Provider outage - respond gracefully while preserving conversation
-            print(f"[employee-agent:error] {exc}")
-            reply = "I couldn't reach the AI service just now. Please try again in a moment."
-
+        manager_result = agent_context["manager_result"]
+        reply = manager_result.get("final_reply") or "Sorry, I couldn't process that just now."
         reply = orchestrator.after_llm(reply)
+
         save_message(self.db, conversation.id, "assistant", reply)
 
         plan = agent_context.get("plan")
-        # Normalize plan for compatibility
         intent = getattr(plan, "intent", "general") if plan else "general"
         tools = getattr(plan, "tools", []) if plan else []
         confidence = getattr(plan, "confidence", 0.8) if plan else 0.8
+
+        employee_results = manager_result.get("employee_results", {})
+        tool_result = next(
+            (res.get("tool_result") for res in employee_results.values() if res.get("tool_result")),
+            None,
+        )
+
+        shared_memory = agent_context.get("shared_memory") or {}
 
         return {
             "conversation_id": conversation.id,
@@ -68,6 +60,24 @@ class EmployeeAgent:
             "intent": intent,
             "tool": tools[0] if tools else None,
             "confidence": confidence,
+            "tool_result": tool_result,
+            "plan": {
+                "intent": plan.intent,
+                "confidence": plan.confidence,
+                "priority": plan.priority,
+                "employees": plan.employees,
+                "tools": plan.tools,
+            }
+            if plan
+            else None,
+            "manager_result": {
+                "final_reply": manager_result.get("final_reply"),
+                "employee_results": employee_results,
+                "memory": {
+                    "summary": shared_memory.get("summary"),
+                    "facts": shared_memory.get("facts", []),
+                },
+            },
         }
 
     def history(self, business_id: str, conversation_id: Optional[str] = None) -> dict:

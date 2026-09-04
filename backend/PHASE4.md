@@ -1,5 +1,12 @@
 # Phase 4 — AI Employee
 
+> **Superseded.** The single-agent "AI Employee" described below has been
+> replaced by the multi-agent AI Workforce (Manager/Planner/Employees/
+> ToolRouter) — see `../ARCHITECTURE.md`. The routes below are also stale:
+> the router is mounted at `/manager/*`, not `/employee/*` (e.g.
+> `POST /manager/chat`), and the frontend page is `/manager`, not `/employee`.
+> Kept here only as a historical record of what Phase 4 originally built.
+
 Phase 4 adds an authenticated, owner-facing AI Employee without changing the
 public website receptionist workflow.
 

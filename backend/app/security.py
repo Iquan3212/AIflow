@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -52,6 +53,7 @@ def create_access_token(
         {
             "exp": expire,
             "type": "access",
+            "jti": uuid.uuid4().hex,
         }
     )
 
@@ -83,6 +85,10 @@ def create_refresh_token(
         {
             "exp": expire,
             "type": "refresh",
+            # A random JWT ID guarantees uniqueness even if two refresh
+            # tokens are minted for the same user within the same second
+            # (same exp, same claims) - refresh_token has a DB unique index.
+            "jti": uuid.uuid4().hex,
         }
     )
 

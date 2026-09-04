@@ -21,11 +21,32 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class AnalyticsSeriesPoint(BaseModel):
+    date: str
+    count: int
+
+
+class AnalyticsOverview(BaseModel):
+    leads_by_status: dict[str, int]
+    appointments_by_status: dict[str, int]
+    leads_per_day: list[AnalyticsSeriesPoint]
+    appointments_per_day: list[AnalyticsSeriesPoint]
+    conversations_per_day: list[AnalyticsSeriesPoint]
+    total_leads: int
+    total_appointments: int
+    total_conversations: int
+
+
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     business_id: UUID
     business_slug: str
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
 
 # =====================================================
@@ -56,6 +77,22 @@ class BusinessOut(BaseModel):
     timezone: str
     brand_color: str
     created_at: datetime
+
+
+class BusinessUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=100)
+    industry: str | None = None
+    timezone: str | None = None
+
+
+class SessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    device_name: str | None
+    ip_address: str | None
+    created_at: datetime
+    last_used_at: datetime
 
 
 # =====================================================
@@ -280,15 +317,15 @@ class DashboardStats(BaseModel):
 
     today_chats: int
 
-    new_leads: int
+    new_leads_today: int
 
-    appointments: int
+    total_leads: int
 
-    revenue: int
+    upcoming_appointments: int
 
-    response_time: float
-
-    accuracy: float
+    # None means "not enough data yet" - the frontend must show that
+    # honestly, never render it as 0 seconds.
+    avg_response_time_seconds: float | None
 
     model: str
 
@@ -301,6 +338,31 @@ class EmployeeChatRequest(BaseModel):
     conversation_id: UUID | None = None
 
 
+class EmployeePlanOut(BaseModel):
+    intent: str
+    confidence: float
+    priority: int | None = None
+    employees: list[str] | None = None
+    tools: list[str] | None = None
+
+
+class EmployeeResultOut(BaseModel):
+    reply: str | None = None
+    tool_result: dict | None = None
+    error: str | None = None
+
+
+class SharedMemoryOut(BaseModel):
+    summary: str | None = None
+    facts: list[str] = []
+
+
+class ManagerResultOut(BaseModel):
+    final_reply: str | None = None
+    employee_results: dict[str, EmployeeResultOut] | None = None
+    memory: SharedMemoryOut | None = None
+
+
 class EmployeeChatResponse(BaseModel):
     conversation_id: UUID
     reply: str
@@ -308,6 +370,11 @@ class EmployeeChatResponse(BaseModel):
     tool: str | None
     confidence: float
     tool_result: dict | None = None
+    # Phase 5: exposes the plan/delegation behind the reply. Optional and
+    # additive, so existing clients that only read the fields above are
+    # unaffected.
+    plan: EmployeePlanOut | None = None
+    manager_result: ManagerResultOut | None = None
 
 
 class EmployeeConversationResponse(BaseModel):

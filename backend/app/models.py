@@ -216,8 +216,8 @@ class Message(Base):
 
 
 class Lead(Base):
-    """Fills in incrementally over the course of a conversation — see
-    chatbot_service.handle_lead_tool_call. Never requires a completed form."""
+    """Fills in incrementally over the course of a conversation via the
+    receptionist's save_lead_info tool. Never requires a completed form."""
 
     __tablename__ = "leads"
 

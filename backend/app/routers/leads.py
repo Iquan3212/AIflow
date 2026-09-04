@@ -1,5 +1,3 @@
-from uuid import UUID
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -49,7 +47,7 @@ def create_new_lead(
     response_model=schemas.LeadOut,
 )
 def update_existing_lead(
-    lead_id: UUID,
+    lead_id: str,
     payload: schemas.LeadUpdate,
     business: Business = Depends(get_current_business),
     db: Session = Depends(get_db),
@@ -75,7 +73,7 @@ def update_existing_lead(
     "/{lead_id}",
 )
 def delete_existing_lead(
-    lead_id: UUID,
+    lead_id: str,
     business: Business = Depends(get_current_business),
     db: Session = Depends(get_db),
 ):

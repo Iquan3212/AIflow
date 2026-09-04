@@ -113,7 +113,7 @@ def process_message(
     orchestrator = AIOrchestrator(db=db,business=business,conversation=conversation,lead=lead,)
 
     history = load_history(db, conversation.id)
-    agent_context = orchestrator.before_llm(message, history)
+    agent_context = orchestrator.before_llm(message, history, delegate=False)
 
     config = business.chatbot_config
     system_prompt = build_system_prompt(

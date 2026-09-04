@@ -1,3 +1,4 @@
+from app.agents.llm_reply import generate_employee_reply
 from app.agents.memory import ConversationMemory
 
 
@@ -100,6 +101,20 @@ Always remain professional.
             "system_prompt": self.system_prompt,
 
         }
+
+    def respond(self, message: str, history, tool_router=None) -> dict:
+        analysis = self.analyze(message, history)
+
+        tool_result = None
+        if tool_router is not None and analysis.get("finance_detected"):
+            res = tool_router.execute(employee="finance", tool_name="quotation", message=message)
+            if res.get("success"):
+                tool_result = res.get("result")
+
+        reply = generate_employee_reply("finance", self.system_prompt, message, history, tool_result=tool_result)
+        analysis["reply"] = reply
+        analysis["tool_result"] = tool_result
+        return analysis
 
     def handoff(self):
 

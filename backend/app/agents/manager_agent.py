@@ -1,7 +1,8 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from app.agents.registry import Registry
+from app.agents.llm_reply import generate_employee_reply
 from app.agents.memory import ConversationMemory
+from app.agents.registry import Registry
 
 
 class ManagerAgent:
@@ -10,9 +11,29 @@ class ManagerAgent:
     resolves conflicts, and produces a unified context for the LLM.
     """
 
-    def __init__(self, registry: Registry, memory: ConversationMemory):
+    def __init__(self, registry: Registry, memory: ConversationMemory, business: Any = None, tool_router: Any = None):
         self.registry = registry
         self.memory = memory
+        self.business = business
+        self.tool_router = tool_router
+
+    @property
+    def system_prompt(self) -> str:
+        name = getattr(self.business, "name", None) or "the business"
+        return f"""You are the Manager AI for {name}.
+
+You coordinate a workforce of AI specialists: Sales, Receptionist, Support,
+Finance, Marketing, and Analytics.
+
+Answer general questions helpfully and concisely. Never invent business
+facts, prices, or appointment slots yourself - that work belongs to the
+specialist employees."""
+
+    def respond(self, message: str, history: List[Any], tool_router: Optional[Any] = None) -> Dict[str, Any]:
+        """The Manager's own reply for general chat that no specialist
+        intent was detected for."""
+        reply = generate_employee_reply("manager", self.system_prompt, message, history)
+        return {"employee": "manager", "intent": "general", "reply": reply, "tool_result": None}
 
     def delegate(self, plan: Any, message: str, history: List[Any]) -> Dict[str, Any]:
         """
@@ -27,14 +48,19 @@ class ManagerAgent:
                 employee_results[emp] = {"reply": "", "tool_result": None, "error": "employee_not_registered"}
                 continue
 
-            # Prefer analyze() if present, otherwise call handle()
-            analyze = getattr(employee_instance, "analyze", None)
-            handle = getattr(employee_instance, "handle", None)
+            # Prefer respond() (real LLM reply + real tool execution), then
+            # legacy analyze()/handle() for any employee that hasn't been
+            # upgraded yet.
+            respond_fn = getattr(employee_instance, "respond", None)
+            analyze_fn = getattr(employee_instance, "analyze", None)
+            handle_fn = getattr(employee_instance, "handle", None)
             try:
-                if callable(analyze):
-                    result = analyze(message, history)
-                elif callable(handle):
-                    result = handle(message=message, history=history)
+                if callable(respond_fn):
+                    result = respond_fn(message, history, self.tool_router)
+                elif callable(analyze_fn):
+                    result = analyze_fn(message, history)
+                elif callable(handle_fn):
+                    result = handle_fn(message=message, history=history)
                 else:
                     result = {"reply": "", "tool_result": None}
             except Exception as exc:
@@ -70,9 +96,10 @@ class ManagerAgent:
     def _merge_replies(self, plan: Any, employee_results: Dict[str, Dict[str, Any]], history: List[Any]) -> str:
         """
         Merge strategy:
-        - Prefer reply from employee associated with highest priority intent.
-        - If multiple replies, then label sections by employee and deduplicate sentences.
-        - Synthesize a manager summary line.
+        - Single employee: return its reply as-is.
+        - Multiple employees: label each reply by employee so a multi-intent
+          request (e.g. "create a lead and book an appointment") reads as one
+          unified answer instead of losing either half.
         """
         replies = []
         for name, res in employee_results.items():
@@ -86,29 +113,8 @@ class ManagerAgent:
         if len(replies) == 1:
             return replies[0][1]
 
-        # Deduplicate by sentence and build labeled sections
-        seen = set()
-        parts = []
-        for name, txt in replies:
-            sentences = [s.strip() for s in txt.split(".") if s.strip()]
-            unique = []
-            for s in sentences:
-                if s not in seen:
-                    seen.add(s)
-                    unique.append(s)
-            if unique:
-                parts.append(f"{name.capitalize()} suggested: " + ". ".join(unique) + ".")
-
-        # Manager synthesis: collect first line of each reply
-        synth_lines = []
-        for _, txt in replies:
-            first_line = txt.split(".")[0]
-            if first_line:
-                synth_lines.append(first_line.strip())
-
-        synthesis = " / ".join(synth_lines[:3])
-        combined = "\n".join(parts)
-        return f"{combined}\n\nManager synthesis: {synthesis}"
+        parts = [f"{name.capitalize()}: {txt}" for name, txt in replies]
+        return "\n\n".join(parts)
 
     def resolve_handoff(self, from_employee: str, to_employee: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """

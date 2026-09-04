@@ -1,3 +1,4 @@
+from app.agents.llm_reply import generate_employee_reply
 from app.agents.memory import ConversationMemory
 
 
@@ -145,6 +146,13 @@ Always try to solve the customer's issue.
             "system_prompt": self.system_prompt,
 
         }
+
+    def respond(self, message: str, history, tool_router=None) -> dict:
+        analysis = self.analyze(message, history)
+        reply = generate_employee_reply("support", self.system_prompt, message, history)
+        analysis["reply"] = reply
+        analysis["tool_result"] = None
+        return analysis
 
     def handoff(self):
 

@@ -198,11 +198,18 @@ class DashboardToolDispatcher:
             models.Appointment.business_id == self.business.id,
             models.Appointment.status != models.AppointmentStatus.cancelled,
         ).order_by(models.Appointment.scheduled_at.asc()).all()
+        # scheduled_at is stored UTC-aware, but some DB backends (e.g. SQLite)
+        # hand back a naive datetime on read - normalize a local copy before
+        # comparing, without touching the ORM instance (would mark it dirty).
+        scheduled_utc = {
+            row.id: row.scheduled_at if row.scheduled_at.tzinfo else row.scheduled_at.replace(tzinfo=timezone.utc)
+            for row in rows
+        }
         if target_date:
-            rows = [row for row in rows if to_local(row.scheduled_at, self.business.timezone).date() == target_date]
+            rows = [row for row in rows if to_local(scheduled_utc[row.id], self.business.timezone).date() == target_date]
         else:
             horizon = now + timedelta(days=7)
-            rows = [row for row in rows if now <= row.scheduled_at <= horizon]
+            rows = [row for row in rows if now <= scheduled_utc[row.id] <= horizon]
         return {
             "ok": True,
             "appointments": [
@@ -210,7 +217,7 @@ class DashboardToolDispatcher:
                     "id": row.id,
                     "customer_name": row.customer_name,
                     "service": row.service,
-                    "when": humanize(row.scheduled_at, self.business.timezone),
+                    "when": humanize(scheduled_utc[row.id], self.business.timezone),
                     "status": row.status.value if hasattr(row.status, "value") else str(row.status),
                 }
                 for row in rows[:20]

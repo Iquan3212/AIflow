@@ -34,12 +34,17 @@ class ConversationMemory:
                 lines.append(f"{role}: {content}")
         return "\n".join(lines)
 
+    def _content_of(self, item: Any) -> str:
+        if isinstance(item, str):
+            return item
+        if isinstance(item, dict):
+            return item.get("content", "") or ""
+        return getattr(item, "content", "") or ""
+
     def important_facts(self, history: List[Any]) -> List[str]:
         if not history:
             return []
-        text = " ".join(
-            getattr(m, "content", m.get("content", "")) if not isinstance(m, str) else str(m) for m in history[-50:]
-        )
+        text = " ".join(self._content_of(m) for m in history[-50:])
         facts = []
         # emails
         emails = re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text)
@@ -59,7 +64,7 @@ class ConversationMemory:
         profile: Dict[str, Any] = {}
         # sample heuristics
         for item in history[-40:]:
-            content = getattr(item, "content", item.get("content", "")) if not isinstance(item, str) else str(item)
+            content = self._content_of(item)
             if "company" in content.lower():
                 profile["mentioned_company"] = True
             if "address" in content.lower() or "located in" in content.lower():

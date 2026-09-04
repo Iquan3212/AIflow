@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import Base, engine
 
-from app.routers import employee
+from app.routers import employee, workforce, analytics
 
 # Import models so every table is registered on Base before create_all runs.
 from app import models  # noqa: F401
@@ -14,7 +14,6 @@ from app import models  # noqa: F401
 from app.routers import (
     auth,
     businesses,
-    chatbot,
     leads,
     conversation,
     appointments,
@@ -44,7 +43,6 @@ app.add_middleware(
 # Register all routers (once each).
 app.include_router(auth.router)
 app.include_router(businesses.router)
-app.include_router(chatbot.router)
 app.include_router(leads.router)
 app.include_router(dashboard_router)
 app.include_router(conversation.router)
@@ -52,6 +50,8 @@ app.include_router(conversation.compat_router)
 app.include_router(appointments.router)
 app.include_router(integrations.router)
 app.include_router(employee.router)
+app.include_router(workforce.router)
+app.include_router(analytics.router)
 
 
 @app.get("/")

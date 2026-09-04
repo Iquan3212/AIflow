@@ -19,6 +19,19 @@ def get_my_business(
     return business
 
 
+@router.patch("/me", response_model=schemas.BusinessOut)
+def update_my_business(
+    payload: schemas.BusinessUpdate,
+    business: models.Business = Depends(get_current_business),
+    db: Session = Depends(get_db),
+):
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(business, field, value)
+    db.commit()
+    db.refresh(business)
+    return business
+
+
 # =====================================================
 # CHATBOT CONFIG
 # =====================================================
