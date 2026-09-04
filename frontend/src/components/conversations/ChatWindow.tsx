@@ -3,53 +3,36 @@ import { useEffect, useRef, useState } from "react";
 import MessageBubble from "./MessageBubble";
 import MessageInput from "./MessageInput";
 
-import {
-    sendMessage,
-} from "../../services/conversation";
+import { sendMessage } from "../../services/conversation";
+import { getErrorMessage } from "../../services/api";
 
-import type {
-    Conversation,
-    Message,
-} from "../../types/conversation";
+import type { Conversation } from "../../types/conversation";
 import { useBusiness } from "../../context/BusinessContext";
 
 type Props = {
     conversation: Conversation | null;
-    refreshConversations: () => Promise<void>;
+    /** Called after a message round-trip completes, with the (possibly
+     * newly created) conversation's id - the parent re-fetches the list and
+     * re-selects that conversation, so this component never keeps its own
+     * copy of the message history. That's the fix for the bug where the
+     * chat panel and the Customer Details panel disagreed: previously this
+     * component tracked its own `messages` state that only synced from the
+     * conversation prop once, on selection, and diverged from then on. */
+    onMessageSent: (conversationId: string) => Promise<void>;
 };
 
 export default function ChatWindow({
     conversation,
-    refreshConversations,
+    onMessageSent,
 }: Props) {
     const { business } = useBusiness();
 
-    const [messages, setMessages] = useState<Message[]>([]);
-    const [conversationId, setConversationId] = useState<
-        string | undefined
-    >();
-
-    const [loading, setLoading] = useState(false);
+    const [sending, setSending] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const bottomRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-
-        if (conversation) {
-
-            setMessages(conversation.messages);
-
-            setConversationId(conversation.id);
-
-        } else {
-
-            setMessages([]);
-
-            setConversationId(undefined);
-
-        }
-
-    }, [conversation]);
+    const messages = conversation?.messages ?? [];
 
     useEffect(() => {
 
@@ -57,72 +40,34 @@ export default function ChatWindow({
             behavior: "smooth",
         });
 
-    }, [messages]);
+    }, [messages.length]);
 
     async function handleSend(text: string) {
 
-        const userMessage: Message = {
-            sender: "user",
-            text,
-        };
+        if (!business?.slug) {
+            setError("Business context is unavailable");
+            return;
+        }
 
-        setMessages(prev => [
-            ...prev,
-            userMessage,
-        ]);
-
-        setLoading(true);
+        setError(null);
+        setSending(true);
 
         try {
 
-            if (!business?.slug) throw new Error("Business context is unavailable");
-            const response = await sendMessage(text, business.slug, conversationId);
+            const response = await sendMessage(text, business.slug, conversation?.id);
 
-            if (!conversationId) {
-
-                setConversationId(
-                    response.conversation_id
-                );
-
-                await refreshConversations();
-
-            }
-
-            const aiMessage: Message = {
-
-                sender: "ai",
-
-                text: response.reply,
-
-            };
-
-            setMessages(prev => [
-                ...prev,
-                aiMessage,
-            ]);
+            // The conversation prop is the single source of truth for
+            // messages/customer info - refresh it rather than keeping a
+            // local copy that could drift from what Customer Details shows.
+            await onMessageSent(response.conversation_id);
 
         } catch (err) {
 
-            console.error(err);
-
-            setMessages(prev => [
-
-                ...prev,
-
-                {
-
-                    sender: "ai",
-
-                    text:
-                        "Sorry, something went wrong.",
-
-                },
-
-            ]);
+            setError(getErrorMessage(err));
 
         } finally {
 
-            setLoading(false);
+            setSending(false);
 
         }
 
@@ -146,7 +91,7 @@ export default function ChatWindow({
 
                 <p className="text-gray-500 text-sm">
 
-                    AI Employee
+                    AI Workforce
 
                 </p>
 
@@ -155,7 +100,7 @@ export default function ChatWindow({
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
 
                 {
-                    messages.length === 0 && (
+                    messages.length === 0 && !sending && (
 
                         <div className="text-center text-gray-400 mt-16">
 
@@ -167,7 +112,7 @@ export default function ChatWindow({
 
                             <p className="mt-3">
 
-                                Start chatting with your AI employee.
+                                Start a conversation with your AI Workforce.
 
                             </p>
 
@@ -192,9 +137,13 @@ export default function ChatWindow({
 
                 }
 
+                {error && (
+                    <p className="text-sm text-red-500">{error}</p>
+                )}
+
                 {
 
-                    loading && (
+                    sending && (
 
                         <div className="text-sm text-gray-500">
 

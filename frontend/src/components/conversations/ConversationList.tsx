@@ -71,7 +71,7 @@ export default function ConversationList({
                             <div className="text-xs text-gray-400 mt-2">
 
                                 {
-                                    conversation.messages.length
+                                    conversation.total_messages
                                 }
 
                                 {" "}messages

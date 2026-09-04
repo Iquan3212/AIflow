@@ -42,7 +42,11 @@ export default function CustomerInfo({
 
                             <p className="font-semibold mt-1">
 
-                                {conversation.name}
+                                {conversation.customer_name ?? (
+                                    <span className="font-normal text-gray-400">
+                                        Not provided yet
+                                    </span>
+                                )}
 
                             </p>
 
@@ -74,7 +78,7 @@ export default function CustomerInfo({
 
                             <p className="font-semibold mt-1">
 
-                                {conversation.messages.length}
+                                {conversation.total_messages}
 
                             </p>
 

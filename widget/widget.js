@@ -131,7 +131,7 @@
           business_slug: businessSlug,
           visitor_id: getVisitorId(),
           message: text,
-          conversation_id: sessionStorage.getItem(CONVO_KEY) || null,
+          conversation_id: localStorage.getItem(CONVO_KEY) || null,
         }),
       });
       const data = await res.json();
@@ -142,7 +142,13 @@
         return;
       }
 
-      sessionStorage.setItem(CONVO_KEY, data.conversation_id);
+      // Was sessionStorage while visitor_id (above) was localStorage - any
+      // page reload mid-conversation (closing/reopening a tab, navigating
+      // away and back) silently lost the conversation_id, so the next
+      // message started a brand-new, empty-history conversation even
+      // though the visitor was recognized as the same person. That's what
+      // made the AI "forget" a name/details already given.
+      localStorage.setItem(CONVO_KEY, data.conversation_id);
       appendMessage(messagesEl, "assistant", data.reply);
     } catch (err) {
       typingEl.remove();

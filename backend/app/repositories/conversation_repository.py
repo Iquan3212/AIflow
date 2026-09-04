@@ -79,13 +79,11 @@ def load_history(
     )
 
     return history
-def get_business_conversations(db: Session, business_id: str):
-    return (
-        db.query(models.Conversation)
-        .filter(models.Conversation.business_id == business_id)
-        .order_by(models.Conversation.started_at.desc())
-        .all()
-    )
+def get_business_conversations(db: Session, business_id: str, channel: str | None = None):
+    query = db.query(models.Conversation).filter(models.Conversation.business_id == business_id)
+    if channel is not None:
+        query = query.filter(models.Conversation.channel == channel)
+    return query.order_by(models.Conversation.started_at.desc()).all()
 def get_or_create_employee_conversation(
     db: Session,
     business_id: str,

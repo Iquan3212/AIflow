@@ -17,14 +17,31 @@ import type { Conversation } from "../../types/conversation";
 export default function Conversations() {
     const [conversations, setConversations] = useState<Conversation[] | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+    const [selectedId, setSelectedId] = useState<string | null>(null);
+
+    // Derived, not stored: the list (fetched fresh) is the single source of
+    // truth, and every panel (list, chat, customer details) reads the same
+    // object for the selected conversation - that's the fix for Customer
+    // Details and the chat panel disagreeing about message count/identity.
+    const selectedConversation = conversations?.find((c) => c.id === selectedId) ?? null;
 
     async function loadConversations() {
         setError(null);
         try {
             const data = await getConversations();
             setConversations(data);
-            setSelectedConversation((current) => current ?? data[0] ?? null);
+            setSelectedId((current) => current ?? data[0]?.id ?? null);
+        } catch (err) {
+            setError(getErrorMessage(err));
+        }
+    }
+
+    async function handleMessageSent(conversationId: string) {
+        setError(null);
+        try {
+            const data = await getConversations();
+            setConversations(data);
+            setSelectedId(conversationId);
         } catch (err) {
             setError(getErrorMessage(err));
         }
@@ -32,7 +49,7 @@ export default function Conversations() {
 
     useEffect(() => {
         // The initial fetch deliberately runs once; later refreshes are
-        // triggered by the active chat window after a new conversation.
+        // triggered by the active chat window after a message round-trip.
         void loadConversations();
     }, []);
 
@@ -49,14 +66,14 @@ export default function Conversations() {
                         <ConversationList
                             conversations={conversations}
                             selected={selectedConversation}
-                            onSelect={setSelectedConversation}
+                            onSelect={(c) => setSelectedId(c.id)}
                         />
                     </div>
 
                     <div className={`lg:col-span-6 min-h-0 flex flex-col ${selectedConversation ? "" : "hidden lg:block"}`}>
                         {selectedConversation && (
                             <button
-                                onClick={() => setSelectedConversation(null)}
+                                onClick={() => setSelectedId(null)}
                                 className="lg:hidden flex items-center gap-1 text-sm text-slate-600 mb-2"
                             >
                                 <ArrowLeft size={16} />
@@ -64,7 +81,7 @@ export default function Conversations() {
                             </button>
                         )}
                         <div className="flex-1 min-h-0">
-                            <ChatWindow conversation={selectedConversation} refreshConversations={loadConversations} />
+                            <ChatWindow conversation={selectedConversation} onMessageSent={handleMessageSent} />
                         </div>
                     </div>
 

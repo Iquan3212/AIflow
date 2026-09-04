@@ -164,6 +164,24 @@ class ConversationOut(BaseModel):
     ended_at: datetime | None = None
 
 
+class ConversationChatMessage(BaseModel):
+    sender: str  # user | ai
+    text: str
+
+
+class ConversationSummaryOut(BaseModel):
+    id: str
+    channel: str
+    customer_name: str | None = None
+    name: str
+    phone: str
+    total_messages: int
+    last_message: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    messages: list[ConversationChatMessage]
+
+
 # =====================================================
 # LEADS
 # =====================================================

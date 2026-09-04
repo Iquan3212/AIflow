@@ -1,4 +1,4 @@
-from app.agents.llm_reply import generate_employee_reply
+from app.agents.llm_reply import facts_context, generate_employee_reply
 from app.agents.memory import ConversationMemory
 
 
@@ -116,7 +116,10 @@ Always present insights clearly.
             if res.get("success"):
                 tool_result = res.get("result")
 
-        reply = generate_employee_reply("analytics", self.system_prompt, message, history, tool_result=tool_result)
+        reply = generate_employee_reply(
+            "analytics", self.system_prompt, message, history,
+            tool_result=tool_result, extra_context=facts_context(analysis),
+        )
         analysis["reply"] = reply
         analysis["tool_result"] = tool_result
         return analysis

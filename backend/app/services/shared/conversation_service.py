@@ -38,18 +38,42 @@ MAX_TOOL_ROUNDS = 4
 
 
 def get_business_conversations(db: Session, business_slug: str):
+    """Real customer conversations only. The business's own internal Manager
+    AI conversation (channel="employee", visitor_id="dashboard-owner" - see
+    get_or_create_employee_conversation) has its own dedicated page (Manager
+    AI) and must never show up here impersonating a customer - that was a
+    real bug: this inbox is customer-facing, and mixing in the owner's own
+    testing conversation made every metric here wrong for it."""
     business = get_business_by_slug(db, business_slug)
     if business is None:
         raise Exception("Business not found")
 
-    conversations = repo_get_business_conversations(db, business.id)
+    conversations = repo_get_business_conversations(db, business.id, channel="website")
     result = []
     for conversation in conversations:
         history = load_history(db, conversation.id)
+        # Customer identity lives on the linked Lead, not the anonymous
+        # visitor_id - that was the other real bug (name/phone were either
+        # the raw visitor_id or a hardcoded empty string, never the actual
+        # customer info captured mid-conversation).
+        lead = conversation.lead
+        customer_name = lead.name if lead and lead.name else None
+        last_message = history[-1] if history else None
         result.append({
             "id": str(conversation.id),
-            "name": conversation.visitor_id,
-            "phone": "",
+            "channel": conversation.channel,
+            "customer_name": customer_name,
+            # Backward-compatible display label: real name once captured,
+            # otherwise a plain, honest label - not a truncated fragment of
+            # the internal visitor_id, which reads as meaningless noise.
+            "name": customer_name or "Anonymous visitor",
+            "phone": (lead.phone if lead else None) or "",
+            "total_messages": len(history),
+            "last_message": last_message.content if last_message else None,
+            "created_at": conversation.started_at.isoformat() if conversation.started_at else None,
+            "updated_at": (
+                last_message.created_at if last_message else conversation.started_at
+            ).isoformat() if (last_message or conversation.started_at) else None,
             "messages": [
                 {"sender": "user" if msg.role == "user" else "ai", "text": msg.content}
                 for msg in history

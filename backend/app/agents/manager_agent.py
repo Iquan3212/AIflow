@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from app.agents.llm_reply import generate_employee_reply
+from app.agents.llm_reply import facts_context, generate_employee_reply
 from app.agents.memory import ConversationMemory
 from app.agents.registry import Registry
 
@@ -32,7 +32,10 @@ specialist employees."""
     def respond(self, message: str, history: List[Any], tool_router: Optional[Any] = None) -> Dict[str, Any]:
         """The Manager's own reply for general chat that no specialist
         intent was detected for."""
-        reply = generate_employee_reply("manager", self.system_prompt, message, history)
+        analysis = {"memory": self.memory.shared_context(history)}
+        reply = generate_employee_reply(
+            "manager", self.system_prompt, message, history, extra_context=facts_context(analysis)
+        )
         return {"employee": "manager", "intent": "general", "reply": reply, "tool_result": None}
 
     def delegate(self, plan: Any, message: str, history: List[Any]) -> Dict[str, Any]:

@@ -2,18 +2,64 @@
 system prompt, the real conversation history, and any real tool result -
 instead of returning bare keyword-classification metadata."""
 
-import json
 from typing import Any, List, Optional
 
 from app.services.llm_client import chat_completion
 
-MAX_HISTORY_MESSAGES = 10
+# Matches ConversationMemory.summary_max_messages - the two systems should
+# agree on how much of a conversation counts as "recent", otherwise memory
+# extraction (facts/summary) and the raw history the model actually sees can
+# disagree about what's still in scope.
+MAX_HISTORY_MESSAGES = 20
 
 
 def _message_role_content(item: Any) -> tuple[Optional[str], Optional[str]]:
     if isinstance(item, dict):
         return item.get("role"), item.get("content")
     return getattr(item, "role", None), getattr(item, "content", None)
+
+
+def facts_context(analysis: Optional[dict]) -> Optional[str]:
+    """Turns the facts ConversationMemory already extracts (name/phone/email
+    mentioned earlier) into a grounding line for the prompt. Without this,
+    identity was only ever surfaced for display (the Manager UI's Memory
+    panel) and never actually fed back into generation - the model had to
+    re-notice a name purely from scanning raw history, which is more prone
+    to it re-asking for closer-to-page-boundary conversations to be lost."""
+    if not analysis:
+        return None
+    facts = (analysis.get("memory") or {}).get("facts") or []
+    if not facts:
+        return None
+    return (
+        "Known facts already established earlier in this conversation - do "
+        "not ask for these again unless the customer contradicts them: "
+        + "; ".join(facts)
+    )
+
+
+def _format_for_prompt(value: Any, indent: int = 0) -> str:
+    """Renders a tool result as clean, human-readable text instead of raw
+    JSON - so if a weaker model's reply leans on this context too literally,
+    what leaks through reads as prose, not `["a", "b"]`/escaped-quote syntax."""
+    pad = "  " * indent
+    if isinstance(value, dict):
+        lines = []
+        for key, val in value.items():
+            label = str(key).replace("_", " ")
+            if isinstance(val, (dict, list)) and val:
+                lines.append(f"{pad}{label}:")
+                lines.append(_format_for_prompt(val, indent + 1))
+            else:
+                lines.append(f"{pad}{label}: {_format_for_prompt(val, 0) if not isinstance(val, (dict, list)) else '(none)'}")
+        return "\n".join(lines)
+    if isinstance(value, list):
+        if not value:
+            return f"{pad}(none)"
+        return "\n".join(f"{pad}- {_format_for_prompt(item, 0)}" for item in value)
+    if value is None:
+        return "(not set)"
+    return str(value)
 
 
 def generate_employee_reply(
@@ -38,18 +84,19 @@ def generate_employee_reply(
     if not messages[1:] or messages[-1].get("content") != message:
         messages.append({"role": "user", "content": message})
 
+    if extra_context:
+        messages.append({"role": "system", "content": extra_context})
+
     if tool_result is not None:
         messages.append({
             "role": "system",
             "content": (
                 "Result of the action you just took (ground your reply in this; "
-                "do not mention tool names or internal fields to the customer): "
-                + json.dumps(tool_result, default=str)
+                "do not mention tool names, field names, or any raw data "
+                "structure to the customer - phrase it as natural language):\n"
+                + _format_for_prompt(tool_result)
             ),
         })
-
-    if extra_context:
-        messages.append({"role": "system", "content": extra_context})
 
     reply = ""
     for attempt in range(2):  # some models occasionally emit a spurious tool-call

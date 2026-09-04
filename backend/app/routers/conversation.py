@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import models
+from app import models, schemas
 from app.database import get_db
 from app.deps import get_current_business
 from app.services.shared.conversation_service import (
@@ -23,7 +23,7 @@ class ChatRequest(BaseModel):
     message: str
 
 
-@router.get("/")
+@router.get("/", response_model=list[schemas.ConversationSummaryOut])
 def get_conversations(
     business: models.Business = Depends(get_current_business),
     db: Session = Depends(get_db),
