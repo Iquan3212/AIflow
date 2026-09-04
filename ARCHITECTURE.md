@@ -78,11 +78,20 @@ anywhere in this repository (checked: no `supabase-py`, no `create_client`,
 no Supabase Auth/Storage/Realtime usage — it was ever only used as a Postgres
 host).
 
-Schema is created via `Base.metadata.create_all()` on startup — there is no
-Alembic wired up yet, despite it being listed in `requirements.txt`. That's a
-deliberate, documented gap: fine while there's no production data whose
-schema needs versioned, reversible changes; adopt Alembic before that stops
-being true.
+**Schema is managed by Alembic** (`backend/alembic/`, Phase 8) — `main.py`
+no longer calls `Base.metadata.create_all()` on startup. Run
+`alembic upgrade head` once against a fresh database (local or Neon) to
+create the full schema; any future schema change is a new
+`alembic revision --autogenerate` migration, reviewed and committed like
+any other code change, not an implicit side effect of booting the app.
+
+The single baseline migration (`alembic/versions/1ba68c31c8dd_*.py`) was
+generated against an empty database and verified both ways (`upgrade head`
+creates all 14 tables, `downgrade base` cleanly drops them) before the live
+Neon database — which already had this exact schema from the `create_all()`
+era — was stamped at that revision (`alembic stamp head`), recording "this
+is where migrations start from" without altering a single existing table
+or row.
 
 Real tables (`backend/app/models.py`): `Business`, `User`, `UserSession`,
 `ChatbotConfig`, `Conversation`, `Message`, `Lead`, `Appointment`,
@@ -117,11 +126,21 @@ shows placeholder data while waiting on a request.
 
 - ✅ Passwords hashed with bcrypt (via passlib)
 - ✅ Refresh tokens are real (rotated, revocable, stored server-side)
-- ✅ CORS restricted to `ALLOWED_ORIGINS` (defaults to the local dev frontend)
+- ✅ CORS restricted to `ALLOWED_ORIGINS` in production; in development only,
+  any `localhost`/`127.0.0.1` port is additionally allowed (`allow_origin_regex`
+  in `main.py`) so a dev port shifting when another project occupies 5173
+  can't silently break login again
+- ⚠️ **`JWT_SECRET` is currently a temporary placeholder**
+  (`THIS_IS_A_TEMP_SECRET_CHANGE_ME` in `.env`) — generate and set a real one
+  (`python -c "import secrets; print(secrets.token_urlsafe(48))"`) before
+  this is reachable by anyone but you. Rotating it invalidates every
+  existing session, which is expected.
 - ⚠️ The Groq API key and the original Supabase database password should be
   treated as compromised (a prior agent found a committed `.env` with both -
   see git history) and rotated in their respective dashboards regardless of
-  whether this repo still references them.
+  whether this repo still references them. Rotation status cannot be
+  verified from inside this repo - it requires action in those providers'
+  own dashboards.
 - ⬜ No rate limiting on the public `POST /conversation/send` endpoint yet —
   worth adding before it's reachable from the open internet.
 - ⬜ No prompt-injection hardening on the public chat endpoint yet.

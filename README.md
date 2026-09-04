@@ -48,9 +48,14 @@ You need:
 - **One LLM API key.** Any OpenAI-compatible provider works unmodified —
   OpenAI, Groq, Together, Fireworks, or a self-hosted model server.
 
-Tables are created automatically on first boot (`Base.metadata.create_all` —
-see `ARCHITECTURE.md` for why there's no Alembic yet). Visit
-`http://localhost:8000/docs` for interactive API docs.
+Then create the schema (schema is managed by Alembic, not auto-created on
+boot — see `ARCHITECTURE.md#database`):
+
+```bash
+alembic upgrade head
+```
+
+Visit `http://localhost:8000/docs` for interactive API docs.
 
 ### 2. Frontend
 

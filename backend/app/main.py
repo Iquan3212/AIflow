@@ -1,15 +1,9 @@
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.database import Base, engine
 
 from app.routers import employee, workforce, analytics, drafts, support_tickets
-
-# Import models so every table is registered on Base before create_all runs.
-from app import models  # noqa: F401
 
 from app.routers import (
     auth,
@@ -23,14 +17,12 @@ from app.routers.dashboard import router as dashboard_router
 
 settings = get_settings()
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    yield
-
-
-app = FastAPI(title="AIFlow API", version="0.3.0", lifespan=lifespan)
+# Schema is managed by Alembic (backend/alembic/), not created here. Run
+# `alembic upgrade head` before first boot in any new environment - see
+# README.md. (Previously this called Base.metadata.create_all() on every
+# startup, which has no way to express or reverse a schema change; Phase 8
+# replaced that with tracked, reversible migrations.)
+app = FastAPI(title="AIFlow API", version="0.3.0")
 
 # In development, Vite falls back to the next free port whenever 5173 is
 # already taken (e.g. by another project's dev server on the same machine),
