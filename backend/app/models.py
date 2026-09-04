@@ -114,7 +114,7 @@ class UserSession(Base):
 )
 
     refresh_token = Column(
-        String(255),
+        String(1024),
         unique=True,
         nullable=False,
         index=True,
