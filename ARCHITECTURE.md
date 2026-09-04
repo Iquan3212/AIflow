@@ -1,72 +1,120 @@
-# Architecture & Design Decisions — Milestone 1
+# Architecture
 
-## Multi-tenancy from day one
+This document describes the system as it actually exists in the repository.
+Where an older version of this file described aspirations that were never
+built, or a design that was since replaced, this version reflects reality.
 
-Every table hangs off `business_id`. This is what makes the SaaS math in the original
-pitch work at all — you're not standing up infrastructure per customer, you're adding rows
-to shared tables. Retrofitting multi-tenancy later (after single-tenant assumptions leak
-into the code) is a much bigger job than building it in from the start, so it's in from
-the start.
+## Multi-tenancy
 
-## Why the widget is vanilla JS, not Next.js
+Every table hangs off `business_id`. One deployment serves every business
+that signs up — you're adding rows to shared tables, not standing up
+infrastructure per customer.
 
-The plan lists Next.js for "Frontend" — that's the right call for AIFlow's *own* dashboard,
-the app you and your business-owner customers log into. But the *embeddable widget* that
-goes on a customer's website has to run inside whatever that site already is — WordPress,
-Shopify, Wix, plain HTML, anything. A Next.js component can't be dropped into someone else's
-arbitrary site with a single script tag; a small vanilla-JS file can, the same way Intercom,
-Tawk.to, and Crisp all ship plain-JS embeds regardless of what their own dashboards are built
-with. So: Next.js = your dashboard (M2), vanilla JS = what actually ships to customers.
+## The AI Workforce (`backend/app/agents/`)
 
-## Lead capture via tool-calling, not a form
+Every message to the owner-facing dashboard chat (`POST /manager/chat`) goes
+through a real pipeline — not a single generic assistant, and not keyword
+classification pretending to be one:
 
-The spec was explicit: *"instead of a form, the AI asks naturally, then saves everything."*
-The clean way to do that with an LLM is `save_lead_info` — a tool the model can call
-mid-conversation whenever it learns something, never a multi-step form the visitor has to
-complete. The model decides when it's natural to ask; the backend persists whatever it
-captures immediately and incrementally, field by field, across however many messages it
-takes. See `backend/app/services/chatbot_service.py`.
+```
+User
+ -> Planner        (rule-based multi-intent classification: which employee(s)?)
+ -> ManagerAgent    (delegates to each selected employee, collects results)
+ -> Employee(s)     (Sales, Receptionist, Support, Marketing, Finance, Analytics)
+ -> ToolRouter       (checks the employee is authorized for the tool, executes it)
+ -> Tool             (LeadTool, AppointmentTool, QuotationTool, CampaignTool, AnalyticsTool)
+ -> real DB/service  (SQLAlchemy models, AppointmentService, etc.)
+ -> ManagerAgent     (synthesizes one reply from however many employees ran)
+ -> User
+```
 
-## Provider-agnostic LLM client
+- **`planner.py`** — keyword-based multi-intent detection. Deliberately not
+  an LLM call (cheap, deterministic, fast); it decides *which* employees and
+  tools are relevant, not what to say.
+- **`manager_agent.py`** — `ManagerAgent.delegate()` calls each selected
+  employee's `respond()`, collects `{reply, tool_result}` per employee, and
+  merges them into one labeled reply when more than one employee ran (e.g. a
+  request that both creates a lead and books an appointment).
+- **Employee agents** (`sales_agent.py`, `receptionist_agent.py`, etc.) —
+  each has a real system prompt and a `respond()` that runs a live LLM
+  completion grounded in that prompt, the recent conversation, and (if it ran
+  one) the real result of its tool call. None of them return bare keyword
+  metadata as the final answer.
+- **`tool_router.py` / `registry.py`** — the Registry tracks which tools each
+  employee is authorized to use; ToolRouter enforces that and calls the
+  tool's `execute()`, catching tool failures so one broken tool never crashes
+  the whole request.
+- **`tools/`** — `LeadTool` and `AppointmentTool` call the same real
+  `LeadService`/`AppointmentService` used elsewhere in the app (so booking
+  respects business hours, buffers, min-notice, max-advance, and
+  double-booking guards). `QuotationTool` and `CampaignTool` draft
+  LLM-generated content grounded only in the business's configured services
+  and description — there's no invoicing/campaign-management data model in
+  this project yet, so they produce text, not persisted records; that's a
+  real, documented limitation, not a hidden one. `AnalyticsTool` reuses the
+  same dashboard-summary queries the rest of the app uses.
+- **`memory.py`** — per-turn conversation summary + extracted facts (emails,
+  phones, names mentioned), surfaced to the frontend so the Manager AI UI can
+  show what context it's using.
 
-`backend/app/services/llm_client.py` depends only on the OpenAI SDK's *interface*, not
-OpenAI specifically. Point `LLM_BASE_URL` + `LLM_API_KEY` at any OpenAI-compatible endpoint
-(Groq, Together, Fireworks, a self-hosted vLLM server) and nothing else in the codebase
-changes. At a ₹999/month price point, model choice matters a lot for margin — start cheap
-and fast, and only upgrade for the specific FAQs the small model actually gets wrong, rather
-than defaulting to the most expensive model available.
+The public website widget (`services/shared/conversation_service.py`) is a
+**separate, older pipeline** — one LLM turn with a small fixed tool set
+(`save_lead_info`, `check_availability`, `book_appointment`, ...). It still
+constructs an `AIOrchestrator` for its intent/memory metadata but explicitly
+skips full Manager delegation (`delegate=False`) since it phrases its own
+reply — no reason to pay for a full multi-agent turn on every website visitor
+message.
 
-## Staying "business-scoped" isn't just good UX — it's what keeps WhatsApp viable later
+## Database
 
-The system prompt in `chatbot_service.py` explicitly restricts the bot to this business's
-own FAQs/services and tells it to never answer unrelated questions. That's good practice
-for a website widget regardless. It matters even more for the planned WhatsApp integration:
-Meta's WhatsApp Business Solution Terms, updated for enforcement on existing accounts as of
-January 15, 2026, prohibit *general-purpose* AI chatbots (open-domain "ask me anything"
-assistants like a bare ChatGPT/Perplexity wrapper) on the Business API, while explicitly
-still permitting AI used for defined business tasks — FAQ answering, lead qualification,
-appointment booking/confirmation, order updates, and support triage. Because this engine is
-already grounded in one business's own info and scoped to a task (answer FAQs, capture a
-lead), the WhatsApp version of the same engine (M5) should already land on the permitted
-side of that line — it just needs the same "politely decline and redirect" behavior for
-anything outside the business's scope, which is worth tightening before that milestone.
+**PostgreSQL via SQLAlchemy, hosted on Neon.** `DATABASE_URL` is the only
+thing that changes between environments — there is no Supabase-specific code
+anywhere in this repository (checked: no `supabase-py`, no `create_client`,
+no Supabase Auth/Storage/Realtime usage — it was ever only used as a Postgres
+host).
 
-## Schema migrations
+Schema is created via `Base.metadata.create_all()` on startup — there is no
+Alembic wired up yet, despite it being listed in `requirements.txt`. That's a
+deliberate, documented gap: fine while there's no production data whose
+schema needs versioned, reversible changes; adopt Alembic before that stops
+being true.
 
-Tables are auto-created on backend startup (`Base.metadata.create_all`) for this milestone —
-fine while the schema is still moving fast and there's no production data at stake yet.
-Before the first real customer's data is on the line, switch to Alembic (already in
-`requirements.txt`) so schema changes are versioned and reversible instead of "hope
-`create_all` doesn't do something surprising."
+Real tables (`backend/app/models.py`): `Business`, `User`, `UserSession`,
+`ChatbotConfig`, `Conversation`, `Message`, `Lead`, `Appointment`,
+`BusinessHours`, `SchedulingSettings`, `CalendarCredential`, `EmailLog`.
 
-## Security notes to close out before this touches real customer data
+## Auth
 
-- ✅ Passwords hashed with bcrypt (via passlib) — never stored in plaintext
-- ⬜ `JWT_SECRET` in `.env.example` is a placeholder — generate a real random secret
-  before deploying anywhere reachable
-- ⬜ Add rate limiting on `POST /chat` before launch — a single visitor hammering it is a
-  real API-cost risk on your side, not just a nuisance on theirs
-- ⬜ CORS is wide open (`*`) for local dev — lock `ALLOWED_ORIGINS` down to real customer
-  domains once you know which sites will embed the widget
-- ⬜ Add basic content moderation / prompt-injection resistance to the chat endpoint before
-  it's public — a visitor can type anything into that input box
+Access tokens are short-lived JWTs (15 min default). Refresh tokens are
+longer-lived JWTs *and* are persisted in `UserSession` (with device/IP
+metadata), so they can be listed and individually revoked from Settings →
+Security — refreshing rotates the token and retires the old one. Every JWT
+carries a random `jti` so two tokens minted in the same second (same claims,
+same `exp` to the second) never collide on the database's unique index.
+
+## Frontend (`frontend/src/`)
+
+React + Vite + TypeScript + Tailwind. One canonical application shell
+(`components/layout/AppShell.tsx` = `Sidebar` + `Topbar`) wraps every
+protected page — there is exactly one sidebar, one auth context
+(`context/AuthContext.tsx`), and one API client (`services/api.ts`, which
+centralizes the base URL via `VITE_API_URL`, attaches the access token,
+transparently refreshes on 401, and redirects to login when refresh fails).
+
+Reusable primitives live in `components/ui/` (`Button`, `Badge`, `Card`,
+`StatCard`, `Modal`, `PageHeader`, loading/empty/error states). Every
+data-driven page renders real loading, empty, and error states — no page
+shows placeholder data while waiting on a request.
+
+## Security notes
+
+- ✅ Passwords hashed with bcrypt (via passlib)
+- ✅ Refresh tokens are real (rotated, revocable, stored server-side)
+- ✅ CORS restricted to `ALLOWED_ORIGINS` (defaults to the local dev frontend)
+- ⚠️ The Groq API key and the original Supabase database password should be
+  treated as compromised (a prior agent found a committed `.env` with both -
+  see git history) and rotated in their respective dashboards regardless of
+  whether this repo still references them.
+- ⬜ No rate limiting on the public `POST /conversation/send` endpoint yet —
+  worth adding before it's reachable from the open internet.
+- ⬜ No prompt-injection hardening on the public chat endpoint yet.

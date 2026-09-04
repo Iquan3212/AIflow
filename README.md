@@ -1,26 +1,32 @@
-# AIFlow — AI Employee Platform
+# AIFlow — AI Workforce Platform
 
-**Current build: Phase 4 — AI Employee, persistent memory, tool calling, lead
-capture, appointment booking, and dashboard assistance.**
+A multi-tenant SaaS backend (FastAPI + PostgreSQL) plus a React dashboard,
+built around a coordinated **AI Workforce**: a Manager AI that plans, delegates
+to specialist employees (Sales, Receptionist, Support, Marketing, Finance,
+Analytics), runs real tools against real data, and synthesizes one reply.
 
-For the Phase 4 owner-facing assistant and API contract, see
-[`backend/PHASE4.md`](backend/PHASE4.md). The original public website chatbot,
-lead capture, and appointment flows remain supported.
+## What's actually working today
 
-## What's actually working in this milestone
-
-- **Multi-tenant backend** (FastAPI + PostgreSQL) — one deployment serves every business
-  that signs up, not one deployment per customer
-- **AI chatbot engine** that answers FAQs grounded in a business's own info and naturally
-  captures leads (name / service interested / budget) via LLM tool-calling — no rigid form,
-  matching the original spec exactly
-- **Embeddable website widget** (`widget/widget.js`) — one `<script>` tag, works on any
-  site regardless of what that site is built with
-- **Auth** (signup/login) so a business owner can create an account and configure their bot
-  today, via the API — before the dashboard UI exists
-
-**Not built yet** (see `ROADMAP.md` for sequencing and why): the Next.js dashboard, email
-automation, appointment booking, WhatsApp/Instagram, payments, voice, multi-agent.
+- **Multi-tenant backend** — one deployment serves every business that signs
+  up; every table is scoped by `business_id`.
+- **Auth** with real access + refresh tokens (rotated on refresh) and a
+  session table you can inspect/revoke from Settings → Security.
+- **Public website widget** (`widget/widget.js`) that answers FAQs grounded in
+  a business's own configured info, captures leads via LLM tool-calling, and
+  books/reschedules/cancels appointments against a real availability engine
+  (business hours, buffers, min-notice, max-advance, double-booking guards).
+- **AI Workforce** (owner-facing, at `/manager` in the dashboard): every
+  message goes through Planner → Manager → one or more specialist Employees →
+  ToolRouter → real services/DB → Manager synthesis → reply. Employees
+  actually create leads, book appointments, query real dashboard data, and
+  draft marketing/quotation content grounded in the business's own configured
+  services — never fabricated numbers or facts.
+- **React dashboard** (Vite + TypeScript + Tailwind) — Dashboard, AI Workforce,
+  Manager AI, Leads, Conversations, Appointments, Analytics, Settings. Every
+  number and chart comes from a real backend endpoint; there is no
+  placeholder/demo data anywhere in the product.
+- **Google Calendar sync** (OAuth) for appointments, once you configure your
+  own Google Cloud OAuth client.
 
 ## Quick start
 
@@ -31,63 +37,45 @@ cd backend
 python3 -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env            # then fill in DATABASE_URL and LLM_API_KEY
+cp .env.example .env            # fill in DATABASE_URL, JWT_SECRET, LLM_*
 uvicorn app.main:app --reload
 ```
 
 You need:
-- **A Postgres database.** Easiest: a free [Supabase](https://supabase.com) or
-  [Neon](https://neon.tech) project — paste their connection string into `DATABASE_URL`.
-- **One LLM API key.** Any OpenAI-compatible provider works unmodified — OpenAI, Groq,
-  Together, Fireworks, or a self-hosted model server. Paste the key + base URL into `.env`.
+- **A PostgreSQL database.** [Neon](https://neon.tech) is the intended
+  provider (see `ARCHITECTURE.md#database`) — free tier is enough to start.
+  Paste the connection string into `DATABASE_URL`.
+- **One LLM API key.** Any OpenAI-compatible provider works unmodified —
+  OpenAI, Groq, Together, Fireworks, or a self-hosted model server.
 
-Tables are created automatically on first boot. Visit `http://localhost:8000/docs` for
-interactive API docs (FastAPI's built-in Swagger UI).
+Tables are created automatically on first boot (`Base.metadata.create_all` —
+see `ARCHITECTURE.md` for why there's no Alembic yet). Visit
+`http://localhost:8000/docs` for interactive API docs.
 
-### 2. Create a test business
-
-```bash
-curl -X POST http://localhost:8000/auth/signup \
-  -H "Content-Type: application/json" \
-  -d '{
-    "business_name": "Demo Business",
-    "industry": "Salon",
-    "owner_email": "you@example.com",
-    "password": "supersecret123"
-  }'
-```
-
-Save the `access_token` and `business_slug` from the response.
-
-### 3. Configure the chatbot
+### 2. Frontend
 
 ```bash
-curl -X PUT http://localhost:8000/businesses/me/chatbot-config \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "business_description": "A hair salon offering cuts, coloring, and spa treatments.",
-    "services": ["Haircut", "Hair Coloring", "Spa"],
-    "faqs": [
-      {"question": "What are your hours?", "answer": "10am-8pm, Tuesday to Sunday."}
-    ]
-  }'
+cd frontend
+npm install
+cp .env.example .env            # VITE_API_URL, defaults to http://127.0.0.1:8000
+npm run dev
 ```
 
-### 4. Try the widget
+### 3. Try it
 
-Open `widget/demo.html` directly in a browser (double-click it — no build step needed).
-Ask it an FAQ, then mention your name, a service, and a budget in conversation. Check
-`GET /leads` with your token afterward — the lead should already be saved.
+Sign up a business at `http://localhost:5173/register`, then open **Manager
+AI** and try: *"Create a lead for John and book an appointment with him
+tomorrow at 3pm."* — that one message routes through both the Sales and
+Receptionist employees and comes back as one synthesized reply.
 
-## Tech stack (as specified in the original plan)
+## Tech stack
 
-FastAPI + PostgreSQL on the backend. Vanilla JS for the embeddable widget (deliberately —
-see `ARCHITECTURE.md`). Next.js + Tailwind + TypeScript is reserved for AIFlow's own
-dashboard, which is the next milestone.
+FastAPI + SQLAlchemy + PostgreSQL (Neon) on the backend. React + Vite +
+TypeScript + Tailwind for the dashboard. Vanilla JS for the embeddable widget
+(see `ARCHITECTURE.md` for why).
 
 ## More reading
 
-- `ARCHITECTURE.md` — the design decisions behind this milestone and why
-- `ROADMAP.md` — the full phased build plan, what's done, what's next, and what needs
-  external accounts (WhatsApp verification, payment KYC, etc.) before it can be built
+- `ARCHITECTURE.md` — the AI Workforce pipeline, database, and design
+  decisions
+- `ROADMAP.md` — what's built, what's next
