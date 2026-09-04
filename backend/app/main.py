@@ -24,12 +24,18 @@ settings = get_settings()
 # replaced that with tracked, reversible migrations.)
 app = FastAPI(title="AIFlow API", version="0.3.0")
 
-# In development, Vite falls back to the next free port whenever 5173 is
-# already taken (e.g. by another project's dev server on the same machine),
-# which silently breaks CORS if only that one port is allowlisted. A regex
-# for any localhost port sidesteps that - production still only trusts the
-# explicit ALLOWED_ORIGINS list from the environment, since app_env there
-# won't be "development".
+# In development, two things need to be more permissive than a fixed
+# ALLOWED_ORIGINS list:
+#   1. Vite falls back to the next free port whenever 5173 is already taken
+#      (e.g. by another project's dev server on the same machine).
+#   2. The embeddable widget demo (widget/demo.html) is deliberately meant
+#      to be opened directly as a local file (see README) - exactly how a
+#      customer might sanity-check the <script> tag before embedding it on
+#      a real site - and a file:// page sends `Origin: null`, which is a
+#      literal string, not a URL, so it needs an explicit allowance rather
+#      than a host:port pattern.
+# Production still only trusts the explicit ALLOWED_ORIGINS list from the
+# environment, since app_env there won't be "development".
 cors_kwargs = {
     "allow_origins": settings.cors_origins(),
     "allow_credentials": True,
@@ -37,6 +43,7 @@ cors_kwargs = {
     "allow_headers": ["*"],
 }
 if settings.app_env == "development":
+    cors_kwargs["allow_origins"] = [*cors_kwargs["allow_origins"], "null"]
     cors_kwargs["allow_origin_regex"] = r"http://(localhost|127\.0\.0\.1):\d+"
 
 app.add_middleware(CORSMiddleware, **cors_kwargs)

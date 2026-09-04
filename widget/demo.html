@@ -27,14 +27,14 @@
   <div class="note">
     <strong>Before this works:</strong> start the backend locally (see the root
     <code>README.md</code>), then create a business via <code>POST /auth/signup</code>
-    with the name <code>Demo Business</code> — that slugifies to <code>demo-business</code>,
-    matching the <code>data-business-id</code> below. Configure its FAQs/services with
-    <code>PUT /businesses/me/chatbot-config</code> before chatting.
+    and update <code>data-business-id</code> below to match its slug (the response
+    from signup includes <code>business_slug</code>). Configure its FAQs/services
+    with <code>PUT /businesses/me/chatbot-config</code> before chatting.
   </div>
 
   <script
     src="./widget.js"
-    data-business-id="demo-business"
+    data-business-id="glow-salon-demo"
     data-api-base="http://localhost:8000"
     data-color="#0E6E5C">
   </script>
