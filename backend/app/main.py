@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import Base, engine
 
-from app.routers import employee, workforce, analytics
+from app.routers import employee, workforce, analytics, drafts
 
 # Import models so every table is registered on Base before create_all runs.
 from app import models  # noqa: F401
@@ -52,6 +52,7 @@ app.include_router(integrations.router)
 app.include_router(employee.router)
 app.include_router(workforce.router)
 app.include_router(analytics.router)
+app.include_router(drafts.router)
 
 
 @app.get("/")

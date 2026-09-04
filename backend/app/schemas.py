@@ -201,6 +201,24 @@ class LeadOut(BaseModel):
     updated_at: datetime
 
 
+class AIDraftOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    business_id: UUID
+    lead_id: UUID | None = None
+    kind: str
+    title: str | None = None
+    content: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class AIDraftUpdate(BaseModel):
+    status: str = Field(pattern="^(draft|sent|archived)$")
+
+
 # =====================================================
 # APPOINTMENTS (Phase 3 — AI Receptionist)
 # =====================================================

@@ -8,6 +8,7 @@ import Leads from "./pages/Leads/Leads";
 import Appointments from "./pages/Appointments/Appointments";
 import Analytics from "./pages/Analytics/Analytics";
 import Settings from "./pages/Settings/Settings";
+import Drafts from "./pages/Drafts/Drafts";
 
 import ProtectedLayout from "./layouts/ProtectedLayout";
 import Manager from "./pages/Manager/Manager";
@@ -30,6 +31,7 @@ export default function App() {
                     <Route path="/appointments" element={<Appointments />} />
                     <Route path="/manager" element={<Manager />} />
                     <Route path="/workforce" element={<WorkforceUI />} />
+                    <Route path="/drafts" element={<Drafts />} />
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/settings" element={<Settings />} />
                 </Route>

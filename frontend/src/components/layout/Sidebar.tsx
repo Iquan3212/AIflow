@@ -7,6 +7,7 @@ import {
     Bot,
     Sparkles,
     BarChart3,
+    FileText,
     Settings,
     X,
 } from "lucide-react";
@@ -18,6 +19,7 @@ const NAV_ITEMS = [
     { to: "/leads", label: "Leads", icon: Users },
     { to: "/conversations", label: "Conversations", icon: MessageSquare },
     { to: "/appointments", label: "Appointments", icon: CalendarClock },
+    { to: "/drafts", label: "Drafts", icon: FileText },
     { to: "/analytics", label: "Analytics", icon: BarChart3 },
     { to: "/settings", label: "Settings", icon: Settings },
 ];

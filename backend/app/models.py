@@ -370,3 +370,27 @@ class EmailLog(Base):
     status = Column(String(32), default="sent")
 
 
+class AIDraft(Base):
+    """Persisted output of the Finance (QuotationTool) and Marketing
+    (CampaignTool) AI Workforce employees. Phase 5 generated this content
+    and threw it away after the chat reply; this table is what makes it
+    reviewable/reusable instead of ephemeral."""
+
+    __tablename__ = "ai_drafts"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id"), nullable=False, index=True)
+    lead_id = Column(UUID(as_uuid=False), ForeignKey("leads.id"), nullable=True)
+
+    kind = Column(String(16), nullable=False)  # quotation | campaign
+    title = Column(String(255), nullable=True)
+    content = Column(Text, nullable=False)
+    status = Column(String(16), default="draft")  # draft | sent | archived
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    business = relationship("Business")
+    lead = relationship("Lead")
+
+

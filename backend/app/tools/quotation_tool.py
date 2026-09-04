@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 
+from app.services.draft_service import DraftService
 from app.services.llm_client import chat_completion
 
 
@@ -16,6 +17,7 @@ class QuotationTool:
         self.db = db
 
     def execute(self, message: str, db=None, business=None, conversation=None, lead=None, **kwargs) -> dict:
+        db = db or self.db
         if business is None:
             return {"ok": False, "error": "missing_business"}
 
@@ -44,8 +46,20 @@ guessing a price or availability."""
             except Exception as exc:
                 print(f"[quotation-tool:error attempt={attempt}] {exc}")
 
+        draft_id = None
+        if draft:
+            saved = DraftService(db).create(
+                business_id=business.id,
+                kind="quotation",
+                content=draft,
+                title=message[:80],
+                lead_id=getattr(lead, "id", None),
+            )
+            draft_id = saved.id
+
         return {
             "ok": bool(draft),
             "services_considered": services,
             "draft": draft or "I couldn't draft a quotation right now - please try again.",
+            "draft_id": draft_id,
         }

@@ -49,10 +49,10 @@ User
   respects business hours, buffers, min-notice, max-advance, and
   double-booking guards). `QuotationTool` and `CampaignTool` draft
   LLM-generated content grounded only in the business's configured services
-  and description — there's no invoicing/campaign-management data model in
-  this project yet, so they produce text, not persisted records; that's a
-  real, documented limitation, not a hidden one. `AnalyticsTool` reuses the
-  same dashboard-summary queries the rest of the app uses.
+  and description, and (since Phase 6) persist it as an `AIDraft` row -
+  reviewable, filterable, and manageable from the Drafts page instead of
+  only existing in the chat transcript. `AnalyticsTool` reuses the same
+  dashboard-summary queries the rest of the app uses.
 - **`memory.py`** — per-turn conversation summary + extracted facts (emails,
   phones, names mentioned), surfaced to the frontend so the Manager AI UI can
   show what context it's using.
@@ -81,7 +81,8 @@ being true.
 
 Real tables (`backend/app/models.py`): `Business`, `User`, `UserSession`,
 `ChatbotConfig`, `Conversation`, `Message`, `Lead`, `Appointment`,
-`BusinessHours`, `SchedulingSettings`, `CalendarCredential`, `EmailLog`.
+`BusinessHours`, `SchedulingSettings`, `CalendarCredential`, `EmailLog`,
+`AIDraft` (Phase 6 — persisted Finance/Marketing output).
 
 ## Auth
 

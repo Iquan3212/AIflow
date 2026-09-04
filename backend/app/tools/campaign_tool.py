@@ -1,20 +1,22 @@
 from sqlalchemy.orm import Session
 
+from app.services.draft_service import DraftService
 from app.services.llm_client import chat_completion
 
 
 class CampaignTool:
     """Drafts marketing copy (captions, posts, promo ideas) grounded in the
-    business's own configured profile.
+    business's own configured profile, and persists it as an AIDraft so it
+    can be reviewed later from the Drafts page instead of only existing in
+    the chat transcript.
 
-    The project has no campaign-management/persistence model yet, so this
-    tool produces ready-to-post copy rather than storing a campaign record -
-    it never invents offers or facts the business hasn't provided."""
+    It never invents offers or facts the business hasn't provided."""
 
     def __init__(self, db: Session):
         self.db = db
 
     def execute(self, message: str, db=None, business=None, conversation=None, lead=None, **kwargs) -> dict:
+        db = db or self.db
         if business is None:
             return {"ok": False, "error": "missing_business"}
 
@@ -42,4 +44,19 @@ or facts about the business that weren't given to you."""
             except Exception as exc:
                 print(f"[campaign-tool:error attempt={attempt}] {exc}")
 
-        return {"ok": bool(draft), "draft": draft or "I couldn't draft that content right now - please try again."}
+        draft_id = None
+        if draft:
+            saved = DraftService(db).create(
+                business_id=business.id,
+                kind="campaign",
+                content=draft,
+                title=message[:80],
+                lead_id=getattr(lead, "id", None),
+            )
+            draft_id = saved.id
+
+        return {
+            "ok": bool(draft),
+            "draft": draft or "I couldn't draft that content right now - please try again.",
+            "draft_id": draft_id,
+        }
