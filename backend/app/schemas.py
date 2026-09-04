@@ -219,6 +219,24 @@ class AIDraftUpdate(BaseModel):
     status: str = Field(pattern="^(draft|sent|archived)$")
 
 
+class SupportTicketOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    business_id: UUID
+    lead_id: UUID | None = None
+    issue_summary: str
+    priority: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class SupportTicketUpdate(BaseModel):
+    status: str | None = Field(default=None, pattern="^(open|in_progress|resolved|closed)$")
+    priority: str | None = Field(default=None, pattern="^(normal|high)$")
+
+
 # =====================================================
 # APPOINTMENTS (Phase 3 — AI Receptionist)
 # =====================================================

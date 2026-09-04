@@ -22,8 +22,8 @@ Analytics), runs real tools against real data, and synthesizes one reply.
   draft marketing/quotation content grounded in the business's own configured
   services — never fabricated numbers or facts.
 - **React dashboard** (Vite + TypeScript + Tailwind) — Dashboard, AI Workforce,
-  Manager AI, Leads, Conversations, Appointments, Drafts, Analytics, Settings.
-  Every number and chart comes from a real backend endpoint; there is no
+  Manager AI, Leads, Conversations, Appointments, Drafts, Support, Analytics,
+  Settings. Every number and chart comes from a real backend endpoint; there is no
   placeholder/demo data anywhere in the product.
 - **Google Calendar sync** (OAuth) for appointments, once you configure your
   own Google Cloud OAuth client.

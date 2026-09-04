@@ -394,3 +394,25 @@ class AIDraft(Base):
     lead = relationship("Lead")
 
 
+class SupportTicket(Base):
+    """Persisted output of the Support AI Workforce employee. Like AIDraft
+    for Finance/Marketing (Phase 6), this closes the same "chat-only,
+    nothing kept" gap for the last remaining employee that had it."""
+
+    __tablename__ = "support_tickets"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id"), nullable=False, index=True)
+    lead_id = Column(UUID(as_uuid=False), ForeignKey("leads.id"), nullable=True)
+
+    issue_summary = Column(Text, nullable=False)
+    priority = Column(String(16), default="normal")  # normal | high
+    status = Column(String(16), default="open")  # open | in_progress | resolved | closed
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    business = relationship("Business")
+    lead = relationship("Lead")
+
+

@@ -51,8 +51,13 @@ User
   LLM-generated content grounded only in the business's configured services
   and description, and (since Phase 6) persist it as an `AIDraft` row -
   reviewable, filterable, and manageable from the Drafts page instead of
-  only existing in the chat transcript. `AnalyticsTool` reuses the same
-  dashboard-summary queries the rest of the app uses.
+  only existing in the chat transcript. `SupportTicketTool` (Phase 7)
+  persists a `SupportTicket` for every issue Support handles - no LLM call
+  needed, it's a durable record of what was reported. `AnalyticsTool` reuses
+  the same dashboard-summary queries the rest of the app uses.
+  Every employee now has real, persisted output: Sales -> Lead, Receptionist
+  -> Appointment, Finance/Marketing -> AIDraft, Support -> SupportTicket,
+  Analytics -> reads real data (nothing to persist, it's read-only).
 - **`memory.py`** — per-turn conversation summary + extracted facts (emails,
   phones, names mentioned), surfaced to the frontend so the Manager AI UI can
   show what context it's using.
@@ -82,7 +87,8 @@ being true.
 Real tables (`backend/app/models.py`): `Business`, `User`, `UserSession`,
 `ChatbotConfig`, `Conversation`, `Message`, `Lead`, `Appointment`,
 `BusinessHours`, `SchedulingSettings`, `CalendarCredential`, `EmailLog`,
-`AIDraft` (Phase 6 — persisted Finance/Marketing output).
+`AIDraft` (Phase 6 — persisted Finance/Marketing output), `SupportTicket`
+(Phase 7 — persisted Support output).
 
 ## Auth
 

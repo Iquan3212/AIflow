@@ -18,6 +18,7 @@ from app.tools.appointment_tool import AppointmentTool
 from app.tools.quotation_tool import QuotationTool
 from app.tools.campaign_tool import CampaignTool
 from app.tools.analytics_tool import AnalyticsTool
+from app.tools.support_ticket_tool import SupportTicketTool
 
 
 class AIOrchestrator:
@@ -44,10 +45,13 @@ class AIOrchestrator:
         self.registry.register_tool("quotation", QuotationTool(db=self.db))
         self.registry.register_tool("campaign", CampaignTool(db=self.db))
         self.registry.register_tool("dashboard", AnalyticsTool(db=self.db))
+        self.registry.register_tool("support_ticket", SupportTicketTool(db=self.db))
 
         # Employee agents
         self.registry.register_employee("sales", SalesAgent(self.business, self.lead), tools=["lead"])
-        self.registry.register_employee("support", SupportAgent(self.business, self.lead), tools=[])
+        self.registry.register_employee(
+            "support", SupportAgent(self.business, self.lead), tools=["support_ticket"]
+        )
         self.registry.register_employee(
             "receptionist", ReceptionistAgent(self.business, self.lead), tools=["appointment"]
         )

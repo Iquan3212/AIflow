@@ -8,6 +8,7 @@ import {
     Sparkles,
     BarChart3,
     FileText,
+    LifeBuoy,
     Settings,
     X,
 } from "lucide-react";
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
     { to: "/conversations", label: "Conversations", icon: MessageSquare },
     { to: "/appointments", label: "Appointments", icon: CalendarClock },
     { to: "/drafts", label: "Drafts", icon: FileText },
+    { to: "/support", label: "Support", icon: LifeBuoy },
     { to: "/analytics", label: "Analytics", icon: BarChart3 },
     { to: "/settings", label: "Settings", icon: Settings },
 ];
