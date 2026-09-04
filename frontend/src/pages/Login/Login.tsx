@@ -5,7 +5,8 @@ import { Link, useNavigate } from "react-router-dom";
 
 import AuthLayout from "../../components/auth/AuthLayout";
 import { useAuth } from "../../context/AuthContext";
-import api from "../../services/api";
+import { login as loginRequest } from "../../services/auth";
+import { getErrorMessage } from "../../services/api";
 
 type LoginForm = {
     email: string;
@@ -31,24 +32,11 @@ export default function Login() {
         setError("");
 
         try {
-            const response = await api.post("/auth/login", data);
-
-            auth.login(response.data.access_token);
-
-            localStorage.setItem(
-                "business_slug",
-                response.data.business_slug
-            );
-
+            const tokens = await loginRequest(data);
+            auth.login(tokens);
             navigate("/dashboard");
-
-        } catch (err: any) {
-
-            setError(
-                err?.response?.data?.detail ||
-                "Unable to login."
-            );
-
+        } catch (err) {
+            setError(getErrorMessage(err));
         } finally {
             setLoading(false);
         }
@@ -133,17 +121,6 @@ export default function Login() {
                             {errors.password.message}
                         </p>
                     )}
-
-                </div>
-
-                <div className="flex justify-end">
-
-                    <Link
-                        to="/forgot-password"
-                        className="text-blue-600 text-sm hover:underline"
-                    >
-                        Forgot Password?
-                    </Link>
 
                 </div>
 

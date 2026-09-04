@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { useBusiness } from "../../context/BusinessContext";
+import AppShell from "../../components/layout/AppShell";
 import {
     listAppointments,
     getAvailability,
@@ -234,9 +235,10 @@ export default function Appointments() {
         }
     }
 
-    if (loading) return <div className="appt-loading">Loading appointments…</div>;
+    if (loading) return <AppShell><div className="appt-loading">Loading appointments…</div></AppShell>;
 
     return (
+        <AppShell>
         <div className="appt-page">
             <div className="page-title">
                 <h1>Appointments</h1>
@@ -496,6 +498,7 @@ export default function Appointments() {
                 </div>
             )}
         </div>
+        </AppShell>
     );
 }
 

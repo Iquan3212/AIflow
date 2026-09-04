@@ -42,10 +42,12 @@ export default function ConversationList({
 
                     conversations.map((conversation) => (
 
-                        <div
+                        <button
                             key={conversation.id}
+                            type="button"
                             onClick={() => onSelect(conversation)}
-                            className={`cursor-pointer border-b transition p-5
+                            aria-current={selected?.id === conversation.id}
+                            className={`w-full text-left cursor-pointer border-b transition p-5
 
                             ${
                                 selected?.id === conversation.id
@@ -76,7 +78,7 @@ export default function ConversationList({
 
                             </div>
 
-                        </div>
+                        </button>
 
                     ))
 

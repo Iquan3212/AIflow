@@ -46,10 +46,15 @@ export interface EmployeeResult {
   error?: string;
 }
 
+export interface ManagerMemory {
+  summary?: string | null;
+  facts?: string[];
+}
+
 export interface ManagerResult {
   final_reply?: string;
   employee_results?: Record<string, EmployeeResult>;
-  unified_context?: unknown;
+  memory?: ManagerMemory | null;
 }
 
 export interface ManagerChatResponse {

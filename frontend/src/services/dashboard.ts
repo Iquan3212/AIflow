@@ -1,11 +1,15 @@
 import api from "./api";
 
-export async function getDashboardStats() {
-    console.log("Calling dashboard API...");
+export interface DashboardStats {
+    today_chats: number;
+    new_leads_today: number;
+    total_leads: number;
+    upcoming_appointments: number;
+    avg_response_time_seconds: number | null;
+    model: string;
+}
 
-    const response = await api.get("/dashboard/stats");
-
-    console.log("Dashboard response:", response.data);
-
+export async function getDashboardStats(): Promise<DashboardStats> {
+    const response = await api.get<DashboardStats>("/dashboard/stats");
     return response.data;
 }

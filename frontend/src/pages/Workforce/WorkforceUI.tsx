@@ -1,32 +1,32 @@
-import Layout from "../../components/dashboard/Layout";
+import AppShell from "../../components/layout/AppShell";
+import PageHeader from "../../components/ui/PageHeader";
+import { LoadingState, ErrorState, EmptyState } from "../../components/ui/States";
+import EmployeeStatusCard from "../../components/ai/EmployeeStatusCard";
 import { useWorkforce } from "../../hooks/useWorkforce";
-import EmployeeCard from "../../components/ai/EmployeeCard";
-import AIHealthCard from "../../components/ai/AIHealthCard";
+import { Sparkles } from "lucide-react";
 
 export default function WorkforceUI() {
-  const { employees, loading } = useWorkforce(0);
+  const { employees, loading, error, reload } = useWorkforce();
 
   return (
-    <Layout>
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="rounded-2xl bg-blue-600 text-white p-3">WF</div>
-          <div>
-            <h1 className="text-3xl font-bold">AI Workforce</h1>
-            <p className="text-slate-500">Overview of all AI employees</p>
-          </div>
-        </div>
+    <AppShell>
+      <PageHeader
+        title="AI Workforce"
+        description="The specialists your Manager AI can delegate to."
+      />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-          <div className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {loading && <div>Loading…</div>}
-            {employees?.map((e) => <EmployeeCard key={e.id} employee={e} />)}
-          </div>
-          <div className="space-y-4">
-            <AIHealthCard healthy={true} uptime="99.9%" notes="All systems nominal" />
-          </div>
+      {loading && <LoadingState label="Loading workforce…" />}
+      {!loading && error && <ErrorState message={error} onRetry={reload} />}
+      {!loading && !error && employees && employees.length === 0 && (
+        <EmptyState icon={<Sparkles size={32} />} title="No employees registered" />
+      )}
+      {!loading && !error && employees && employees.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          {employees.map((employee) => (
+            <EmployeeStatusCard key={employee.id} employee={employee} />
+          ))}
         </div>
-      </div>
-    </Layout>
+      )}
+    </AppShell>
   );
 }

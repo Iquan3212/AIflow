@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { getWorkforce } from "../services/workforce";
+import { getErrorMessage } from "../services/api";
 import type { EmployeeInfo } from "../types/ai";
 
 export function useWorkforce(pollIntervalMs = 0) {
@@ -13,8 +14,8 @@ export function useWorkforce(pollIntervalMs = 0) {
       const resp = await getWorkforce();
       setEmployees(resp.employees || []);
       setError(null);
-    } catch (err: any) {
-      setError(err?.message ?? "Failed to load workforce");
+    } catch (err) {
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }

@@ -1,36 +1,22 @@
 import api from "./api";
 
-export interface LeadFunnel {
-  stage: string;
-  count: number;
+export interface AnalyticsSeriesPoint {
+    date: string;
+    count: number;
 }
 
-export interface RevenueSummary {
-  date: string;
-  revenue: number;
+export interface AnalyticsOverview {
+    leads_by_status: Record<string, number>;
+    appointments_by_status: Record<string, number>;
+    leads_per_day: AnalyticsSeriesPoint[];
+    appointments_per_day: AnalyticsSeriesPoint[];
+    conversations_per_day: AnalyticsSeriesPoint[];
+    total_leads: number;
+    total_appointments: number;
+    total_conversations: number;
 }
 
-export async function getLeadFunnel(): Promise<LeadFunnel[]> {
-  const resp = await api.get("/analytics/lead-funnel");
-  return resp.data;
-}
-
-export async function getAppointmentSummary(): Promise<{ date: string; count: number }[]> {
-  const resp = await api.get("/analytics/appointments");
-  return resp.data;
-}
-
-export async function getRevenueTrend(): Promise<RevenueSummary[]> {
-  const resp = await api.get("/analytics/revenue");
-  return resp.data;
-}
-
-export async function getAIUsage(): Promise<any> {
-  const resp = await api.get("/analytics/ai-usage");
-  return resp.data;
-}
-
-export async function getRecentActivity(): Promise<any[]> {
-  const resp = await api.get("/analytics/recent-activity");
-  return resp.data;
+export async function getAnalyticsOverview(): Promise<AnalyticsOverview> {
+    const response = await api.get<AnalyticsOverview>("/analytics/overview");
+    return response.data;
 }

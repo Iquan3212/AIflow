@@ -12,7 +12,18 @@ export interface Business {
     created_at: string;
 }
 
+export interface BusinessUpdateInput {
+    name?: string;
+    industry?: string;
+    timezone?: string;
+}
+
 export async function getCurrentBusiness(): Promise<Business> {
-    const response = await api.get("/businesses/me");
+    const response = await api.get<Business>("/businesses/me");
+    return response.data;
+}
+
+export async function updateCurrentBusiness(payload: BusinessUpdateInput): Promise<Business> {
+    const response = await api.patch<Business>("/businesses/me", payload);
     return response.data;
 }

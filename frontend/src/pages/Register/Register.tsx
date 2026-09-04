@@ -5,7 +5,8 @@ import { Link, useNavigate } from "react-router-dom";
 
 import AuthLayout from "../../components/auth/AuthLayout";
 import { useAuth } from "../../context/AuthContext";
-import api from "../../services/api";
+import { register as registerRequest } from "../../services/auth";
+import { getErrorMessage } from "../../services/api";
 
 type RegisterForm = {
     business_name: string;
@@ -36,27 +37,17 @@ export default function Register() {
         setError("");
 
         try {
-            const response = await api.post("/auth/signup", {
+            const tokens = await registerRequest({
                 business_name: data.business_name,
                 industry: data.industry,
                 owner_email: data.owner_email,
                 password: data.password,
             });
 
-            auth.login(response.data.access_token);
-
-            localStorage.setItem(
-                "business_slug",
-                response.data.business_slug
-            );
-
+            auth.login(tokens);
             navigate("/dashboard");
-
-        } catch (err: any) {
-            setError(
-                err?.response?.data?.detail ||
-                "Unable to create account."
-            );
+        } catch (err) {
+            setError(getErrorMessage(err));
         } finally {
             setLoading(false);
         }
