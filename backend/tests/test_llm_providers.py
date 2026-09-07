@@ -93,7 +93,21 @@ class TestOpenAICompatibleProvider:
     def test_configuration_uses_given_base_url_and_key(self):
         with patch("app.services.llm.openai_compatible.OpenAI") as MockOpenAI:
             OpenAICompatibleProvider(name="groq", api_key="sk-real", base_url="https://api.groq.com/openai/v1", model="m")
-            MockOpenAI.assert_called_once_with(api_key="sk-real", base_url="https://api.groq.com/openai/v1")
+            _, kwargs = MockOpenAI.call_args
+            assert kwargs["api_key"] == "sk-real"
+            assert kwargs["base_url"] == "https://api.groq.com/openai/v1"
+
+    def test_configuration_sets_explicit_timeout_and_no_sdk_retries(self):
+        """timeout/max_retries must be explicit (not the SDK's defaults -
+        timeout=600s, max_retries=2 honoring a provider's Retry-After) -
+        reproduced live: a rate-limited provider's long Retry-After made a
+        single call hang for minutes. Retry behavior belongs to this app
+        (llm_reply.py's own 2-attempt loop), not the SDK's own backoff."""
+        with patch("app.services.llm.openai_compatible.OpenAI") as MockOpenAI:
+            OpenAICompatibleProvider(name="groq", api_key="sk-real", base_url="https://api.groq.com/openai/v1", model="m")
+            _, kwargs = MockOpenAI.call_args
+            assert kwargs["max_retries"] == 0
+            assert kwargs["timeout"] == 30.0
 
     def test_configuration_ollama_accepts_blank_key(self):
         """Ollama needs no API key locally - the adapter must not choke on
@@ -196,7 +210,18 @@ class TestGeminiProvider:
     def test_configuration(self):
         with patch("app.services.llm.gemini_provider.genai") as mock_genai:
             GeminiProvider(api_key="test-gemini-key", model="gemini-2.0-flash")
-            mock_genai.Client.assert_called_once_with(api_key="test-gemini-key")
+            _, kwargs = mock_genai.Client.call_args
+            assert kwargs["api_key"] == "test-gemini-key"
+
+    def test_configuration_sets_explicit_timeout_and_no_sdk_retries(self):
+        """Same reasoning as the OpenAI-compatible adapter's equivalent
+        test - see its docstring."""
+        with patch("app.services.llm.gemini_provider.genai") as mock_genai:
+            GeminiProvider(api_key="test-gemini-key", model="gemini-2.0-flash")
+            _, kwargs = mock_genai.Client.call_args
+            http_options = kwargs["http_options"]
+            assert http_options.timeout == 30000
+            assert http_options.retry_options.attempts == 1
 
     def test_request_mapping_system_messages_concatenated(self):
         """Multiple system-role messages (hardened prompt, known facts,

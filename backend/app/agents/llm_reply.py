@@ -11,6 +11,7 @@ from app.agents.prompt_guard import (
     INJECTION_REINFORCEMENT,
     leaks_system_prompt,
     SAFE_FALLBACK_REPLY,
+    is_fallback_reply,
 )
 from app.logging_config import get_logger
 from app.services.llm_client import chat_completion, LLMProviderError
@@ -90,6 +91,12 @@ def generate_employee_reply(
     for item in (history or [])[-MAX_HISTORY_MESSAGES:]:
         role, content = _message_role_content(item)
         if not content:
+            continue
+        # A prior turn's provider-error/leak-backstop apology (see
+        # prompt_guard.is_fallback_reply) is this app's own failure text,
+        # never real assistant content - replaying it here would show the
+        # model its own past excuse as if it had actually said that.
+        if role == "assistant" and is_fallback_reply(content):
             continue
         messages.append({"role": role if role in ("user", "assistant") else "user", "content": content})
 

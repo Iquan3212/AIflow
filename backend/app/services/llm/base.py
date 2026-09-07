@@ -39,6 +39,18 @@ ALL_REASONS = frozenset({
 # are not provider failures - see prompt_guard.py and ToolRouter.
 FALLBACK_ELIGIBLE_REASONS = frozenset({RATE_LIMITED, TIMEOUT, UNAVAILABLE, PROVIDER_ERROR})
 
+# ---- canonical customer-safe failure messages ------------------------------
+# Shared by every adapter (openai_compatible.py and gemini_provider.py used
+# to each define their own identical copies of these four strings - single
+# source of truth now). Also used by prompt_guard.py to recognize a reply as
+# "this app's own failure text", never real assistant content - see
+# is_fallback_reply() - so a transient provider hiccup doesn't get replayed
+# to the model as if it were prior conversation history.
+RATE_LIMIT_MESSAGE = "Our AI assistant is getting a lot of requests right now. Please try again in a few minutes."
+UNAVAILABLE_MESSAGE = "Our AI assistant is temporarily unavailable. Please try again shortly."
+INVALID_REQUEST_MESSAGE = "Sorry, I couldn't process that request. Could you rephrase it?"
+PROVIDER_ERROR_MESSAGE = "Sorry, I couldn't process that just now. Could you try again?"
+
 
 class LLMProviderError(Exception):
     """The LLM provider itself rejected or failed the request - as opposed

@@ -1,6 +1,8 @@
 from typing import Any, Dict, List
 import re
 
+from app.agents.prompt_guard import is_fallback_reply
+
 
 class ConversationMemory:
     """
@@ -30,7 +32,12 @@ class ConversationMemory:
             else:
                 role = getattr(item, "role", "user")
                 content = getattr(item, "content", "")
-            if content:
+            # A prior turn's provider-error/leak-backstop apology is this
+            # app's own failure text, never real conversational content -
+            # summarizing it here would feed the model its own past excuse
+            # as if it were something the customer or assistant actually
+            # said. See prompt_guard.is_fallback_reply.
+            if content and not (role == "assistant" and is_fallback_reply(content)):
                 lines.append(f"{role}: {content}")
         return "\n".join(lines)
 

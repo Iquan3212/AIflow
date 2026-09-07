@@ -67,6 +67,14 @@ Never invent products.
 
 Only recommend services listed below.
 
+Never say a table, appointment, or reservation has been booked or
+confirmed - booking is not your job, and you are never given the real
+result of a booking attempt. If the customer wants a booking, say the
+Reception team will follow up to confirm the time separately.
+
+Never invent a reference/confirmation ID that was not given to you in a
+real tool result above.
+
 SERVICES
 
 {services_text if services_text else "No services configured."}

@@ -26,12 +26,11 @@ from app.services.llm.base import (
     UNAVAILABLE,
     INVALID_REQUEST,
     PROVIDER_ERROR,
+    RATE_LIMIT_MESSAGE as _RATE_LIMIT_MSG,
+    UNAVAILABLE_MESSAGE as _UNAVAILABLE_MSG,
+    INVALID_REQUEST_MESSAGE as _INVALID_MSG,
+    PROVIDER_ERROR_MESSAGE as _UNKNOWN_MSG,
 )
-
-_RATE_LIMIT_MSG = "Our AI assistant is getting a lot of requests right now. Please try again in a few minutes."
-_UNAVAILABLE_MSG = "Our AI assistant is temporarily unavailable. Please try again shortly."
-_INVALID_MSG = "Sorry, I couldn't process that request. Could you rephrase it?"
-_UNKNOWN_MSG = "Sorry, I couldn't process that just now. Could you try again?"
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -47,7 +46,19 @@ class OpenAICompatibleProvider(LLMProvider):
         self._model = model
         # Ollama doesn't check the key at all locally, but the SDK requires
         # a non-empty string to construct the client.
-        self._client = OpenAI(api_key=api_key or "not-required", base_url=base_url)
+        #
+        # timeout/max_retries are explicit, not left at the SDK's defaults
+        # (timeout=600s, max_retries=2 with its own backoff that honors a
+        # provider's Retry-After header). Reproduced live: a single call
+        # against a rate-limited provider that returned a multi-minute
+        # Retry-After hung for minutes before this app's own error handling
+        # ever got a chance to run - on top of llm_reply.py's own 2-attempt
+        # retry loop, that could multiply into a very long, silent wait
+        # with no feedback, which is worse for a chat UI than failing fast
+        # with the classified, honest "getting a lot of requests" message.
+        # max_retries=0 puts all retry behavior in this app's own hands
+        # (predictable, capped total wait) instead of the SDK's.
+        self._client = OpenAI(api_key=api_key or "not-required", base_url=base_url, timeout=30.0, max_retries=0)
         self._extra_headers = extra_headers or None
 
     def model_name(self) -> str:
@@ -105,6 +116,11 @@ def _classify(exc: "openai.APIError") -> tuple[str, str]:
         # needs a human to fix credentials; "unavailable" usually
         # resolves on its own).
         return AUTHENTICATION_ERROR, _UNAVAILABLE_MSG
-    if isinstance(exc, openai.BadRequestError):
+    if isinstance(exc, (openai.BadRequestError, openai.NotFoundError)):
+        # NotFoundError (404) here means "model not found" - a misconfigured
+        # LLM_MODEL for this provider, not a transient provider failure.
+        # Confirmed live: an outdated/wrong model id returns 404, and
+        # retrying (or falling back to another provider - see
+        # FALLBACK_ELIGIBLE_REASONS) never fixes a bad model name.
         return INVALID_REQUEST, _INVALID_MSG
     return PROVIDER_ERROR, _UNKNOWN_MSG

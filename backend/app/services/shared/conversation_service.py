@@ -41,6 +41,7 @@ from app.agents.prompt_guard import (
     INJECTION_REINFORCEMENT,
     leaks_system_prompt,
     SAFE_FALLBACK_REPLY,
+    is_fallback_reply,
 )
 from app.logging_config import get_logger
 
@@ -211,6 +212,12 @@ def process_message_for_business(
 
     messages = [{"role": "system", "content": system_prompt}]
     for msg in history:
+        # A prior turn's provider-error/leak-backstop apology (see
+        # prompt_guard.is_fallback_reply) is this app's own failure text,
+        # never real assistant content - replaying it here would show the
+        # model its own past excuse as if it had actually said that.
+        if msg.role == "assistant" and is_fallback_reply(msg.content):
+            continue
         messages.append({"role": msg.role, "content": msg.content})
 
     # The heuristic only ever adds a reminder - it never blocks, refuses, or

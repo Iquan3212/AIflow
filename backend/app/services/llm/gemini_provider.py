@@ -24,6 +24,7 @@ already builds today:
 
 from __future__ import annotations
 
+import base64
 import json
 
 from google import genai
@@ -42,12 +43,11 @@ from app.services.llm.base import (
     UNAVAILABLE,
     INVALID_REQUEST,
     PROVIDER_ERROR,
+    RATE_LIMIT_MESSAGE as _RATE_LIMIT_MSG,
+    UNAVAILABLE_MESSAGE as _UNAVAILABLE_MSG,
+    INVALID_REQUEST_MESSAGE as _INVALID_MSG,
+    PROVIDER_ERROR_MESSAGE as _UNKNOWN_MSG,
 )
-
-_RATE_LIMIT_MSG = "Our AI assistant is getting a lot of requests right now. Please try again in a few minutes."
-_UNAVAILABLE_MSG = "Our AI assistant is temporarily unavailable. Please try again shortly."
-_INVALID_MSG = "Sorry, I couldn't process that request. Could you rephrase it?"
-_UNKNOWN_MSG = "Sorry, I couldn't process that just now. Could you try again?"
 
 
 class GeminiProvider(LLMProvider):
@@ -55,7 +55,15 @@ class GeminiProvider(LLMProvider):
 
     def __init__(self, api_key: str, model: str):
         self._model = model
-        self._client = genai.Client(api_key=api_key)
+        # timeout (milliseconds) and attempts are explicit, not left at the
+        # SDK's defaults, for the same reason as openai_compatible.py: a
+        # single call against a rate-limited/slow provider should fail
+        # fast and predictably, with retry behavior owned by this app
+        # (llm_reply.py's own 2-attempt loop), not the SDK's own backoff.
+        self._client = genai.Client(
+            api_key=api_key,
+            http_options=genai_types.HttpOptions(timeout=30000, retry_options=genai_types.HttpRetryOptions(attempts=1)),
+        )
 
     def model_name(self) -> str:
         return self._model
@@ -89,6 +97,36 @@ class GeminiProvider(LLMProvider):
             raise LLMProviderError(UNAVAILABLE, _UNAVAILABLE_MSG, original=exc, provider=self.name) from exc
 
         return _from_gemini_response(response)
+
+
+# Gemini's "thinking" models (e.g. gemini-3.6-flash) require a
+# `thought_signature` blob to be echoed back on a function-call Part
+# whenever it's replayed in a later turn's history - omitting it fails
+# the request with a 400 ("Function call is missing a thought_signature").
+# The canonical ToolCall shape (base.py) is deliberately provider-neutral
+# and shared with the OpenAI-compatible adapter, and the id round-trips
+# opaquely through the rest of the app (conversation_service.py's tool
+# loop only ever compares/echoes it, never parses it - confirmed via
+# grep) - so the signature is carried inside the id string itself,
+# entirely internal to this adapter, rather than widening the shared
+# ToolCall/message contract for one provider's quirk.
+_THOUGHT_SIG_MARKER = "::gts::"
+
+
+def _encode_tool_call_id(raw_id: str, thought_signature: bytes | None) -> str:
+    if not thought_signature:
+        return raw_id
+    return f"{raw_id}{_THOUGHT_SIG_MARKER}{base64.b64encode(thought_signature).decode('ascii')}"
+
+
+def _decode_tool_call_id(call_id: str) -> tuple[str, bytes | None]:
+    if _THOUGHT_SIG_MARKER not in (call_id or ""):
+        return call_id, None
+    raw_id, _, encoded_sig = call_id.partition(_THOUGHT_SIG_MARKER)
+    try:
+        return raw_id, base64.b64decode(encoded_sig)
+    except (ValueError, TypeError):
+        return raw_id, None
 
 
 def _to_gemini_contents(messages: list[dict]) -> tuple[str, list]:
@@ -127,7 +165,11 @@ def _to_gemini_contents(messages: list[dict]) -> tuple[str, list]:
                 args = json.loads(tc["function"]["arguments"] or "{}")
             except json.JSONDecodeError:
                 args = {}
-            parts.append(genai_types.Part.from_function_call(name=tc["function"]["name"], args=args))
+            part = genai_types.Part.from_function_call(name=tc["function"]["name"], args=args)
+            _, thought_signature = _decode_tool_call_id(tc["id"])
+            if thought_signature:
+                part.thought_signature = thought_signature
+            parts.append(part)
         if msg.get("content"):
             parts.append(genai_types.Part.from_text(text=msg["content"]))
         if not parts:
@@ -162,7 +204,7 @@ def _from_gemini_response(response) -> ChatResult:
         fc = getattr(part, "function_call", None)
         if fc:
             tool_calls.append(ToolCall(
-                id=fc.id or f"call_{i}",
+                id=_encode_tool_call_id(fc.id or f"call_{i}", getattr(part, "thought_signature", None)),
                 function=ToolCallFunction(name=fc.name, arguments=json.dumps(fc.args or {})),
             ))
     return ChatResult(content="\n".join(text_parts) or None, tool_calls=tool_calls or None)
