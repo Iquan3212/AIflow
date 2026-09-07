@@ -65,15 +65,26 @@ export default function Dashboard() {
 
             {stats && !error && (
                 <div className="space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                        <StatCard label="Today's chats" value={stats.today_chats} icon={<MessageCircle size={18} />} />
-                        <StatCard label="New leads today" value={stats.new_leads_today} icon={<Users size={18} />} />
-                        <StatCard
-                            label="Upcoming appointments"
-                            value={stats.upcoming_appointments}
-                            icon={<CalendarClock size={18} />}
-                        />
-                        <StatCard label="Total leads" value={stats.total_leads} icon={<Sparkles size={18} />} />
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.6fr] gap-4">
+                        <div className="rounded-3xl bg-ink-950 text-white p-6 flex flex-col justify-between min-h-[9.5rem]">
+                            <div className="w-10 h-10 rounded-xl bg-white/10 text-brand-300 flex items-center justify-center">
+                                <MessageCircle size={18} aria-hidden="true" />
+                            </div>
+                            <div>
+                                <p className="text-sm text-slate-400">Today&apos;s chats</p>
+                                <p className="font-display text-5xl font-semibold tracking-tight mt-1.5">{stats.today_chats}</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <StatCard label="New leads today" value={stats.new_leads_today} icon={<Users size={18} />} />
+                            <StatCard
+                                label="Upcoming appointments"
+                                value={stats.upcoming_appointments}
+                                icon={<CalendarClock size={18} />}
+                            />
+                            <StatCard label="Total leads" value={stats.total_leads} icon={<Sparkles size={18} />} />
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

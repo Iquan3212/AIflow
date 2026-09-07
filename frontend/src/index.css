@@ -9,7 +9,7 @@
    ========================================================================== */
 @theme {
     --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
-    --font-display: "Lexend", "Inter", ui-sans-serif, system-ui, sans-serif;
+    --font-display: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
 
     /* Brand accent — matches the existing AIFlow favicon mark's violet,
        so the wordmark/icon and the rest of the UI read as one brand. */
@@ -25,6 +25,13 @@
     --color-brand-900: #421184;
     --color-brand-950: #2b0a5c;
 
+    /* Secondary accent — a warm flare used sparingly (a highlighted card,
+       a stat, a hover glow) so the whole product isn't monotone violet. */
+    --color-flare-300: #ffcf8a;
+    --color-flare-400: #ffb454;
+    --color-flare-500: #ff9d2e;
+    --color-flare-600: #f5810a;
+
     /* Deep ink surface — used for the marketing site, sidebar, and dark sections */
     --color-ink-950: #05060d;
     --color-ink-900: #0b0d18;
@@ -34,12 +41,13 @@
 
     --shadow-soft: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
     --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.03), 0 8px 24px -8px rgb(15 23 42 / 0.10);
-    --shadow-lifted: 0 12px 32px -12px rgb(15 23 42 / 0.18), 0 4px 12px -4px rgb(15 23 42 / 0.08);
-    --shadow-glow: 0 0 0 1px rgb(93 89 239 / 0.12), 0 12px 40px -12px rgb(93 89 239 / 0.35);
+    --shadow-lifted: 0 20px 48px -16px rgb(15 23 42 / 0.22), 0 4px 12px -4px rgb(15 23 42 / 0.08);
+    --shadow-glow: 0 0 0 1px rgb(124 31 240 / 0.15), 0 16px 48px -12px rgb(124 31 240 / 0.4);
+    --shadow-flare: 0 16px 40px -12px rgb(245 129 10 / 0.35);
 
-    --radius-xl: 0.875rem;
-    --radius-2xl: 1.25rem;
-    --radius-3xl: 1.75rem;
+    --radius-xl: 1rem;
+    --radius-2xl: 1.5rem;
+    --radius-3xl: 2.25rem;
 }
 
 html,
@@ -59,7 +67,14 @@ body {
 
 h1, h2, h3, h4 {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
+}
+
+/* Faint dot-grid texture for dark sections - an editorial detail instead
+   of a flat gradient blob, used sparingly (hero/CTA backdrops only). */
+.bg-dot-grid {
+    background-image: radial-gradient(rgb(255 255 255 / 0.12) 1px, transparent 1px);
+    background-size: 22px 22px;
 }
 
 /* Respect reduced-motion preferences globally, per accessibility requirements. */
