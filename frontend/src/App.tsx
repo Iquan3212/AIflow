@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
+import Landing from "./pages/Landing/Landing";
 import Login from "./pages/Login/Login";
 import Register from "./pages/Register/Register";
 import Dashboard from "./pages/Dashboard/Dashboard";
@@ -12,6 +13,7 @@ import Drafts from "./pages/Drafts/Drafts";
 import Support from "./pages/Support/Support";
 
 import ProtectedLayout from "./layouts/ProtectedLayout";
+import PublicOnlyLayout from "./layouts/PublicOnlyLayout";
 import Manager from "./pages/Manager/Manager";
 import WorkforceUI from "./pages/Workforce/WorkforceUI";
 
@@ -20,11 +22,14 @@ export default function App() {
         <BrowserRouter>
             <Routes>
 
-                {/* Public routes */}
-                <Route path="/" element={<Login />} />
-                <Route path="/register" element={<Register />} />
+                {/* Public routes — redirect to /dashboard if already signed in */}
+                <Route element={<PublicOnlyLayout />}>
+                    <Route path="/" element={<Landing />} />
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/register" element={<Register />} />
+                </Route>
 
-                {/* Protected routes */}
+                {/* Protected routes — redirect to /login if signed out */}
                 <Route element={<ProtectedLayout />}>
                     <Route path="/dashboard" element={<Dashboard />} />
                     <Route path="/conversations" element={<Conversations />} />

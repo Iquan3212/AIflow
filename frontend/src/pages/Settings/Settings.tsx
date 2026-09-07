@@ -84,7 +84,7 @@ function BusinessTab() {
                     id="biz-name"
                     value={form.name}
                     onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
                 />
             </div>
             <div>
@@ -93,7 +93,7 @@ function BusinessTab() {
                     id="biz-industry"
                     value={form.industry}
                     onChange={(e) => setForm((f) => ({ ...f, industry: e.target.value }))}
-                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
                 />
             </div>
             <div>
@@ -103,7 +103,7 @@ function BusinessTab() {
                     value={form.timezone}
                     onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
                     placeholder="e.g. Asia/Kolkata"
-                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
                 />
             </div>
             <div className="grid grid-cols-2 gap-4 pt-2 text-sm text-slate-500">
@@ -184,7 +184,7 @@ function AiTab() {
                     rows={3}
                     value={form.business_description}
                     onChange={(e) => setForm((f) => ({ ...f, business_description: e.target.value }))}
-                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
                 />
             </div>
             <div>
@@ -194,7 +194,7 @@ function AiTab() {
                     value={form.persona_tone}
                     onChange={(e) => setForm((f) => ({ ...f, persona_tone: e.target.value }))}
                     placeholder="e.g. friendly and professional"
-                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
                 />
             </div>
             <div>
@@ -203,7 +203,7 @@ function AiTab() {
                     id="ai-welcome"
                     value={form.welcome_message}
                     onChange={(e) => setForm((f) => ({ ...f, welcome_message: e.target.value }))}
-                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                    className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
                 />
             </div>
             <div>
@@ -235,7 +235,7 @@ function AiTab() {
                             }
                         }}
                         placeholder="Add a service and press Enter"
-                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                        className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
                     />
                 </div>
             </div>
@@ -399,7 +399,7 @@ function ChannelCard({
                             value={form.external_account_id}
                             onChange={(e) => setForm((f) => ({ ...f, external_account_id: e.target.value }))}
                             placeholder={channel === "whatsapp" ? "e.g. 123456123456789" : "e.g. 17841400000000000"}
-                            className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                            className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
                         />
                     </div>
                     <div>
@@ -408,7 +408,7 @@ function ChannelCard({
                             type="password"
                             value={form.access_token}
                             onChange={(e) => setForm((f) => ({ ...f, access_token: e.target.value }))}
-                            className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                            className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
                         />
                     </div>
                     <div>
@@ -417,7 +417,7 @@ function ChannelCard({
                             value={form.display_name}
                             onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))}
                             placeholder={channel === "whatsapp" ? "e.g. +1 555-000-1111" : "e.g. @yourbusiness"}
-                            className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                            className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
                         />
                     </div>
                     <div className="flex items-center gap-3">
@@ -559,7 +559,7 @@ export default function Settings() {
                         aria-selected={tab === t}
                         onClick={() => setTab(t)}
                         className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px ${
-                            tab === t ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"
+                            tab === t ? "border-brand-600 text-brand-600" : "border-transparent text-slate-500 hover:text-slate-700"
                         }`}
                     >
                         {t}

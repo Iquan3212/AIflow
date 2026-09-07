@@ -121,7 +121,7 @@ export default function Manager() {
             <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50">
               {messages.map((item, index) => (
                 <div key={`${item.role}-${index}-${item.timestamp}`} className={`flex ${item.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[85%] rounded-xl px-4 py-3 whitespace-pre-wrap text-sm ${item.role === "user" ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-800"}`}>
+                  <div className={`max-w-[85%] rounded-xl px-4 py-3 whitespace-pre-wrap text-sm ${item.role === "user" ? "bg-brand-600 text-white" : "bg-white border border-slate-200 text-slate-800"}`}>
                     {(item.agent || item.delegation || item.tool) && (
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
                         {item.agent && <AgentBadge agent={item.agent} />}
@@ -131,7 +131,7 @@ export default function Manager() {
                     )}
                     <div>{item.content}</div>
                     {item.timestamp && (
-                      <div className={`text-xs mt-1.5 ${item.role === "user" ? "text-indigo-200" : "text-slate-400"}`}>
+                      <div className={`text-xs mt-1.5 ${item.role === "user" ? "text-brand-200" : "text-slate-400"}`}>
                         {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </div>
                     )}
@@ -156,14 +156,14 @@ export default function Manager() {
                   }
                 }}
                 placeholder="Ask the Manager AI…"
-                className="flex-1 border border-slate-300 rounded-lg px-4 py-2.5 resize-none outline-none focus:border-indigo-500 text-sm"
+                className="flex-1 border border-slate-300 rounded-lg px-4 py-2.5 resize-none outline-none focus:border-brand-500 text-sm"
                 disabled={loading}
               />
               <button
                 onClick={() => void handleSend()}
                 disabled={loading || !text.trim()}
                 aria-label="Send message"
-                className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white rounded-lg px-4 flex items-center justify-center"
+                className="bg-brand-600 hover:bg-brand-700 disabled:bg-brand-300 text-white rounded-lg px-4 flex items-center justify-center"
               >
                 <Send size={18} />
               </button>

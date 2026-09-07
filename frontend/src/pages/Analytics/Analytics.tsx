@@ -33,7 +33,7 @@ function StatusBreakdown({ title, data }: { title: string; data: Record<string, 
                             </div>
                             <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                                 <div
-                                    className="h-full bg-indigo-500 rounded-full"
+                                    className="h-full bg-brand-500 rounded-full"
                                     style={{ width: `${total ? (count / total) * 100 : 0}%` }}
                                 />
                             </div>

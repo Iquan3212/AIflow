@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import AuthLayout from "../../components/auth/AuthLayout";
+import Button from "../../components/ui/Button";
+import Input, { Label, FieldError } from "../../components/ui/Input";
 import { useAuth } from "../../context/AuthContext";
 import { register as registerRequest } from "../../services/auth";
 import { getErrorMessage } from "../../services/api";
@@ -54,201 +56,115 @@ export default function Register() {
     }
 
     return (
-        <AuthLayout
-            title="Create your account"
-            subtitle="Start automating your business with AIFlow."
-        >
-
-            <form
-                onSubmit={handleSubmit(onSubmit)}
-                className="space-y-5"
-            >
-
+        <AuthLayout title="Start free" subtitle="Set up your business and meet your AI Workforce.">
+            <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
                 {error && (
-                    <div className="bg-red-50 border border-red-200 text-red-600 rounded-xl p-3 text-sm">
+                    <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3.5 text-sm" role="alert">
                         {error}
                     </div>
                 )}
 
                 <div>
-
-                    <label className="text-sm font-medium">
-                        Business Name
-                    </label>
-
-                    <input
-                        {...register("business_name", {
-                            required: "Business name is required",
-                        })}
-                        className="w-full mt-2 border rounded-xl px-4 py-3"
+                    <Label htmlFor="business_name">Business name</Label>
+                    <Input
+                        id="business_name"
+                        autoComplete="organization"
+                        invalid={!!errors.business_name}
+                        aria-invalid={!!errors.business_name}
+                        {...register("business_name", { required: "Business name is required" })}
                     />
-
-                    {errors.business_name && (
-                        <p className="text-red-500 text-sm mt-1">
-                            {errors.business_name.message}
-                        </p>
-                    )}
-
+                    <FieldError>{errors.business_name?.message}</FieldError>
                 </div>
 
                 <div>
-
-                    <label className="text-sm font-medium">
-                        Industry
-                    </label>
-
-                    <input
-                        {...register("industry", {
-                            required: "Industry is required",
-                        })}
-                        className="w-full mt-2 border rounded-xl px-4 py-3"
+                    <Label htmlFor="industry">Industry</Label>
+                    <Input
+                        id="industry"
+                        placeholder="e.g. Restaurant, Salon, Retail"
+                        invalid={!!errors.industry}
+                        aria-invalid={!!errors.industry}
+                        {...register("industry", { required: "Industry is required" })}
                     />
-
+                    <FieldError>{errors.industry?.message}</FieldError>
                 </div>
 
                 <div>
-
-                    <label className="text-sm font-medium">
-                        Email
-                    </label>
-
-                    <input
+                    <Label htmlFor="owner_email">Email</Label>
+                    <Input
+                        id="owner_email"
                         type="email"
-                        {...register("owner_email", {
-                            required: "Email is required",
-                        })}
-                        className="w-full mt-2 border rounded-xl px-4 py-3"
+                        autoComplete="email"
+                        invalid={!!errors.owner_email}
+                        aria-invalid={!!errors.owner_email}
+                        {...register("owner_email", { required: "Email is required" })}
                     />
-
+                    <FieldError>{errors.owner_email?.message}</FieldError>
                 </div>
 
                 <div>
-
-                    <label className="text-sm font-medium">
-                        Password
-                    </label>
-
-                    <div className="relative mt-2">
-
-                        <input
-                            type={
-                                showPassword
-                                    ? "text"
-                                    : "password"
-                            }
+                    <Label htmlFor="password">Password</Label>
+                    <div className="relative">
+                        <Input
+                            id="password"
+                            type={showPassword ? "text" : "password"}
+                            autoComplete="new-password"
+                            className="pr-11"
+                            invalid={!!errors.password}
+                            aria-invalid={!!errors.password}
                             {...register("password", {
                                 required: "Password is required",
-                                minLength: {
-                                    value: 8,
-                                    message: "Minimum 8 characters",
-                                },
+                                minLength: { value: 8, message: "Minimum 8 characters" },
                             })}
-                            className="w-full border rounded-xl px-4 py-3 pr-12"
                         />
-
                         <button
                             type="button"
-                            className="absolute right-4 top-3"
-                            onClick={() =>
-                                setShowPassword(!showPassword)
-                            }
+                            onClick={() => setShowPassword((v) => !v)}
+                            aria-label={showPassword ? "Hide password" : "Show password"}
+                            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                         >
-                            {showPassword
-                                ? <EyeOff size={20}/>
-                                : <Eye size={20}/>
-                            }
+                            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
-
                     </div>
-
-                    {errors.password && (
-                        <p className="text-red-500 text-sm mt-1">
-                            {errors.password.message}
-                        </p>
-                    )}
-
+                    <FieldError>{errors.password?.message}</FieldError>
                 </div>
 
                 <div>
-
-                    <label className="text-sm font-medium">
-                        Confirm Password
-                    </label>
-
-                    <div className="relative mt-2">
-
-                        <input
-                            type={
-                                showConfirmPassword
-                                    ? "text"
-                                    : "password"
-                            }
+                    <Label htmlFor="confirmPassword">Confirm password</Label>
+                    <div className="relative">
+                        <Input
+                            id="confirmPassword"
+                            type={showConfirmPassword ? "text" : "password"}
+                            autoComplete="new-password"
+                            className="pr-11"
+                            invalid={!!errors.confirmPassword}
+                            aria-invalid={!!errors.confirmPassword}
                             {...register("confirmPassword", {
-                                validate: value =>
-                                    value === watch("password") ||
-                                    "Passwords do not match",
+                                validate: (value) => value === watch("password") || "Passwords do not match",
                             })}
-                            className="w-full border rounded-xl px-4 py-3 pr-12"
                         />
-
                         <button
                             type="button"
-                            className="absolute right-4 top-3"
-                            onClick={() =>
-                                setShowConfirmPassword(
-                                    !showConfirmPassword
-                                )
-                            }
+                            onClick={() => setShowConfirmPassword((v) => !v)}
+                            aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                         >
-                            {showConfirmPassword
-                                ? <EyeOff size={20}/>
-                                : <Eye size={20}/>
-                            }
+                            {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
-
                     </div>
-
-                    {errors.confirmPassword && (
-                        <p className="text-red-500 text-sm mt-1">
-                            {errors.confirmPassword.message}
-                        </p>
-                    )}
-
+                    <FieldError>{errors.confirmPassword?.message}</FieldError>
                 </div>
 
-                <button
-                    disabled={loading}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3 font-semibold flex justify-center items-center gap-2"
-                >
+                <Button type="submit" size="lg" loading={loading} className="w-full">
+                    {loading ? "Creating account…" : "Create account"}
+                </Button>
 
-                    {loading
-                        ? <>
-                            <Loader2
-                                className="animate-spin"
-                                size={18}
-                            />
-                            Creating Account...
-                        </>
-                        : "Create Account"
-                    }
-
-                </button>
-
-                <div className="text-center text-sm text-slate-500">
-
+                <p className="text-center text-sm text-slate-500">
                     Already have an account?{" "}
-
-                    <Link
-                        to="/"
-                        className="text-blue-600 hover:underline"
-                    >
-                        Login
+                    <Link to="/login" className="text-brand-600 font-medium hover:text-brand-700">
+                        Sign in
                     </Link>
-
-                </div>
-
+                </p>
             </form>
-
         </AuthLayout>
     );
 }

@@ -5,7 +5,7 @@ import Button from "./Button";
 export function LoadingState({ label = "Loading…" }: { label?: string }) {
     return (
         <div className="flex items-center justify-center gap-2 text-slate-500 py-16" role="status" aria-live="polite">
-            <Loader2 size={18} className="animate-spin" />
+            <Loader2 size={18} className="animate-spin" aria-hidden="true" />
             <span className="text-sm">{label}</span>
         </div>
     );
@@ -20,7 +20,9 @@ export function ErrorState({
 }) {
     return (
         <div className="flex flex-col items-center justify-center gap-3 text-center py-16 px-6" role="alert">
-            <AlertCircle size={28} className="text-red-500" />
+            <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
+                <AlertCircle size={22} className="text-red-500" aria-hidden="true" />
+            </div>
             <p className="text-sm text-slate-600 max-w-sm">{message}</p>
             {onRetry && (
                 <Button variant="secondary" size="sm" onClick={onRetry}>
@@ -44,7 +46,11 @@ export function EmptyState({
 }) {
     return (
         <div className="flex flex-col items-center justify-center gap-2 text-center py-16 px-6">
-            {icon && <div className="text-slate-300 mb-1">{icon}</div>}
+            {icon && (
+                <div className="w-14 h-14 rounded-2xl bg-slate-50 text-slate-300 flex items-center justify-center mb-1.5">
+                    {icon}
+                </div>
+            )}
             <p className="text-sm font-medium text-slate-700">{title}</p>
             {description && <p className="text-sm text-slate-400 max-w-sm">{description}</p>}
             {action && <div className="mt-3">{action}</div>}

@@ -86,7 +86,7 @@ export default function Support() {
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value as TicketStatus | "all")}
                     aria-label="Filter by status"
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500"
                 >
                     <option value="all">All statuses</option>
                     {TICKET_STATUSES.map((s) => (
@@ -131,7 +131,7 @@ export default function Support() {
                                             value={ticket.priority}
                                             onChange={(e) => handleUpdate(ticket, { priority: e.target.value as TicketPriority })}
                                             aria-label="Update priority"
-                                            className="rounded-md border border-slate-300 text-xs px-2 py-1 focus:border-indigo-500 outline-none"
+                                            className="rounded-md border border-slate-300 text-xs px-2 py-1 focus:border-brand-500 outline-none"
                                         >
                                             {TICKET_PRIORITIES.map((p) => (
                                                 <option key={p} value={p}>
@@ -143,7 +143,7 @@ export default function Support() {
                                             value={ticket.status}
                                             onChange={(e) => handleUpdate(ticket, { status: e.target.value as TicketStatus })}
                                             aria-label="Update status"
-                                            className="rounded-md border border-slate-300 text-xs px-2 py-1 focus:border-indigo-500 outline-none"
+                                            className="rounded-md border border-slate-300 text-xs px-2 py-1 focus:border-brand-500 outline-none"
                                         >
                                             {TICKET_STATUSES.map((s) => (
                                                 <option key={s} value={s}>

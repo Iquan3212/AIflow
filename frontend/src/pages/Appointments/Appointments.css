@@ -62,7 +62,7 @@
     display: grid; place-items: center;
     color: white;
 }
-.appt-stat.blue .appt-stat-icon { background: #2563eb; }
+.appt-stat.blue .appt-stat-icon { background: #7c1ff0; }
 .appt-stat.green .appt-stat-icon { background: #16a34a; }
 .appt-stat.slate .appt-stat-icon { background: #475569; }
 .appt-stat.red .appt-stat-icon { background: #dc2626; }
@@ -83,7 +83,7 @@
 .google-left { display: flex; align-items: center; gap: 14px; }
 .google-icon {
     width: 44px; height: 44px; border-radius: 12px;
-    background: #eef4ff; color: #2563eb;
+    background: #f6f0ff; color: #7c1ff0;
     display: grid; place-items: center;
 }
 .google-title { font-weight: 700; color: #0f172a; }
@@ -129,7 +129,7 @@
     width: 100%;
     box-sizing: border-box;
 }
-.appt-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+.appt-input:focus { border-color: #7c1ff0; box-shadow: 0 0 0 3px rgba(124, 31, 240, 0.12); }
 .appt-input.tiny { width: 110px; padding: 7px 9px; }
 .appt-input:disabled { background: #f1f5f9; color: #94a3b8; }
 
@@ -142,8 +142,8 @@
     cursor: pointer;
     transition: 0.15s;
 }
-.appt-btn.primary { background: #2563eb; color: white; }
-.appt-btn.primary:hover { background: #1d4ed8; }
+.appt-btn.primary { background: #7c1ff0; color: white; }
+.appt-btn.primary:hover { background: #6516c9; }
 .appt-btn.ghost { background: white; border-color: #d7dde5; color: #334155; }
 .appt-btn.ghost:hover { background: #f8fafc; }
 .appt-btn.sm { padding: 7px 12px; font-size: 13px; }
@@ -165,12 +165,12 @@
     cursor: pointer;
     transition: 0.12s;
 }
-.slot-chip:hover { border-color: #2563eb; color: #2563eb; }
-.slot-chip.active { background: #2563eb; border-color: #2563eb; color: white; }
+.slot-chip:hover { border-color: #7c1ff0; color: #7c1ff0; }
+.slot-chip.active { background: #7c1ff0; border-color: #7c1ff0; color: white; }
 
 .appt-booking-form { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
 .selected-banner {
-    background: #eff6ff; color: #1e40af;
+    background: #f6f0ff; color: #5313a3;
     padding: 10px 14px; border-radius: 10px; font-size: 13px;
 }
 
@@ -191,7 +191,7 @@
     content: ""; position: absolute; height: 16px; width: 16px;
     left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.2s;
 }
-.switch input:checked + .slider { background: #2563eb; }
+.switch input:checked + .slider { background: #7c1ff0; }
 .switch input:checked + .slider::before { transform: translateX(18px); }
 
 /* rules */
@@ -222,7 +222,7 @@
 .appt-status.no_show { background: #f3e8ff; color: #6b21a8; }
 
 .actions { display: flex; gap: 12px; }
-.link-btn { background: none; border: none; color: #2563eb; font-weight: 600; font-size: 13px; cursor: pointer; padding: 0; }
+.link-btn { background: none; border: none; color: #7c1ff0; font-weight: 600; font-size: 13px; cursor: pointer; padding: 0; }
 .link-btn:hover { text-decoration: underline; }
 .link-btn.danger { color: #dc2626; }
 

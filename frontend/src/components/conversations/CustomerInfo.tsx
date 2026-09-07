@@ -1,97 +1,40 @@
+import { User } from "lucide-react";
+import type { ReactNode } from "react";
 import type { Conversation } from "../../types/conversation";
+import { EmptyState } from "../ui/States";
 
 type Props = {
     conversation: Conversation | null;
 };
 
-export default function CustomerInfo({
-    conversation,
-}: Props) {
-
+function Field({ label, value }: { label: string; value: ReactNode }) {
     return (
-
-        <div className="bg-white rounded-2xl shadow h-full p-6">
-
-            <h2 className="text-xl font-bold mb-6">
-
-                Customer Details
-
-            </h2>
-
-            {
-
-                !conversation ? (
-
-                    <div className="text-gray-400 text-sm">
-
-                        No customer selected.
-
-                    </div>
-
-                ) : (
-
-                    <>
-
-                        <div className="mb-6">
-
-                            <p className="text-gray-500 text-sm">
-
-                                Name
-
-                            </p>
-
-                            <p className="font-semibold mt-1">
-
-                                {conversation.customer_name ?? (
-                                    <span className="font-normal text-gray-400">
-                                        Not provided yet
-                                    </span>
-                                )}
-
-                            </p>
-
-                        </div>
-
-                        <div className="mb-6">
-
-                            <p className="text-gray-500 text-sm">
-
-                                Phone
-
-                            </p>
-
-                            <p className="font-semibold mt-1">
-
-                                {conversation.phone || "Not available"}
-
-                            </p>
-
-                        </div>
-
-                        <div>
-
-                            <p className="text-gray-500 text-sm">
-
-                                Total Messages
-
-                            </p>
-
-                            <p className="font-semibold mt-1">
-
-                                {conversation.total_messages}
-
-                            </p>
-
-                        </div>
-
-                    </>
-
-                )
-
-            }
-
+        <div>
+            <p className="text-slate-500 text-xs uppercase tracking-wide font-medium">{label}</p>
+            <p className="font-medium text-slate-900 mt-1.5">{value}</p>
         </div>
-
     );
+}
 
+export default function CustomerInfo({ conversation }: Props) {
+    return (
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-soft h-full p-5 overflow-y-auto thin-scrollbar">
+            <h2 className="font-display font-semibold text-slate-900 mb-5">Customer Details</h2>
+
+            {!conversation ? (
+                <EmptyState icon={<User size={24} />} title="No customer selected" />
+            ) : (
+                <div className="space-y-5">
+                    <Field
+                        label="Name"
+                        value={
+                            conversation.customer_name ?? <span className="font-normal text-slate-400">Not provided yet</span>
+                        }
+                    />
+                    <Field label="Phone" value={conversation.phone || "Not available"} />
+                    <Field label="Total messages" value={conversation.total_messages} />
+                </div>
+            )}
+        </div>
+    );
 }

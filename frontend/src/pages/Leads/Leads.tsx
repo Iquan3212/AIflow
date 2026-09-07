@@ -65,7 +65,7 @@ function AddLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
                             id={field}
                             value={form[field]}
                             onChange={(e) => setForm((f) => ({ ...f, [field]: e.target.value }))}
-                            className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                            className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
                         />
                     </div>
                 ))}
@@ -175,14 +175,14 @@ export default function Leads() {
                         onChange={(e) => setSearch(e.target.value)}
                         placeholder="Search by name, phone, service…"
                         aria-label="Search leads"
-                        className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2 text-sm outline-none focus:border-indigo-500"
+                        className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2 text-sm outline-none focus:border-brand-500"
                     />
                 </div>
                 <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value as LeadStatus | "all")}
                     aria-label="Filter by status"
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500"
                 >
                     <option value="all">All statuses</option>
                     {LEAD_STATUSES.map((s) => (
@@ -236,7 +236,7 @@ export default function Leads() {
                                                 value={lead.status}
                                                 onChange={(e) => handleStatusChange(lead, e.target.value as LeadStatus)}
                                                 aria-label={`Status for ${lead.name ?? "lead"}`}
-                                                className="rounded-md border-0 bg-transparent text-xs font-medium focus:ring-1 focus:ring-indigo-500"
+                                                className="rounded-md border-0 bg-transparent text-xs font-medium focus:ring-1 focus:ring-brand-500"
                                             >
                                                 {LEAD_STATUSES.map((s) => (
                                                     <option key={s} value={s}>

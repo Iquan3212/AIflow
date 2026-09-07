@@ -90,7 +90,7 @@ export default function Dashboard() {
                                             />
                                             <YAxis allowDecimals={false} fontSize={12} width={28} />
                                             <Tooltip labelFormatter={(d) => new Date(d as string).toLocaleDateString()} />
-                                            <Line dataKey="count" stroke="#4f46e5" strokeWidth={2} dot={false} />
+                                            <Line dataKey="count" stroke="#7c1ff0" strokeWidth={2} dot={false} />
                                         </LineChart>
                                     </ResponsiveContainer>
                                 </div>
@@ -129,7 +129,7 @@ export default function Dashboard() {
                     <Card className="p-5">
                         <div className="flex items-center justify-between mb-4">
                             <h2 className="text-sm font-semibold text-slate-700">Recent leads</h2>
-                            <button onClick={() => navigate("/leads")} className="text-sm text-indigo-600 hover:underline">
+                            <button onClick={() => navigate("/leads")} className="text-sm text-brand-600 font-medium hover:text-brand-700">
                                 View all
                             </button>
                         </div>

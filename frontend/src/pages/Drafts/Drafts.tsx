@@ -79,7 +79,7 @@ export default function Drafts() {
                     value={kindFilter}
                     onChange={(e) => setKindFilter(e.target.value as DraftKind | "all")}
                     aria-label="Filter by type"
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500"
                 >
                     <option value="all">All types</option>
                     <option value="quotation">Finance — Quotations</option>
@@ -122,7 +122,7 @@ export default function Drafts() {
                                             value={draft.status}
                                             onChange={(e) => handleStatusChange(draft, e.target.value as DraftStatus)}
                                             aria-label="Update status"
-                                            className="rounded-md border border-slate-300 text-xs px-2 py-1 focus:border-indigo-500 outline-none"
+                                            className="rounded-md border border-slate-300 text-xs px-2 py-1 focus:border-brand-500 outline-none"
                                         >
                                             {DRAFT_STATUSES.map((s) => (
                                                 <option key={s} value={s}>

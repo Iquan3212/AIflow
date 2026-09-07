@@ -50,11 +50,11 @@ export default function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
                 <button
                     type="button"
                     onClick={() => setMenuOpen((v) => !v)}
-                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-100"
+                    className="flex items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-slate-100 transition-colors"
                     aria-haspopup="menu"
                     aria-expanded={menuOpen}
                 >
-                    <span className="w-8 h-8 rounded-full bg-indigo-600 text-white text-sm font-semibold flex items-center justify-center">
+                    <span className="w-8 h-8 rounded-full bg-brand-600 text-white text-sm font-semibold flex items-center justify-center">
                         {loading ? "…" : initial}
                     </span>
                     <span className="hidden sm:block text-sm font-medium text-slate-700 max-w-[10rem] truncate">
@@ -66,16 +66,17 @@ export default function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
                 {menuOpen && (
                     <div
                         role="menu"
-                        className="absolute right-0 mt-2 w-48 rounded-lg border border-slate-200 bg-white shadow-lg py-1 z-20"
+                        className="absolute right-0 mt-2 w-52 rounded-2xl border border-slate-200/80 bg-white shadow-lifted py-1.5 z-20"
                     >
-                        <div className="px-3 py-2 border-b border-slate-100">
+                        <div className="px-3.5 py-2.5 border-b border-slate-100">
                             <p className="text-xs text-slate-400">Plan</p>
                             <p className="text-sm font-medium text-slate-700">{business?.plan?.toUpperCase() ?? "—"}</p>
                         </div>
                         <button
                             role="menuitem"
                             onClick={handleLogout}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                            className="w-full flex items-center gap-2 px-3.5 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-lg mx-1 mt-1 transition-colors"
+                            style={{ width: "calc(100% - 0.5rem)" }}
                         >
                             <LogOut size={16} />
                             Log out

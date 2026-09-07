@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { Send } from "lucide-react";
+
+import Button from "../ui/Button";
 
 type Props = {
     onSend: (message: string) => void;
@@ -15,9 +18,12 @@ export default function MessageInput({ onSend }: Props) {
     }
 
     return (
-        <div className="border-t p-5 flex gap-4">
-
+        <div className="border-t border-slate-100 p-4 flex gap-3">
+            <label htmlFor="conversation-message" className="sr-only">
+                Message
+            </label>
             <input
+                id="conversation-message"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyDown={(e) => {
@@ -25,17 +31,14 @@ export default function MessageInput({ onSend }: Props) {
                         handleSend();
                     }
                 }}
-                placeholder="Type your message..."
-                className="flex-1 border rounded-xl px-5 py-3 outline-none"
+                placeholder="Type your message…"
+                className="flex-1 border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none transition-colors focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10"
             />
 
-            <button
-                onClick={handleSend}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-xl"
-            >
+            <Button onClick={handleSend} aria-label="Send message">
+                <Send size={16} />
                 Send
-            </button>
-
+            </Button>
         </div>
     );
 }
