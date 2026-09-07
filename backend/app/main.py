@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
@@ -170,6 +170,51 @@ app.add_exception_handler(RateLimitExceeded, log_rate_limit_exceeded)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(RequestContextMiddleware)
 
+
+def _is_public_widget_path(path: str) -> bool:
+    """The handful of unauthenticated endpoints the embeddable widget
+    (widget/widget.js) calls from an arbitrary CUSTOMER website - a
+    WordPress site, Shopify store, static HTML page, anything (see
+    ARCHITECTURE.md). These carry no bearer token or cookie, so unlike
+    the dashboard API there is no fixed set of origins to allow-list:
+    every business using AIFlow embeds the widget on its own different
+    domain. `GET /conversation/` (list conversations, no trailing
+    segment) is deliberately excluded - that one requires a bearer token
+    and must stay behind the restricted origin list below."""
+    return (
+        path == "/conversation/send"
+        or path == "/chat"
+        or (path.startswith("/conversation/") and path.endswith("/welcome"))
+        or (path.startswith("/chat/") and path.endswith("/welcome"))
+    )
+
+
+class DualCORSMiddleware:
+    """Two CORS policies in one app, dispatched by path - reuses Starlette's
+    own `CORSMiddleware` for both instead of reimplementing CORS semantics
+    (preflight, Vary, max-age) by hand:
+
+    - The public widget endpoints (`_is_public_widget_path`) accept any
+      origin, with credentials off - they're unauthenticated and carry no
+      session state to protect, and a fixed allow-list can't enumerate
+      every customer's embed domain.
+    - Everything else (the authenticated dashboard API, called only from
+      this deployment's own Vercel frontend) keeps the strict
+      `ALLOWED_ORIGINS` allow-list with credentials on, unchanged from
+      before this sub-phase.
+    """
+
+    def __init__(self, app, restricted_kwargs: dict, public_kwargs: dict):
+        self.public_app = CORSMiddleware(app, **public_kwargs)
+        self.restricted_app = CORSMiddleware(app, **restricted_kwargs)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and _is_public_widget_path(scope["path"]):
+            await self.public_app(scope, receive, send)
+        else:
+            await self.restricted_app(scope, receive, send)
+
+
 # In development, two things need to be more permissive than a fixed
 # ALLOWED_ORIGINS list:
 #   1. Vite falls back to the next free port whenever 5173 is already taken
@@ -182,17 +227,28 @@ app.add_middleware(RequestContextMiddleware)
 #      than a host:port pattern.
 # Production still only trusts the explicit ALLOWED_ORIGINS list from the
 # environment, since app_env there won't be "development".
-cors_kwargs = {
+restricted_cors_kwargs = {
     "allow_origins": settings.cors_origins(),
     "allow_credentials": True,
     "allow_methods": ["*"],
     "allow_headers": ["*"],
 }
 if settings.app_env == "development":
-    cors_kwargs["allow_origins"] = [*cors_kwargs["allow_origins"], "null"]
-    cors_kwargs["allow_origin_regex"] = r"http://(localhost|127\.0\.0\.1):\d+"
+    restricted_cors_kwargs["allow_origins"] = [*restricted_cors_kwargs["allow_origins"], "null"]
+    restricted_cors_kwargs["allow_origin_regex"] = r"http://(localhost|127\.0\.0\.1):\d+"
 
-app.add_middleware(CORSMiddleware, **cors_kwargs)
+public_widget_cors_kwargs = {
+    "allow_origins": ["*"],
+    "allow_credentials": False,
+    "allow_methods": ["GET", "POST", "OPTIONS"],
+    "allow_headers": ["*"],
+}
+
+app.add_middleware(
+    DualCORSMiddleware,
+    restricted_kwargs=restricted_cors_kwargs,
+    public_kwargs=public_widget_cors_kwargs,
+)
 
 # Register all routers (once each).
 app.include_router(auth.router)
@@ -217,4 +273,26 @@ def root():
 
 @app.get("/health")
 def health_check():
+    """Liveness only: is the process up and able to answer at all? No
+    dependencies (DB, LLM, external APIs) are touched, so this always
+    responds in milliseconds and never fails because something else is
+    down - exactly what a platform's liveness/restart check should probe.
+    Point Railway/Render's health check at this path."""
     return {"status": "ok"}
+
+
+@app.get("/health/ready")
+async def readiness_check():
+    """Readiness: can this instance actually serve real traffic right now?
+    Checks the database with a bounded timeout so a stalled connection
+    (e.g. a Neon cold start or network blip - both observed during this
+    project's own testing) reports 503 in ~3s instead of hanging or being
+    mistaken for a crash. Never exposes connection details or secrets -
+    only ok/not-ok. Use this for deploy-gating or dependency-aware
+    monitoring; use /health for the platform's basic liveness probe."""
+    try:
+        await asyncio.wait_for(run_in_threadpool(_db_check), timeout=3.0)
+        return {"status": "ready", "database": "ok"}
+    except Exception:
+        logger.warning("app.readiness_check.failed", extra={"ctx": {"event": "app.readiness_check.failed"}})
+        return JSONResponse({"status": "not_ready", "database": "unreachable"}, status_code=503)

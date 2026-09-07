@@ -21,15 +21,16 @@ from reality before this pass).
 | **Production hardening, sub-phase 1 — Rate limiting**: the public chat endpoint (`POST /conversation/send` + legacy `/chat` alias) and the auth endpoints (`POST /auth/login`, `POST /auth/signup`) are throttled per client IP (`backend/app/rate_limit.py`, `slowapi`); exceeding a limit returns `429` | ✅ |
 | **Production hardening, sub-phase 2 — Prompt-injection resistance**: every persona-driven system prompt (all 6 AI Workforce employees, the Manager, the public widget, `QuotationTool`/`CampaignTool`) is built through a shared guard (`backend/app/agents/prompt_guard.py`) that treats all business/customer/tool-derived content as data, fences it with explicit delimiters, adds a reinforcement reminder on suspicious turns, and backstops replies against verbatim system-prompt leakage | ✅ |
 | **Production hardening, sub-phase 3 — Structured logging/observability**: every log in the app goes through `backend/app/logging_config.py` (JSON in production, readable text in dev), every HTTP request gets a correlation id (`X-Request-ID`) that automatically stamps every log emitted anywhere during that request - HTTP → Manager → Planner → Employee → ToolRouter → Tool → LLM/DB - via a context-var filter, and every `print()` in the backend was replaced with leveled, structured logging | ✅ |
+| **Production hardening, sub-phase 4 — Deployment configuration**: repo-side config for Railway/Render (backend, `backend/Procfile`) + Vercel (frontend, `frontend/vercel.json` for SPA routing) is complete and tested - dual CORS policy (public widget vs. restricted dashboard), a DB-aware `/health/ready` alongside the dependency-free `/health`, and the full runbook in `DEPLOYMENT.md`. **Not yet actually deployed** - no cloud credentials were available to this session; see `DEPLOYMENT.md` for the exact manual console steps still required | ✅ (repo-side) |
 
 ## Deliberately not built yet, and why
 
 - **Notifications settings** — email/SMS/WhatsApp sending already works
   (`services/notifications/`), but there's no per-channel preference storage
   to build a settings UI around yet.
-- **Deploy config** — the last remaining sub-phase of Production hardening
-  (see below); rate limiting, prompt-injection resistance, and structured
-  logging/observability are all done.
+- **Actually deploying to Railway/Render/Vercel** — the configuration is
+  done and tested (see Done table above and `DEPLOYMENT.md`); executing it
+  requires a human with the real cloud accounts.
 
 ## Security status (checked each phase, not yet fully resolved)
 
@@ -48,11 +49,11 @@ from reality before this pass).
 Every AI Workforce employee has real, persisted output, and schema changes
 are now safe to make. What's left is production-readiness work:
 
-1. **Production hardening** — rate limiting (✅ done), prompt-injection
-   resistance (✅ done), and structured logging/observability (✅ done, see
-   Done table above); deploy config (Railway/Render + Vercel) is the one
-   remaining sub-phase. As anticipated, this was split into its own
-   sub-phases rather than landing as one.
+1. **Production hardening** — rate limiting, prompt-injection resistance,
+   structured logging/observability, and deployment configuration are all
+   ✅ done (see Done table above). As anticipated, this was split into its
+   own sub-phases rather than landing as one. The repo is deploy-ready;
+   actually deploying it is a manual cloud-console step (`DEPLOYMENT.md`).
 2. **WhatsApp/Instagram channels** — the chatbot engine is channel-agnostic
    already; each new channel is an adapter, not a rewrite. Gates on Meta
    Business verification, which runs on Meta's timeline.

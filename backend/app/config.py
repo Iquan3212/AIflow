@@ -20,6 +20,11 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
 
+    # Vestigial: nothing in the app currently reads this. It is NOT wired
+    # to FastAPI/Starlette's own debug mode (verbose tracebacks to the
+    # client), which is hardcoded off in main.py's `FastAPI(...)` call
+    # regardless of this value - that is the actually security-relevant
+    # setting, and it is off in every environment on purpose.
     debug: bool = True
 
     app_url: str = "http://localhost:8000"

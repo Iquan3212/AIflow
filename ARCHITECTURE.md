@@ -239,7 +239,50 @@ transparently refreshes on 401, and redirects to login when refresh fails).
 Reusable primitives live in `components/ui/` (`Button`, `Badge`, `Card`,
 `StatCard`, `Modal`, `PageHeader`, loading/empty/error states). Every
 data-driven page renders real loading, empty, and error states — no page
-shows placeholder data while waiting on a request.
+shows placeholder data while waiting on a request. A top-level
+`ErrorBoundary` (`components/ErrorBoundary.tsx`) wraps the whole app as a
+last-resort fallback for an unexpected render crash, separate from the
+per-page loading/error/empty states, which handle expected data-fetch
+failures.
+
+## Deployment (production hardening sub-phase 4)
+
+Full runbook: `DEPLOYMENT.md`. Summary of the repo-side configuration:
+
+- **Backend** (Railway or Render): `backend/Procfile` (`web: uvicorn
+  app.main:app --host 0.0.0.0 --port $PORT`) is the only deployment file -
+  no Dockerfile, since both platforms build a plain `requirements.txt`
+  Python app natively. No Redis/Celery - nothing in this app needs a queue
+  or shared cache; rate limiting's in-memory store is a documented
+  single-instance assumption (see "Security notes" and `DEPLOYMENT.md`'s
+  "Scaling note").
+- **Frontend** (Vercel): `frontend/vercel.json` adds the SPA rewrite
+  (`react-router-dom`'s `BrowserRouter` needs every path to serve
+  `index.html`); Vite's own build (`npm run build` → `dist/`) is otherwise
+  auto-detected. `VITE_API_URL` must be set as a Vercel project env var
+  before building - Vite bakes it in at build time.
+- **CORS split** (`main.py`, `DualCORSMiddleware`): the public widget
+  endpoints (`POST /conversation/send`, `POST /chat`, and their
+  `*/welcome` routes) accept any origin with credentials off, since the
+  widget is embedded on arbitrary third-party customer websites with no
+  fixed origin list to enumerate and no session state to protect. Every
+  other endpoint (the authenticated dashboard API) keeps the strict
+  `ALLOWED_ORIGINS` allow-list, credentials on, unchanged from before this
+  sub-phase. `GET /conversation/` (list, auth-required) is deliberately
+  excluded from the public policy despite sharing a path prefix with the
+  public `GET /conversation/{slug}/welcome`.
+- **Health checks**: `GET /health` (liveness - no dependencies, always
+  fast; point the platform's health check here) and `GET /health/ready`
+  (readiness - a bounded 3s DB check, `503` if unreachable) are now
+  separate, per platform convention.
+- **Migrations**: still Alembic-only (Phase 8), run manually
+  (`alembic upgrade head`) against production `DATABASE_URL` - never
+  automatically on boot. `DEPLOYMENT.md` documents the exact order of
+  operations.
+- **Not actually deployed**: this session had no Railway/Render/Vercel/
+  Neon credentials. Every piece above was built and tested locally
+  against the real backend/database; the cloud-console steps in
+  `DEPLOYMENT.md` still need a human to execute.
 
 ## Security notes
 
@@ -298,4 +341,7 @@ shows placeholder data while waiting on a request.
   production formatting, what's logged, what's never logged). Every
   backend `print()` was removed; every previously-silent exception in the
   AI Workforce/tool/integration layer now logs once with context.
-- ⬜ No deploy config (Railway/Render + Vercel) yet.
+- ✅ **Deployment configuration** (production hardening sub-phase 4) - see
+  the "Deployment" section above and `DEPLOYMENT.md`. Repo-side config
+  only; not yet actually deployed to any cloud platform (no credentials
+  available to this session).

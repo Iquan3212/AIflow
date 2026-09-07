@@ -42,13 +42,11 @@ export function BusinessProvider({
 
             const data = await getCurrentBusiness();
 
-            console.log("✅ Business Loaded:", data);
-
             setBusiness(data);
 
         } catch (err) {
 
-            console.error("❌ Business Load Failed:", err);
+            console.error("Business load failed:", err);
 
             setBusiness(null);
 

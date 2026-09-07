@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 
 import App from "./App";
 
+import ErrorBoundary from "./components/ErrorBoundary";
 import { AuthProvider } from "./context/AuthContext";
 import { BusinessProvider } from "./context/BusinessContext";
 
@@ -14,15 +15,19 @@ ReactDOM.createRoot(
 
     <React.StrictMode>
 
-        <AuthProvider>
+        <ErrorBoundary>
 
-            <BusinessProvider>
+            <AuthProvider>
 
-                <App />
+                <BusinessProvider>
 
-            </BusinessProvider>
+                    <App />
 
-        </AuthProvider>
+                </BusinessProvider>
+
+            </AuthProvider>
+
+        </ErrorBoundary>
 
     </React.StrictMode>
 
