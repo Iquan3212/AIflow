@@ -82,8 +82,21 @@ class Settings(BaseSettings):
     # read as a fallback by the Groq adapter when GROQ_API_KEY/
     # GROQ_BASE_URL aren't set, so an existing .env keeps working
     # unchanged. New setups should use GROQ_API_KEY directly.
+    #
+    # llm_base_url must default to "" like every other optional provider
+    # field, not a real endpoint - factory.py's Groq branch falls back to
+    # it (`groq_base_url or llm_base_url or _GROQ_BASE_URL`) whenever
+    # GROQ_BASE_URL isn't set. A truthy default here (this used to be
+    # "https://api.openai.com/v1", the pre-multi-provider single-URL
+    # field's sensible standalone default) short-circuits that chain
+    # before it ever reaches _GROQ_BASE_URL, silently pointing Groq
+    # requests at OpenAI's real endpoint instead - confirmed live: this
+    # was only ever masked because .env happened to also set
+    # LLM_BASE_URL to Groq's endpoint explicitly; removing that legacy
+    # line (a clean provider-switch .env has no reason to keep it)
+    # exposed the bug immediately.
     llm_api_key: str = ""
-    llm_base_url: str = "https://api.openai.com/v1"
+    llm_base_url: str = ""
 
     groq_api_key: str = ""
     groq_base_url: str = ""  # blank = Groq's real endpoint (see factory.py)

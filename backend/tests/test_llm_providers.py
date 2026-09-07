@@ -50,7 +50,7 @@ def _settings(**overrides) -> SimpleNamespace:
         llm_fallback_provider="",
         llm_model="test-model",
         llm_api_key="",
-        llm_base_url="https://api.openai.com/v1",
+        llm_base_url="",  # real default (config.py) - see test_groq_default_base_url_is_groqs_not_openais
         groq_api_key="",
         groq_base_url="",
         gemini_api_key="",
@@ -366,6 +366,21 @@ class TestFactory:
         settings = _settings(llm_provider="groq", groq_api_key="", llm_api_key="")
         with pytest.raises(ProviderNotConfiguredError):
             create_llm_provider(settings)
+
+    def test_groq_default_base_url_is_groqs_not_openais(self):
+        """Regression: llm_base_url (the legacy fallback field) used to
+        default to "https://api.openai.com/v1" - truthy, so
+        `groq_base_url or llm_base_url or _GROQ_BASE_URL` picked it before
+        ever reaching _GROQ_BASE_URL, silently pointing Groq at OpenAI's
+        real endpoint whenever LLM_BASE_URL wasn't explicitly set to
+        Groq's URL in .env. Reproduced live when a clean .env (correctly)
+        stopped setting that legacy field. llm_base_url must default to
+        "" like every other optional provider field."""
+        settings = _settings(llm_provider="groq", groq_api_key="gk", llm_base_url="")
+        with patch("app.services.llm.openai_compatible.OpenAI") as MockOpenAI:
+            create_llm_provider(settings)
+            _, kwargs = MockOpenAI.call_args
+            assert kwargs["base_url"] == "https://api.groq.com/openai/v1"
 
     def test_gemini_selected_correctly(self):
         settings = _settings(llm_provider="gemini", gemini_api_key="gem-key")
