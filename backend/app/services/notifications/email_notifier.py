@@ -11,9 +11,11 @@ import smtplib
 from email.message import EmailMessage
 
 from app.config import get_settings
+from app.logging_config import get_logger
 from .base import Notification, NotifyResult
 
 settings = get_settings()
+logger = get_logger(__name__)
 
 
 class EmailNotifier:
@@ -24,7 +26,14 @@ class EmailNotifier:
 
     def send(self, note: Notification) -> NotifyResult:
         if not self.is_configured():
-            print(f"[EMAIL:dev] to={note.to} subject={note.subject!r}\n{note.body}\n")
+            # Dev/test fallback - SMTP isn't configured, so this log line IS
+            # the delivery mechanism (lets a developer verify the booking/
+            # reminder flow end-to-end without real SMTP creds). Never
+            # reachable in production once SMTP_HOST/SMTP_FROM are set.
+            logger.info("notification.dev_logged", extra={"ctx": {
+                "event": "notification.dev_logged", "channel": self.channel,
+                "to": note.to, "subject": note.subject, "body": note.body,
+            }})
             return NotifyResult(True, self.channel, "logged (SMTP not configured)")
         try:
             msg = EmailMessage()
@@ -40,5 +49,7 @@ class EmailNotifier:
                 s.send_message(msg)
             return NotifyResult(True, self.channel, "sent")
         except Exception as exc:  # never let a notification failure break booking
-            print(f"[EMAIL:error] {exc}")
+            logger.exception("integration.email.send_failed", extra={"ctx": {
+                "event": "integration.email.send_failed", "channel": self.channel, "to": note.to,
+            }})
             return NotifyResult(False, self.channel, str(exc))

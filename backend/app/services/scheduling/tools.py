@@ -13,8 +13,11 @@ import json
 from sqlalchemy.orm import Session
 
 from app import models
+from app.logging_config import get_logger
 from app.services.scheduling.appointment_service import AppointmentService
 from app.services.scheduling.datetime_utils import to_local, humanize, now_utc, get_tz
+
+logger = get_logger(__name__)
 
 
 def tool_definitions() -> list[dict]:
@@ -112,8 +115,8 @@ class ToolDispatcher:
             if handler is None:
                 return json.dumps({"error": f"unknown tool {name}"})
             return handler(args)
-        except Exception as exc:  # tool errors must never crash the chat turn
-            print(f"[tool:{name}:error] {exc}")
+        except Exception:  # tool errors must never crash the chat turn
+            logger.exception("tool.execution_failed", extra={"ctx": {"event": "tool.execution_failed", "tool": name, "channel": "widget"}})
             return json.dumps({"ok": False, "error": "internal_error"})
 
     # ---- handlers -----------------------------------------------------------

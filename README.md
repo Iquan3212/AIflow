@@ -57,6 +57,15 @@ alembic upgrade head
 
 Visit `http://localhost:8000/docs` for interactive API docs.
 
+**Logging**: controlled by `APP_ENV` (already required for CORS - see
+`ARCHITECTURE.md`) and `LOG_LEVEL` (optional, default `INFO`). In
+development you get readable text logs to stdout; set `APP_ENV=production`
+for structured JSON logs (what Railway/Render and most log aggregators
+expect). Every response carries an `X-Request-ID` header - grep the logs
+for that id to trace one request through the whole AI Workforce pipeline.
+See `ARCHITECTURE.md#logging--observability-backendapploggingconfigpy` for
+the full design.
+
 ### 2. Frontend
 
 ```bash

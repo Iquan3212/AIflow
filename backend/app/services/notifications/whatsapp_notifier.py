@@ -14,9 +14,11 @@ import json
 import urllib.request
 
 from app.config import get_settings
+from app.logging_config import get_logger
 from .base import Notification, NotifyResult
 
 settings = get_settings()
+logger = get_logger(__name__)
 
 
 class WhatsAppNotifier:
@@ -27,7 +29,11 @@ class WhatsAppNotifier:
 
     def send(self, note: Notification) -> NotifyResult:
         if not self.is_configured():
-            print(f"[WHATSAPP:dev] to={note.to}\n{note.body}\n")
+            # Dev/test fallback - see email_notifier.py for why this is safe.
+            logger.info("notification.dev_logged", extra={"ctx": {
+                "event": "notification.dev_logged", "channel": self.channel,
+                "to": note.to, "body": note.body,
+            }})
             return NotifyResult(True, self.channel, "logged (WhatsApp not configured)")
         try:
             url = f"https://graph.facebook.com/v20.0/{settings.whatsapp_phone_id}/messages"
@@ -50,5 +56,7 @@ class WhatsAppNotifier:
                 resp.read()
             return NotifyResult(True, self.channel, "sent")
         except Exception as exc:
-            print(f"[WHATSAPP:error] {exc}")
+            logger.exception("integration.whatsapp.send_failed", extra={"ctx": {
+                "event": "integration.whatsapp.send_failed", "channel": self.channel, "to": note.to,
+            }})
             return NotifyResult(False, self.channel, str(exc))

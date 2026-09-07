@@ -1,11 +1,14 @@
 import json
 import re
+import time
 
 from openai import OpenAI
 
 from app.config import get_settings
+from app.logging_config import get_logger
 
 settings = get_settings()
+logger = get_logger(__name__)
 
 client = OpenAI(
     api_key=settings.llm_api_key,
@@ -48,22 +51,30 @@ Customer message:
 {message}
 """
 
-    response = client.chat.completions.create(
-        model=settings.llm_model,
-        temperature=0,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
-    )
+    start = time.perf_counter()
+    try:
+        response = client.chat.completions.create(
+            model=settings.llm_model,
+            temperature=0,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+        )
+    except Exception:
+        logger.exception("llm.call_failed", extra={"ctx": {
+            "event": "llm.call_failed", "operation": "extract_lead_information",
+            "duration_ms": round((time.perf_counter() - start) * 1000, 1), "success": False,
+        }})
+        raise
 
     content = response.choices[0].message.content.strip()
-
-    print("\n========== LLM RESPONSE ==========")
-    print(content)
-    print("==================================\n")
+    logger.info("llm.call_completed", extra={"ctx": {
+        "event": "llm.call_completed", "operation": "extract_lead_information",
+        "duration_ms": round((time.perf_counter() - start) * 1000, 1), "success": True,
+    }})
 
     # Remove markdown fences if present
     content = re.sub(r"^```json", "", content, flags=re.IGNORECASE).strip()
@@ -74,9 +85,12 @@ Customer message:
         return json.loads(content)
 
     except json.JSONDecodeError:
-
-        print("Invalid JSON received:")
-        print(content)
+        # Logged at debug, not info/warning: content here is customer-
+        # extracted PII (name/phone/email) - only surfaced when actually
+        # needed to diagnose a real parsing failure, never on the happy path.
+        logger.debug("lead_extraction.invalid_json", extra={"ctx": {
+            "event": "lead_extraction.invalid_json", "raw_content_length": len(content),
+        }})
 
         return {
             "buying_intent": False,

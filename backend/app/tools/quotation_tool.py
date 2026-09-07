@@ -8,8 +8,11 @@ from app.agents.prompt_guard import (
     leaks_system_prompt,
     SAFE_FALLBACK_REPLY,
 )
+from app.logging_config import get_logger
 from app.services.draft_service import DraftService
 from app.services.llm_client import chat_completion
+
+logger = get_logger(__name__)
 
 
 class QuotationTool:
@@ -54,11 +57,11 @@ plainly that it isn't offered instead of guessing a price or availability.""")
                 completion = chat_completion(messages)
                 draft = (completion.content or "").strip()
                 break
-            except Exception as exc:
-                print(f"[quotation-tool:error attempt={attempt}] {exc}")
+            except Exception:
+                logger.warning("llm.retry", extra={"ctx": {"event": "llm.retry", "tool": "quotation", "attempt": attempt}}, exc_info=True)
 
         if draft and leaks_system_prompt(draft, system_prompt):
-            print("[quotation-tool:prompt-guard] draft looked like a system-prompt leak, replaced with fallback")
+            logger.warning("prompt_guard.leak_detected", extra={"ctx": {"event": "prompt_guard.leak_detected", "tool": "quotation"}})
             draft = SAFE_FALLBACK_REPLY
 
         draft_id = None

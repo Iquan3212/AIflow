@@ -13,10 +13,13 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from app import models
+from app.logging_config import get_logger
 from app.repositories.appointment_repository import AppointmentRepository
 from app.services.calendar.factory import get_calendar_for
 from app.services.calendar.base import CalendarEvent
 from app.services.notifications.dispatcher import NotificationDispatcher
+
+logger = get_logger(__name__)
 
 from .availability import Rules, DayHours, Interval, check_slot, generate_slots
 from .datetime_utils import parse_local_iso, to_local, humanize, get_tz, now_utc
@@ -278,24 +281,30 @@ class AppointmentService:
                 appt.calendar_provider = cal.provider
                 appt.calendar_event_id = event_id
                 self.repo.save(appt)
-        except Exception as exc:
-            print(f"[calendar:create:error] {exc}")
+        except Exception:
+            logger.exception("integration.calendar.create_failed", extra={"ctx": {
+                "event": "integration.calendar.create_failed", "business_id": business.id, "appointment_id": appt.id,
+            }})
 
     def _sync_calendar_update(self, business, appt):
         if not appt.calendar_event_id:
             return
         try:
             get_calendar_for(business, self.db).update_event(business, appt.calendar_event_id, self._event(business, appt))
-        except Exception as exc:
-            print(f"[calendar:update:error] {exc}")
+        except Exception:
+            logger.exception("integration.calendar.update_failed", extra={"ctx": {
+                "event": "integration.calendar.update_failed", "business_id": business.id, "appointment_id": appt.id,
+            }})
 
     def _sync_calendar_delete(self, business, appt):
         if not appt.calendar_event_id:
             return
         try:
             get_calendar_for(business, self.db).delete_event(business, appt.calendar_event_id)
-        except Exception as exc:
-            print(f"[calendar:delete:error] {exc}")
+        except Exception:
+            logger.exception("integration.calendar.delete_failed", extra={"ctx": {
+                "event": "integration.calendar.delete_failed", "business_id": business.id, "appointment_id": appt.id,
+            }})
 
     def _send_confirmation(self, business, appt):
         when = humanize(appt.scheduled_at, business.timezone)

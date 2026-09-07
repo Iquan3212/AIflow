@@ -1,8 +1,12 @@
+import time
 from typing import Any, Dict, List, Optional
 
 from app.agents.llm_reply import facts_context, generate_employee_reply
 from app.agents.memory import ConversationMemory
 from app.agents.registry import Registry
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class ManagerAgent:
@@ -45,9 +49,16 @@ specialist employees."""
         """
         employee_results: Dict[str, Dict[str, Any]] = {}
 
+        logger.info("manager.delegate", extra={"ctx": {
+            "event": "manager.delegate",
+            "intent": getattr(plan, "intent", None),
+            "employees": list(getattr(plan, "employees", []) or ["manager"]),
+        }})
+
         for emp in getattr(plan, "employees", []) or ["manager"]:
             employee_instance = self.registry.get_employee(emp)
             if employee_instance is None:
+                logger.warning("employee.not_registered", extra={"ctx": {"event": "employee.not_registered", "employee": emp}})
                 employee_results[emp] = {"reply": "", "tool_result": None, "error": "employee_not_registered"}
                 continue
 
@@ -57,6 +68,7 @@ specialist employees."""
             respond_fn = getattr(employee_instance, "respond", None)
             analyze_fn = getattr(employee_instance, "analyze", None)
             handle_fn = getattr(employee_instance, "handle", None)
+            start = time.perf_counter()
             try:
                 if callable(respond_fn):
                     result = respond_fn(message, history, self.tool_router)
@@ -66,7 +78,17 @@ specialist employees."""
                     result = handle_fn(message=message, history=history)
                 else:
                     result = {"reply": "", "tool_result": None}
+                logger.info("employee.executed", extra={"ctx": {
+                    "event": "employee.executed", "employee": emp,
+                    "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+                    "success": True,
+                }})
             except Exception as exc:
+                logger.exception("employee.execution_failed", extra={"ctx": {
+                    "event": "employee.execution_failed", "employee": emp,
+                    "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+                    "success": False,
+                }})
                 result = {"reply": "", "tool_result": None, "error": str(exc)}
 
             # Normalize result

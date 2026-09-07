@@ -21,8 +21,10 @@ from datetime import datetime, timedelta, timezone
 from jose import jwt
 
 from app.config import get_settings
+from app.logging_config import get_logger
 
 settings = get_settings()
+logger = get_logger(__name__)
 
 AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
@@ -46,9 +48,11 @@ def read_state(state: str) -> str | None:
     try:
         payload = jwt.decode(state, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
         if payload.get("purpose") != "google_calendar_oauth":
+            logger.warning("integration.google_oauth.wrong_state_purpose", extra={"ctx": {"event": "integration.google_oauth.wrong_state_purpose"}})
             return None
         return payload.get("business_id")
     except Exception:
+        logger.warning("integration.google_oauth.invalid_state", extra={"ctx": {"event": "integration.google_oauth.invalid_state"}})
         return None
 
 

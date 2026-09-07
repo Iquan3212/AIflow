@@ -119,6 +119,76 @@ apart on its own, so `prompt_guard.py` makes the boundary explicit:
   `role: content` history joined into the system prompt) is now fenced the
   same way — previously it was string-concatenated with no framing at all.
 
+## Logging & observability (`backend/app/logging_config.py`)
+
+Production hardening sub-phase 3. Every module gets a logger the normal way
+(`get_logger(__name__)`, a thin wrapper over `logging.getLogger`); what
+makes it structured is two things layered on top of stdlib logging, not a
+new framework:
+
+- **Request correlation.** `RequestContextMiddleware` (`main.py`) generates
+  a correlation id for every HTTP request (or forwards an incoming
+  `X-Request-ID` header), returns it in the response's `X-Request-ID`
+  header, and stores it in a `contextvars.ContextVar`. `RequestIdFilter`
+  reads that contextvar and stamps it onto every `LogRecord` emitted during
+  that request - including ones logged deep inside Manager → Planner →
+  Employee → ToolRouter → Tool → LLM/DB calls that have no idea an HTTP
+  request is in progress, with no `request_id` parameter threaded through
+  any of those function signatures. Verified live: a single request's id
+  appears, in order, across `app.main` (start), `app.agents.manager_agent`
+  (routing decision), `app.agents.tool_router` (tool execution),
+  `app.services.llm_client` (the LLM call), and back to `app.main` (end)
+  - and this holds even though FastAPI runs sync route handlers (all of
+  this app's routes) in a thread-pool executor, because anyio's
+  `run_in_threadpool` copies the current `contextvars.Context` into the
+  worker thread.
+  - `RequestContextMiddleware` is deliberately a plain ASGI middleware
+    class, not `@app.middleware("http")` (Starlette's
+    `BaseHTTPMiddleware`, which `SlowAPIMiddleware` from sub-phase 1 is
+    already built on) - stacking a second `BaseHTTPMiddleware` produced a
+    confusing nested `ExceptionGroup` around the (correct, by-design)
+    Starlette behavior where a handler registered for the bare
+    `Exception` class lives only on the outermost `ServerErrorMiddleware`,
+    which sends its response and then always re-raises so the ASGI server
+    can log it too. A plain ASGI class avoids the extra nesting.
+- **Structured fields.** Call sites attach arbitrary key/value context via
+  `extra={"ctx": {...}}`, e.g. `logger.info("tool.executed", extra={"ctx":
+  {"tool": "lead", "employee": "sales", "success": True, "duration_ms":
+  42}})`. `JsonFormatter` (production) and `TextFormatter` (development)
+  both know how to render `record.ctx` without call sites needing to know
+  which format is active. Format is derived from `settings.app_env` - JSON
+  in production (what Railway/Render/any log-aggregator-backed host
+  wants), human-readable text everywhere else - the only other axis is
+  `LOG_LEVEL` (env var, default `INFO`).
+- **What's logged**: app startup/shutdown, a non-blocking DB connectivity
+  check at startup (fires as a background task, never gates boot - an
+  earlier version of this check awaited the connection directly and once
+  hung the entire startup for ~10 minutes on a transient Neon stall, since
+  fixed), every HTTP request (method/route/status/duration, never the
+  body or headers), auth success/failure (login/signup/refresh/authz),
+  rate-limit-exceeded events, Manager routing/delegation, per-employee and
+  per-tool execution (success/failure/duration), every LLM call
+  (model/message-count/duration/success - never the message content
+  itself), prompt-injection guard events (leak-detected, reinforcement
+  triggers), and external integration failures (Google Calendar,
+  email/SMS/WhatsApp notifications). Every previously-silent
+  `except Exception` in the AI Workforce/tool layer (`manager_agent.py`,
+  `tool_router.py`, `dashboard_tools.py`, the calendar/notification
+  integrations) now logs once with context instead of swallowing the
+  error, and every backend `print()` statement was removed in favor of
+  leveled logging.
+- **Never logged**: passwords, JWTs/access/refresh tokens, API keys,
+  database credentials, full `Authorization` headers, full request bodies,
+  system prompts, or raw LLM message content. `lead_ai_service.py`'s
+  extraction call previously printed the raw LLM response (containing
+  extracted customer name/phone/email) unconditionally on every call; it
+  now logs only success/duration, with the raw content surfaced at debug
+  level (length only) solely on a JSON-parse failure. The email/SMS/
+  WhatsApp notifiers' dev-mode fallback (no real provider configured) still
+  logs the full message body - that log line *is* the delivery mechanism
+  in that mode, by design, and it never fires once real credentials are
+  set.
+
 ## Database
 
 **PostgreSQL via SQLAlchemy, hosted on Neon.** `DATABASE_URL` is the only
@@ -222,5 +292,10 @@ shows placeholder data while waiting on a request.
   and against legitimate requests (services questions, lead capture, a
   benign use of the word "ignore", real Finance/Marketing requests) — all
   passed. Does not weaken or replace rate limiting (sub-phase 1).
-- ⬜ No structured logging/observability yet.
+- ✅ **Structured logging/observability** (`backend/app/logging_config.py`,
+  production hardening sub-phase 3) — see the "Logging & observability"
+  section above for the full design (request correlation, JSON-in-
+  production formatting, what's logged, what's never logged). Every
+  backend `print()` was removed; every previously-silent exception in the
+  AI Workforce/tool/integration layer now logs once with context.
 - ⬜ No deploy config (Railway/Render + Vercel) yet.

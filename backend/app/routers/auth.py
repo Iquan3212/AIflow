@@ -8,10 +8,12 @@ from app import models, schemas
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user
+from app.logging_config import get_logger
 from app.rate_limit import limiter, LOGIN_RATE_LIMIT, SIGNUP_RATE_LIMIT
 from app.security import create_access_token, create_refresh_token, decode_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = get_logger(__name__)
 
 settings = get_settings()
 
@@ -48,6 +50,7 @@ def _issue_tokens(db: Session, user: models.User, business: models.Business, req
 @limiter.limit(SIGNUP_RATE_LIMIT)
 def signup(payload: schemas.BusinessSignup, request: Request, db: Session = Depends(get_db)):
     if db.query(models.User).filter(models.User.email == payload.owner_email).first():
+        logger.warning("auth.signup_conflict", extra={"ctx": {"event": "auth.signup_conflict"}})
         raise HTTPException(status_code=400, detail="An account with this email already exists")
 
     base_slug = slugify(payload.business_name)
@@ -81,6 +84,7 @@ def signup(payload: schemas.BusinessSignup, request: Request, db: Session = Depe
     db.commit()
     db.refresh(user)
 
+    logger.info("auth.signup_success", extra={"ctx": {"event": "auth.signup_success", "business_id": business.id}})
     return _issue_tokens(db, user, business, request)
 
 
@@ -89,9 +93,11 @@ def signup(payload: schemas.BusinessSignup, request: Request, db: Session = Depe
 def login(payload: schemas.LoginRequest, request: Request, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == payload.email).first()
     if not user or not verify_password(payload.password, user.hashed_password):
+        logger.warning("auth.login_failed", extra={"ctx": {"event": "auth.login_failed"}})
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
     business = db.query(models.Business).filter(models.Business.id == user.business_id).first()
+    logger.info("auth.login_success", extra={"ctx": {"event": "auth.login_success", "business_id": user.business_id}})
     return _issue_tokens(db, user, business, request)
 
 
@@ -102,9 +108,11 @@ def refresh(payload: schemas.RefreshRequest, request: Request, db: Session = Dep
     try:
         decoded = decode_access_token(payload.refresh_token)
     except ValueError:
+        logger.warning("auth.refresh_invalid_token", extra={"ctx": {"event": "auth.refresh_invalid_token"}})
         raise unauthorized
 
     if decoded.get("type") != "refresh":
+        logger.warning("auth.refresh_wrong_token_type", extra={"ctx": {"event": "auth.refresh_wrong_token_type"}})
         raise unauthorized
 
     session = (
@@ -116,11 +124,13 @@ def refresh(payload: schemas.RefreshRequest, request: Request, db: Session = Dep
         .first()
     )
     if session is None or session.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        logger.warning("auth.refresh_expired_or_revoked", extra={"ctx": {"event": "auth.refresh_expired_or_revoked"}})
         raise unauthorized
 
     user = db.query(models.User).filter(models.User.id == session.user_id).first()
     business = db.query(models.Business).filter(models.Business.id == user.business_id).first() if user else None
     if user is None or business is None:
+        logger.warning("auth.refresh_user_or_business_missing", extra={"ctx": {"event": "auth.refresh_user_or_business_missing"}})
         raise unauthorized
 
     # Rotate: retire this refresh token, issue a fresh pair.

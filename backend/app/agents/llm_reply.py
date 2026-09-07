@@ -12,7 +12,10 @@ from app.agents.prompt_guard import (
     leaks_system_prompt,
     SAFE_FALLBACK_REPLY,
 )
+from app.logging_config import get_logger
 from app.services.llm_client import chat_completion
+
+logger = get_logger(__name__)
 
 # Matches ConversationMemory.summary_max_messages - the two systems should
 # agree on how much of a conversation counts as "recent", otherwise memory
@@ -123,15 +126,19 @@ def generate_employee_reply(
             completion = chat_completion(messages)
             reply = (completion.content or "").strip()
             break
-        except Exception as exc:
-            print(f"[{employee_name}:llm-error attempt={attempt}] {exc}")
+        except Exception:
+            logger.warning("llm.retry", extra={"ctx": {
+                "event": "llm.retry", "employee": employee_name, "attempt": attempt,
+            }}, exc_info=True)
 
     reply = reply or "Sorry, I couldn't process that just now. Could you try again?"
 
     # Backstop: even if the model was talked into reciting its instructions
     # despite CORE_GUARD, never let that leave this function.
     if leaks_system_prompt(reply, hardened_prompt):
-        print(f"[{employee_name}:prompt-guard] reply looked like a system-prompt leak, replaced with fallback")
+        logger.warning("prompt_guard.leak_detected", extra={"ctx": {
+            "event": "prompt_guard.leak_detected", "employee": employee_name,
+        }})
         reply = SAFE_FALLBACK_REPLY
 
     return reply

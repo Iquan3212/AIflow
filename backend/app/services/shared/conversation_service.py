@@ -15,6 +15,7 @@ logic instead of free-text date strings.
 """
 
 import json
+import time
 
 from sqlalchemy.orm import Session
 
@@ -40,6 +41,9 @@ from app.agents.prompt_guard import (
     leaks_system_prompt,
     SAFE_FALLBACK_REPLY,
 )
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 MAX_TOOL_ROUNDS = 4
 
@@ -186,7 +190,7 @@ def process_message(
     # despite the guard rules baked into system_prompt, never let that leave
     # this function.
     if leaks_system_prompt(reply_text, system_prompt):
-        print("[widget-chat:prompt-guard] reply looked like a system-prompt leak, replaced with fallback")
+        logger.warning("prompt_guard.leak_detected", extra={"ctx": {"event": "prompt_guard.leak_detected", "channel": "widget"}})
         reply_text = SAFE_FALLBACK_REPLY
 
     reply_text = orchestrator.after_llm(reply_text)
@@ -223,7 +227,12 @@ def _run_tool_loop(messages: list[dict], tools: list[dict], dispatcher: ToolDisp
                 args = json.loads(tc.function.arguments or "{}")
             except json.JSONDecodeError:
                 args = {}
+            start = time.perf_counter()
             result = dispatcher.run(tc.function.name, args)
+            logger.info("tool.executed", extra={"ctx": {
+                "event": "tool.executed", "tool": tc.function.name, "channel": "widget",
+                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+            }})
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
     final = chat_completion(messages, tools=None)

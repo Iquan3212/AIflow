@@ -20,7 +20,10 @@ from app import models
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_business
+from app.logging_config import get_logger
 from app.services.calendar import google_oauth
+
+logger = get_logger(__name__)
 
 settings = get_settings()
 router = APIRouter(prefix="/integrations", tags=["Integrations"])
@@ -68,8 +71,10 @@ def google_callback(
 
     try:
         tokens = google_oauth.exchange_code(code)
-    except Exception as exc:
-        print(f"[google:callback:error] {exc}")
+    except Exception:
+        logger.exception("integration.google_oauth.code_exchange_failed", extra={"ctx": {
+            "event": "integration.google_oauth.code_exchange_failed", "business_id": business_id,
+        }})
         return RedirectResponse(f"{frontend}/appointments?calendar=error")
 
     row = _get_row(db, business_id)

@@ -14,8 +14,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from app import models
+from app.logging_config import get_logger
 from app.services.calendar import google_oauth
 from .base import CalendarEvent
+
+logger = get_logger(__name__)
 
 
 class GoogleCalendarSync:
@@ -54,7 +57,7 @@ class GoogleCalendarSync:
         try:
             from google.oauth2.credentials import Credentials  # optional dep
         except ImportError:
-            print("[google:calendar] google-auth not installed; skipping sync")
+            logger.warning("integration.google_calendar.not_installed", extra={"ctx": {"event": "integration.google_calendar.not_installed"}})
             return None
 
         # Refresh if the stored access token is missing or expired.
@@ -67,8 +70,10 @@ class GoogleCalendarSync:
                     from datetime import timedelta
                     row.expiry = datetime.now(timezone.utc) + timedelta(seconds=int(fresh["expires_in"]))
                 self.db.commit()
-            except Exception as exc:
-                print(f"[google:calendar:refresh:error] {exc}")
+            except Exception:
+                logger.exception("integration.google_calendar.refresh_failed", extra={"ctx": {
+                    "event": "integration.google_calendar.refresh_failed", "business_id": business.id,
+                }})
                 return None
 
         return Credentials(
@@ -125,5 +130,7 @@ class GoogleCalendarSync:
             return
         try:
             service.events().delete(calendarId="primary", eventId=event_id).execute()
-        except Exception as exc:
-            print(f"[google:calendar:delete:error] {exc}")
+        except Exception:
+            logger.exception("integration.google_calendar.delete_failed", extra={"ctx": {
+                "event": "integration.google_calendar.delete_failed", "business_id": business.id,
+            }})

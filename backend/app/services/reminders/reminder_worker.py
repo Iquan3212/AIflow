@@ -16,15 +16,21 @@ from __future__ import annotations
 
 import sys
 
+from app.config import get_settings
 from app.database import SessionLocal
+from app.logging_config import configure_logging, get_logger
 from app.services.reminders.reminder_service import ReminderService
+
+_settings = get_settings()
+configure_logging(_settings.app_env, _settings.log_level)
+logger = get_logger(__name__)
 
 
 def run_once() -> int:
     db = SessionLocal()
     try:
         count = ReminderService(db).run_once()
-        print(f"[reminders] sent {count} reminder(s)")
+        logger.info("reminders.run_completed", extra={"ctx": {"event": "reminders.run_completed", "sent": count}})
         return count
     finally:
         db.close()
@@ -34,7 +40,7 @@ def run_loop(interval_seconds: int = 300):
     try:
         from apscheduler.schedulers.blocking import BlockingScheduler
     except ImportError:
-        print("APScheduler not installed; falling back to a simple sleep loop.")
+        logger.warning("reminders.apscheduler_missing", extra={"ctx": {"event": "reminders.apscheduler_missing"}})
         import time
         while True:
             run_once()
@@ -43,7 +49,7 @@ def run_loop(interval_seconds: int = 300):
 
     scheduler = BlockingScheduler(timezone="UTC")
     scheduler.add_job(run_once, "interval", seconds=interval_seconds, id="reminders")
-    print(f"[reminders] scheduler started (every {interval_seconds}s). Ctrl-C to stop.")
+    logger.info("reminders.scheduler_started", extra={"ctx": {"event": "reminders.scheduler_started", "interval_seconds": interval_seconds}})
     run_once()
     scheduler.start()
 

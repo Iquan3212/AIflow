@@ -2,9 +2,12 @@ import json
 import re
 from datetime import date as _date
 
+from app.logging_config import get_logger
 from app.services.llm_client import chat_completion
 from app.services.scheduling.appointment_service import AppointmentService
 from app.services.scheduling.datetime_utils import now_utc, to_local
+
+logger = get_logger(__name__)
 
 
 def _extract_appointment_request(message: str, business, lead=None) -> dict:
@@ -53,8 +56,8 @@ Customer message:
             content = re.sub(r"```$", "", content).strip()
             data = json.loads(content)
             break
-        except Exception as exc:
-            print(f"[appointment-tool:extract-error attempt={attempt}] {exc}")
+        except Exception:
+            logger.warning("llm.retry", extra={"ctx": {"event": "llm.retry", "tool": "appointment_extract", "attempt": attempt}}, exc_info=True)
 
     if lead is not None:
         data["customer_name"] = data.get("customer_name") or getattr(lead, "name", None)

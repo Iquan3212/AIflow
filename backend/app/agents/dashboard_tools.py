@@ -14,8 +14,11 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app import models
+from app.logging_config import get_logger
 from app.services.scheduling.appointment_service import AppointmentService
 from app.services.scheduling.datetime_utils import humanize, to_local
+
+logger = get_logger(__name__)
 
 
 def dashboard_tool_definitions() -> list[dict]:
@@ -116,9 +119,9 @@ class DashboardToolDispatcher:
             return json.dumps({"ok": False, "error": "unknown_tool"})
         try:
             return json.dumps(handler(args), default=str)
-        except Exception as exc:
+        except Exception:
             # Tools must never cause the AI Employee chat request to fail.
-            print(f"[dashboard-tool:{name}:error] {exc}")
+            logger.exception("tool.execution_failed", extra={"ctx": {"event": "tool.execution_failed", "tool": name}})
             return json.dumps({"ok": False, "error": "tool_failed"})
 
     def _get_dashboard_summary(self, _args: dict) -> dict:

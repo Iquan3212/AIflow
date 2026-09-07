@@ -26,6 +26,11 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:5173"
 
+    # Plain Python logging level name (DEBUG/INFO/WARNING/ERROR). Format
+    # (JSON vs. human-readable) is derived from app_env, not configured
+    # separately - see app/logging_config.py.
+    log_level: str = "INFO"
+
     # =====================================================
     # DATABASE
     # =====================================================
