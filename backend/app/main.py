@@ -84,15 +84,26 @@ class RequestContextMiddleware:
     Deliberately a plain ASGI middleware, not `@app.middleware("http")`
     (Starlette's `BaseHTTPMiddleware`): stacking a second BaseHTTPMiddleware
     on top of slowapi's own (SlowAPIMiddleware is itself one) produced a
-    confusing nested `ExceptionGroup` in this sub-phase's own testing of the
-    unhandled-exception path. The underlying behavior is intentional
-    Starlette design either way, not a bug: a handler registered for the
-    bare `Exception` class is installed only on the outermost
-    `ServerErrorMiddleware`, which sends its response and then always
-    re-raises so the ASGI server can log it too - so `self.app(...)` below
-    will raise, not return, on an unhandled exception, and uvicorn logging
-    "Exception in ASGI application" on top of this module's own structured
-    log for the same event is expected, not a double failure."""
+    confusing nested `ExceptionGroup` in earlier testing of the unhandled-
+    exception path.
+
+    Catches and responds to unhandled exceptions itself, here, rather than
+    leaving that to `@app.exception_handler(Exception)` below. That handler
+    is real and still registered as a last-resort safety net, but Starlette
+    installs a bare-`Exception`/500 handler only on the outermost
+    `ServerErrorMiddleware` (see `Starlette.build_middleware_stack`) - which
+    sits *above every user middleware, including CORS*. A response built
+    there never passes back through `DualCORSMiddleware`'s `send` wrapper,
+    so it carries no CORS headers - which a browser then refuses to expose
+    to JavaScript at all, surfacing a real backend error (e.g. the
+    pre-existing `raise Exception("Business not found")` pattern used
+    throughout this codebase, or any transient failure) as an opaque
+    network error indistinguishable from the server being down. Root cause
+    of the reported "Conversations page can't reach the server" bug.
+    Catching it here instead - inside this middleware, below/inner to
+    `DualCORSMiddleware` in the stack - means the error response is sent
+    through the normal `send()` chain like any other response, so CORS
+    headers get added correctly."""
 
     def __init__(self, app):
         self.app = app
@@ -127,17 +138,26 @@ class RequestContextMiddleware:
 
         try:
             await self.app(scope, receive, send_wrapper)
-        except Exception:
-            # Re-raised by ServerErrorMiddleware further out after it sends
-            # the response (see class docstring) - log timing for this path
-            # too, then let it continue propagating unchanged.
+        except Exception as exc:
+            # Log with full context, then send the response OURSELVES
+            # (rather than re-raising to ServerErrorMiddleware) so it goes
+            # through send_wrapper and, from there, back out through
+            # DualCORSMiddleware - which only adds CORS headers to
+            # responses it sees flow through send() normally, not to
+            # exceptions that unwind past it. See class docstring.
+            logger.exception("http.request.unhandled_exception", extra={"ctx": {
+                "event": "http.request.unhandled_exception", "method": method, "route": route,
+                "exception_type": type(exc).__name__,
+            }})
+            if not status_code_holder:
+                await PlainTextResponse("Internal Server Error", status_code=500)(scope, receive, send_wrapper)
             duration_ms = round((time.perf_counter() - start) * 1000, 1)
             logger.info("http.request.end", extra={"ctx": {
                 "event": "http.request.end", "method": method, "route": route,
                 "status_code": status_code_holder.get("status_code", 500),
                 "duration_ms": duration_ms, "success": False,
             }})
-            raise
+            return
 
         duration_ms = round((time.perf_counter() - start) * 1000, 1)
         status_code = status_code_holder.get("status_code", 0)
@@ -149,13 +169,16 @@ class RequestContextMiddleware:
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    """Logs every otherwise-unhandled exception once, with full traceback
-    and request context, before returning the exact same plain-text 500
-    Starlette's own default error handler would have returned - the
-    response the client sees is unchanged from before this sub-phase,
-    only now it's logged."""
-    logger.exception("http.request.unhandled_exception", extra={"ctx": {
-        "event": "http.request.unhandled_exception", "method": request.method,
+    """Last-resort safety net only - `RequestContextMiddleware` above is the
+    primary handler for this (it catches, logs, and responds to unhandled
+    exceptions *below* the CORS middleware so the response still carries
+    CORS headers - see its docstring for why that matters). This handler
+    only fires for something that escapes RequestContextMiddleware itself
+    (e.g. a bug in the middleware stack setup), so it's rarely if ever
+    reached in practice; it exists so the app still fails safe rather than
+    crashing uvicorn outright if that ever happens."""
+    logger.exception("http.request.unhandled_exception.fallback", extra={"ctx": {
+        "event": "http.request.unhandled_exception.fallback", "method": request.method,
         "route": request.url.path, "request_id": getattr(request.state, "request_id", "-"),
         "exception_type": type(exc).__name__,
     }})

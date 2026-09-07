@@ -64,8 +64,19 @@ export default function Manager() {
       };
       setMessages((m) => [...m, assistantMsg]);
 
-      if (resp.manager_result?.employee_results) {
-        for (const [emp, res] of Object.entries(resp.manager_result.employee_results)) {
+      // The backend's own merge rule (ManagerAgent._merge_replies): with
+      // exactly one employee, `resp.reply` (final_reply) IS that
+      // employee's reply verbatim - including when that one employee is
+      // "manager" itself for general chat, which is the common case.
+      // Expanding employee_results here too would show the identical
+      // text a second time. Only break replies out per-employee once
+      // there are genuinely multiple - that's the only case where
+      // final_reply (the merged, labeled text) differs from each
+      // individual employee's own reply and the breakdown adds real
+      // information.
+      const employeeEntries = Object.entries(resp.manager_result?.employee_results ?? {});
+      if (employeeEntries.length > 1) {
+        for (const [emp, res] of employeeEntries) {
           if (!res.reply) continue;
           const emsg: ConversationMessage = {
             role: "assistant",
