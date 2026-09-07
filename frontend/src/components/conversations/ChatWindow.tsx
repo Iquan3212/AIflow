@@ -5,6 +5,7 @@ import MessageInput from "./MessageInput";
 
 import { sendMessage } from "../../services/conversation";
 import { getErrorMessage } from "../../services/api";
+import { ChannelBadge } from "./ConversationList";
 
 import type { Conversation } from "../../types/conversation";
 import { useBusiness } from "../../context/BusinessContext";
@@ -77,23 +78,29 @@ export default function ChatWindow({
 
         <div className="bg-white rounded-2xl shadow h-full flex flex-col">
 
-            <div className="border-b px-6 py-5">
+            <div className="border-b px-6 py-5 flex items-center justify-between gap-3">
 
-                <h2 className="font-bold text-xl">
+                <div>
 
-                    {
-                        conversation
-                            ? conversation.name
-                            : "New Conversation"
-                    }
+                    <h2 className="font-bold text-xl">
 
-                </h2>
+                        {
+                            conversation
+                                ? conversation.name
+                                : "New Conversation"
+                        }
 
-                <p className="text-gray-500 text-sm">
+                    </h2>
 
-                    AI Workforce
+                    <p className="text-gray-500 text-sm">
 
-                </p>
+                        AI Workforce
+
+                    </p>
+
+                </div>
+
+                {conversation && <ChannelBadge channel={conversation.channel} />}
 
             </div>
 

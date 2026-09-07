@@ -160,6 +160,7 @@ matter for a production deploy:
 | `FRONTEND_URL` | Backend | Used only to build the Google OAuth callback redirect target. Set to your Vercel domain if using Calendar sync. |
 | `GOOGLE_REDIRECT_URI` | Backend | Must exactly match a redirect URI registered in the Google Cloud OAuth client, and must point at your deployed backend (`https://your-backend/.../integrations/google/callback`), not localhost. |
 | `SMTP_*` / `TWILIO_*` / `WHATSAPP_*` | Backend | All optional - unset means notifications log instead of sending (fine for launch; see `ARCHITECTURE.md`). |
+| `WHATSAPP_APP_SECRET` / `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `INSTAGRAM_APP_SECRET` / `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` | Backend | Optional - the app runs fine without them, it just can't verify Meta webhooks yet. App-level secrets from your own Meta App Dashboard, not per-business (a business's own WhatsApp/Instagram connection is entered from Settings → Integrations instead). See `ARCHITECTURE.md`'s Channels section. |
 | `VITE_API_URL` | Frontend (Vercel) | Your deployed backend's public URL. Baked in at build time. |
 
 Rate limits themselves (`CHAT_RATE_LIMIT`, `LOGIN_RATE_LIMIT`,

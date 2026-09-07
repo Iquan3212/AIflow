@@ -1,10 +1,32 @@
 import type { Conversation } from "../../types/conversation";
+import Badge from "../ui/Badge";
+import type { BadgeTone } from "../ui/Badge";
 
 type Props = {
     conversations: Conversation[];
     selected: Conversation | null;
     onSelect: (conversation: Conversation) => void;
 };
+
+const CHANNEL_LABELS: Record<string, string> = {
+    website: "Website",
+    whatsapp: "WhatsApp",
+    instagram: "Instagram",
+};
+
+const CHANNEL_TONES: Record<string, BadgeTone> = {
+    website: "neutral",
+    whatsapp: "success",
+    instagram: "info",
+};
+
+export function ChannelBadge({ channel }: { channel: string }) {
+    return (
+        <Badge tone={CHANNEL_TONES[channel] ?? "neutral"}>
+            {CHANNEL_LABELS[channel] ?? channel}
+        </Badge>
+    );
+}
 
 export default function ConversationList({
     conversations,
@@ -56,10 +78,11 @@ export default function ConversationList({
                             }`}
                         >
 
-                            <div className="font-semibold">
-
-                                {conversation.name}
-
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="font-semibold">
+                                    {conversation.name}
+                                </div>
+                                <ChannelBadge channel={conversation.channel} />
                             </div>
 
                             <div className="text-sm text-gray-500">

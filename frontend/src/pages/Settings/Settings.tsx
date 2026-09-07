@@ -8,11 +8,18 @@ import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import Badge from "../../components/ui/Badge";
 import { ErrorState, LoadingState, EmptyState } from "../../components/ui/States";
-import { getErrorMessage } from "../../services/api";
+import { getErrorMessage, baseURL } from "../../services/api";
 import { getCurrentBusiness, updateCurrentBusiness } from "../../services/business";
 import { getChatbotConfig, updateChatbotConfig } from "../../services/chatbot";
 import { listSessions, revokeSession, type Session } from "../../services/sessions";
 import { getGoogleStatus, type GoogleStatus } from "../../services/appointments";
+import {
+    getChannels,
+    connectChannel,
+    disconnectChannel,
+    type ChannelCredential,
+    type ChannelName,
+} from "../../services/channels";
 import type { Business } from "../../services/business";
 import type { ChatbotConfig } from "../../types/chatbot";
 
@@ -258,24 +265,210 @@ function IntegrationsTab() {
         void load();
     }, []);
 
-    if (!status && !error) return <LoadingState label="Loading integrations…" />;
+    return (
+        <div className="space-y-4">
+            {!status && !error && <LoadingState label="Loading integrations…" />}
+            {error && <ErrorState message={error} onRetry={load} />}
+            {status && !error && (
+                <Card className="p-5 max-w-lg">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <p className="text-sm font-medium text-slate-800">Google Calendar</p>
+                            <p className="text-xs text-slate-500 mt-0.5">Syncs every booking, reschedule, and cancellation.</p>
+                        </div>
+                        <Badge tone={status?.connected ? "success" : "neutral"}>
+                            {status?.connected ? "Connected" : "Not connected"}
+                        </Badge>
+                    </div>
+                    <Button variant="secondary" size="sm" className="mt-4" onClick={() => navigate("/appointments")}>
+                        Manage in Appointments
+                    </Button>
+                </Card>
+            )}
+
+            <div>
+                <h3 className="text-sm font-semibold text-slate-700 mb-1">Messaging channels</h3>
+                <p className="text-xs text-slate-500 mb-3">
+                    Connect WhatsApp and Instagram so customers can message your AI Workforce there too - the same
+                    Manager, Planner, and employees that answer on your website.
+                </p>
+                <ChannelsSection />
+            </div>
+        </div>
+    );
+}
+
+const CHANNEL_LABELS: Record<ChannelName, string> = {
+    whatsapp: "WhatsApp",
+    instagram: "Instagram",
+};
+
+/** WhatsApp/Instagram both connect the same way: paste the phone number
+ * id / IG account id and access token from your own Meta App Dashboard.
+ * There's no "Connect with Meta" OAuth button here - that requires an app
+ * Meta has reviewed and approved, which this deployment doesn't have yet.
+ * Connecting is honest about that: a real save either succeeds (status
+ * flips to Connected, from real database state) or shows a real error -
+ * never a fake "Connected" state. */
+function ChannelCard({
+    channel,
+    credential,
+    onChange,
+}: {
+    channel: ChannelName;
+    credential: ChannelCredential;
+    onChange: () => void;
+}) {
+    const [expanded, setExpanded] = useState(false);
+    const [form, setForm] = useState({ external_account_id: "", access_token: "", display_name: "" });
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const webhookUrl = `${baseURL}/webhooks/${channel}`;
+    const isConnected = credential.status === "connected";
+
+    async function handleConnect() {
+        if (!form.external_account_id.trim() || !form.access_token.trim()) {
+            setError("Both fields are required.");
+            return;
+        }
+        setSaving(true);
+        setError(null);
+        try {
+            await connectChannel(channel, {
+                external_account_id: form.external_account_id.trim(),
+                access_token: form.access_token.trim(),
+                display_name: form.display_name.trim() || undefined,
+            });
+            setForm({ external_account_id: "", access_token: "", display_name: "" });
+            setExpanded(false);
+            onChange();
+        } catch (err) {
+            setError(getErrorMessage(err));
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    async function handleDisconnect() {
+        setSaving(true);
+        setError(null);
+        try {
+            await disconnectChannel(channel);
+            onChange();
+        } catch (err) {
+            setError(getErrorMessage(err));
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    return (
+        <Card className="p-5">
+            <div className="flex items-center justify-between">
+                <div>
+                    <p className="text-sm font-medium text-slate-800">{CHANNEL_LABELS[channel]}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                        {isConnected
+                            ? credential.display_name ?? "Connected"
+                            : "Customers can message your AI Workforce here once connected."}
+                    </p>
+                </div>
+                <Badge tone={isConnected ? "success" : "neutral"}>
+                    {isConnected ? "Connected" : "Not connected"}
+                </Badge>
+            </div>
+
+            {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
+
+            {isConnected ? (
+                <Button variant="secondary" size="sm" className="mt-4" onClick={handleDisconnect} loading={saving}>
+                    Disconnect
+                </Button>
+            ) : !expanded ? (
+                <Button variant="secondary" size="sm" className="mt-4" onClick={() => setExpanded(true)}>
+                    Connect
+                </Button>
+            ) : (
+                <div className="mt-4 space-y-3 max-w-md">
+                    <div>
+                        <label className="text-xs font-medium text-slate-600">
+                            {channel === "whatsapp" ? "Phone number ID" : "Instagram account ID"}
+                        </label>
+                        <input
+                            value={form.external_account_id}
+                            onChange={(e) => setForm((f) => ({ ...f, external_account_id: e.target.value }))}
+                            placeholder={channel === "whatsapp" ? "e.g. 123456123456789" : "e.g. 17841400000000000"}
+                            className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs font-medium text-slate-600">Access token</label>
+                        <input
+                            type="password"
+                            value={form.access_token}
+                            onChange={(e) => setForm((f) => ({ ...f, access_token: e.target.value }))}
+                            className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs font-medium text-slate-600">Label (optional)</label>
+                        <input
+                            value={form.display_name}
+                            onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))}
+                            placeholder={channel === "whatsapp" ? "e.g. +1 555-000-1111" : "e.g. @yourbusiness"}
+                            className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-indigo-500"
+                        />
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <Button size="sm" onClick={handleConnect} loading={saving}>Save</Button>
+                        <Button variant="secondary" size="sm" onClick={() => setExpanded(false)}>Cancel</Button>
+                    </div>
+
+                    <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-500 space-y-1">
+                        <p className="font-medium text-slate-600">Meta webhook setup (one-time, in your Meta App Dashboard)</p>
+                        <p>Callback URL: <code className="bg-white px-1 py-0.5 rounded border border-slate-200">{webhookUrl}</code></p>
+                        <p>
+                            Verify token: the value of{" "}
+                            <code className="bg-white px-1 py-0.5 rounded border border-slate-200">
+                                {channel === "whatsapp" ? "WHATSAPP_WEBHOOK_VERIFY_TOKEN" : "INSTAGRAM_WEBHOOK_VERIFY_TOKEN"}
+                            </code>{" "}
+                            on the server
+                        </p>
+                        <p>Requires Meta Business verification before real traffic can reach it - see DEPLOYMENT.md.</p>
+                    </div>
+                </div>
+            )}
+        </Card>
+    );
+}
+
+function ChannelsSection() {
+    const [channels, setChannels] = useState<ChannelCredential[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    async function load() {
+        setError(null);
+        try {
+            setChannels(await getChannels());
+        } catch (err) {
+            setError(getErrorMessage(err));
+        }
+    }
+
+    useEffect(() => {
+        void load();
+    }, []);
+
+    if (!channels && !error) return <LoadingState label="Loading channels…" />;
     if (error) return <ErrorState message={error} onRetry={load} />;
 
     return (
-        <Card className="p-5 max-w-lg">
-            <div className="flex items-center justify-between">
-                <div>
-                    <p className="text-sm font-medium text-slate-800">Google Calendar</p>
-                    <p className="text-xs text-slate-500 mt-0.5">Syncs every booking, reschedule, and cancellation.</p>
-                </div>
-                <Badge tone={status?.connected ? "success" : "neutral"}>
-                    {status?.connected ? "Connected" : "Not connected"}
-                </Badge>
-            </div>
-            <Button variant="secondary" size="sm" className="mt-4" onClick={() => navigate("/appointments")}>
-                Manage in Appointments
-            </Button>
-        </Card>
+        <div className="grid gap-4 max-w-lg mt-4">
+            {channels!.map((c) => (
+                <ChannelCard key={c.channel} channel={c.channel} credential={c} onChange={load} />
+            ))}
+        </div>
     );
 }
 

@@ -29,15 +29,42 @@ def get_conversation(
     return query.first()
 
 
+def find_conversation_by_visitor(
+    db: Session,
+    business_id: str,
+    visitor_id: str,
+    channel: str,
+):
+    """Most recent conversation for this visitor on this channel, if any -
+    used when the caller has no remembered conversation_id of its own. The
+    website widget always sends back the conversation_id it stored in
+    localStorage after the first message, so this only matters there on a
+    visitor's very first-ever message (where it correctly finds nothing).
+    A webhook channel (WhatsApp/Instagram) has no client-side memory at
+    all, so every inbound message relies on this to find the customer's
+    ongoing conversation instead of starting a new one each time."""
+    return (
+        db.query(models.Conversation)
+        .filter(
+            models.Conversation.business_id == business_id,
+            models.Conversation.visitor_id == visitor_id,
+            models.Conversation.channel == channel,
+        )
+        .order_by(models.Conversation.started_at.desc())
+        .first()
+    )
+
+
 def create_conversation(
     db: Session,
     business_id: str,
     visitor_id: str,
+    channel: str = "website",
 ):
     conversation = models.Conversation(
         business_id=business_id,
         visitor_id=visitor_id,
-        channel="website",
+        channel=channel,
     )
 
     db.add(conversation)

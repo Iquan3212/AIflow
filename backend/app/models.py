@@ -10,6 +10,7 @@ from sqlalchemy import (
     Text,
     JSON,
     Boolean,
+    UniqueConstraint,
 )
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy import Integer, Time
@@ -392,6 +393,80 @@ class AIDraft(Base):
 
     business = relationship("Business")
     lead = relationship("Lead")
+
+
+# =====================================================================
+# WHATSAPP / INSTAGRAM CHANNEL INTEGRATION
+# =====================================================================
+
+
+class ChannelCredential(Base):
+    """A business's connection to one messaging channel (WhatsApp or
+    Instagram), analogous to CalendarCredential for Google Calendar. One row
+    per business per channel.
+
+    App-level Meta secrets (the app secret used to verify webhook
+    signatures, the webhook verify token) live in environment variables -
+    they belong to AIFlow's own Meta App, not to any one tenant. What's
+    tenant-specific and belongs here is the connection to one business's
+    WhatsApp number or Instagram account: which number/account it is
+    (`external_account_id` - WhatsApp's `phone_number_id` or Instagram's
+    IG-scoped business account id) and the access token authorized to send
+    messages as it. `external_account_id` is what an inbound webhook uses
+    to resolve which business a message belongs to - see
+    services/channels/credentials.py."""
+
+    __tablename__ = "channel_credentials"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    business_id = Column(
+        UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    channel = Column(String(32), nullable=False)  # whatsapp | instagram
+    external_account_id = Column(String(255), nullable=True, index=True)
+    access_token = Column(Text, nullable=True)
+    display_name = Column(String(255), nullable=True)  # e.g. the connected phone number or @handle, for the UI
+    status = Column(String(32), default="disconnected")  # disconnected | connected | error
+    connected_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    business = relationship("Business")
+
+    __table_args__ = (
+        UniqueConstraint("business_id", "channel", name="uq_channel_credentials_business_channel"),
+        # Tenant isolation, enforced at the database level rather than left
+        # as an assumption: the same WhatsApp phone_number_id or Instagram
+        # account can never be claimed by two businesses at once, which
+        # would otherwise let get_business_for_external_account() resolve
+        # a webhook to the wrong tenant. Postgres treats NULLs as distinct
+        # from each other, so many disconnected rows (which clear this
+        # field - see disconnect_credential()) can coexist safely.
+        UniqueConstraint("channel", "external_account_id", name="uq_channel_credentials_external_account"),
+    )
+
+
+class ChannelWebhookEvent(Base):
+    """Idempotency ledger for inbound Meta webhook deliveries. Meta retries a
+    webhook delivery on anything but a fast 2xx response, so the same
+    message can legitimately arrive more than once. Before processing an
+    inbound message, the webhook handler inserts a row keyed on
+    (channel, external_message_id) first; a unique-constraint violation
+    means this exact message was already processed, so it's skipped
+    (still returning 200 - Meta doesn't need to know it was a duplicate)."""
+
+    __tablename__ = "channel_webhook_events"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    channel = Column(String(32), nullable=False)  # whatsapp | instagram
+    external_message_id = Column(String(255), nullable=False)
+    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=True)
+    received_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("channel", "external_message_id", name="uq_webhook_events_channel_message"),
+    )
 
 
 class SupportTicket(Base):

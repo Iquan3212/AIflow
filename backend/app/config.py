@@ -94,6 +94,35 @@ class Settings(BaseSettings):
     google_redirect_uri: str = ""
 
     # =====================================================
+    # WHATSAPP / INSTAGRAM CHANNELS (Meta — optional)
+    #
+    # These belong to AIFlow's own Meta App configuration (one per
+    # deployment), NOT to any one tenant - that's why they're env vars
+    # rather than per-business database rows. A business's own connection
+    # (which WhatsApp number / Instagram account, and the token to send as
+    # it) is per-tenant data, stored in ChannelCredential instead - see
+    # app/models.py and app/services/channels/.
+    #
+    # WHATSAPP_APP_SECRET / INSTAGRAM_APP_SECRET: from Meta App Dashboard →
+    # App Settings → Basic → App Secret. Used to verify the
+    # X-Hub-Signature-256 header on every inbound webhook - this is what
+    # proves a webhook request actually came from Meta and not an
+    # impersonator, so it must be set before any real traffic is trusted.
+    #
+    # WHATSAPP_WEBHOOK_VERIFY_TOKEN / INSTAGRAM_WEBHOOK_VERIFY_TOKEN: an
+    # arbitrary string you choose yourself and enter in Meta's webhook
+    # subscription setup (App Dashboard → Webhooks → Configure) - Meta
+    # echoes it back on the one-time verification handshake so this app can
+    # confirm it's really being configured by you.
+    # =====================================================
+
+    whatsapp_app_secret: str = ""
+    whatsapp_webhook_verify_token: str = ""
+
+    instagram_app_secret: str = ""
+    instagram_webhook_verify_token: str = ""
+
+    # =====================================================
     # CORS
     # =====================================================
 

@@ -23,6 +23,7 @@ from app import models
 from app.repositories.conversation_repository import (
     get_business_by_slug,
     get_conversation,
+    find_conversation_by_visitor,
     create_conversation,
     save_message,
     load_history,
@@ -49,17 +50,24 @@ MAX_TOOL_ROUNDS = 4
 
 
 def get_business_conversations(db: Session, business_slug: str):
-    """Real customer conversations only. The business's own internal Manager
-    AI conversation (channel="employee", visitor_id="dashboard-owner" - see
+    """Every real customer conversation, on any channel (website, WhatsApp,
+    Instagram). The business's own internal Manager AI conversation
+    (channel="employee", visitor_id="dashboard-owner" - see
     get_or_create_employee_conversation) has its own dedicated page (Manager
     AI) and must never show up here impersonating a customer - that was a
     real bug: this inbox is customer-facing, and mixing in the owner's own
-    testing conversation made every metric here wrong for it."""
+    testing conversation made every metric here wrong for it. Filtering by
+    excluding "employee" rather than only including "website" is what lets
+    a newly connected channel show up here automatically, with no change
+    needed here when one is added."""
     business = get_business_by_slug(db, business_slug)
     if business is None:
         raise Exception("Business not found")
 
-    conversations = repo_get_business_conversations(db, business.id, channel="website")
+    conversations = [
+        c for c in repo_get_business_conversations(db, business.id)
+        if c.channel != "employee"
+    ]
     result = []
     for conversation in conversations:
         history = load_history(db, conversation.id)
@@ -124,23 +132,56 @@ def process_message(
     conversation_id: str | None,
     message: str,
 ):
+    """The website widget's entrypoint: resolves the business by its public
+    slug (the one identifier the widget's <script> tag actually knows), then
+    hands off to the channel-agnostic core. Unchanged in behavior from
+    before WhatsApp/Instagram existed - this is exactly the same function
+    signature and logic that's always powered the widget."""
     business = get_business_by_slug(db, business_slug)
     if business is None:
         raise Exception("Business not found")
 
-    conversation = (
-        get_conversation(
-            db,
-            conversation_id,
-            business_id=business.id,
-            visitor_id=visitor_id,
-            channel="website",
-        )
-        if conversation_id
-        else None
+    return process_message_for_business(
+        db, business=business, visitor_id=visitor_id,
+        conversation_id=conversation_id, message=message, channel="website",
     )
+
+
+def process_message_for_business(
+    db: Session,
+    business,
+    visitor_id: str,
+    conversation_id: str | None,
+    message: str,
+    channel: str = "website",
+):
+    """Channel-agnostic core: one message in, one persisted reply out,
+    regardless of whether it arrived via the website widget, a WhatsApp
+    webhook, or an Instagram DM webhook. Takes an already-resolved
+    `business` because each channel identifies the business a different way
+    (the widget by its public slug; a Meta webhook by which of the
+    business's connected phone numbers/IG accounts received the message -
+    see services/channels/). `visitor_id` is whatever identifies the same
+    customer across their messages on this channel (a browser-generated
+    UUID for the widget, a phone number for WhatsApp, an IG-scoped sender
+    id for Instagram) - conversation reuse, lead capture, booking, and the
+    full AI Workforce tool set behave identically no matter which channel
+    this came from. This is the one and only place a customer message
+    reaches the LLM - there is no separate WhatsApp/Instagram AI logic."""
+    if conversation_id:
+        conversation = get_conversation(
+            db, conversation_id, business_id=business.id, visitor_id=visitor_id, channel=channel,
+        )
+    else:
+        # No caller-remembered id (every webhook channel; a website
+        # visitor's very first-ever message) - fall back to this visitor's
+        # own existing conversation on this channel before starting a new
+        # one, so a phone number/IG account texting again reuses its
+        # thread instead of losing history on every message.
+        conversation = find_conversation_by_visitor(db, business.id, visitor_id, channel)
+
     if conversation is None:
-        conversation = create_conversation(db=db, business_id=business.id, visitor_id=visitor_id)
+        conversation = create_conversation(db=db, business_id=business.id, visitor_id=visitor_id, channel=channel)
 
     save_message(db=db, conversation_id=conversation.id, role="user", content=message)
 
@@ -184,13 +225,14 @@ def process_message(
     messages,
     tools,
     dispatcher,
+    channel,
 )
 
     # Backstop: even if the model was talked into reciting its instructions
     # despite the guard rules baked into system_prompt, never let that leave
     # this function.
     if leaks_system_prompt(reply_text, system_prompt):
-        logger.warning("prompt_guard.leak_detected", extra={"ctx": {"event": "prompt_guard.leak_detected", "channel": "widget"}})
+        logger.warning("prompt_guard.leak_detected", extra={"ctx": {"event": "prompt_guard.leak_detected", "channel": channel}})
         reply_text = SAFE_FALLBACK_REPLY
 
     reply_text = orchestrator.after_llm(reply_text)
@@ -200,7 +242,7 @@ def process_message(
     return {"conversation_id": conversation.id, "reply": reply_text}
 
 
-def _run_tool_loop(messages: list[dict], tools: list[dict], dispatcher: ToolDispatcher) -> str:
+def _run_tool_loop(messages: list[dict], tools: list[dict], dispatcher: ToolDispatcher, channel: str = "website") -> str:
     """Drive the model through as many tool rounds as it needs (bounded), then
     return the final assistant text.
 
@@ -240,7 +282,7 @@ def _run_tool_loop(messages: list[dict], tools: list[dict], dispatcher: ToolDisp
                 start = time.perf_counter()
                 result = dispatcher.run(tc.function.name, args)
                 logger.info("tool.executed", extra={"ctx": {
-                    "event": "tool.executed", "tool": tc.function.name, "channel": "widget",
+                    "event": "tool.executed", "tool": tc.function.name, "channel": channel,
                     "duration_ms": round((time.perf_counter() - start) * 1000, 1),
                 }})
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
@@ -249,6 +291,6 @@ def _run_tool_loop(messages: list[dict], tools: list[dict], dispatcher: ToolDisp
         return (final.content or "").strip() or "Let me get back to you on that."
     except LLMProviderError as exc:
         logger.warning("conversation.llm_provider_error", extra={"ctx": {
-            "event": "conversation.llm_provider_error", "channel": "widget", "error_reason": exc.reason,
+            "event": "conversation.llm_provider_error", "channel": channel, "error_reason": exc.reason,
         }})
         return exc.user_message

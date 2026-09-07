@@ -342,6 +342,28 @@ class SchedulingSettingsUpdate(BaseModel):
 
 
 # =====================================================
+# CHANNELS (WhatsApp / Instagram)
+# =====================================================
+
+class ChannelCredentialOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    channel: str
+    display_name: str | None = None
+    status: str
+    connected_at: datetime | None = None
+    # Deliberately never includes access_token or external_account_id -
+    # this is what the dashboard renders, and a page render is not a place
+    # for a live credential to leak into browser devtools/network logs.
+
+
+class ChannelCredentialUpdate(BaseModel):
+    external_account_id: str = Field(min_length=1, max_length=255)
+    access_token: str = Field(min_length=1)
+    display_name: str | None = None
+
+
+# =====================================================
 # EMAIL LOGS
 # =====================================================
 

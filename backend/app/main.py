@@ -24,6 +24,7 @@ from app.routers import (
     conversation,
     appointments,
     integrations,
+    channels,
 )
 from app.routers.dashboard import router as dashboard_router
 
@@ -287,6 +288,7 @@ app.include_router(workforce.router)
 app.include_router(analytics.router)
 app.include_router(drafts.router)
 app.include_router(support_tickets.router)
+app.include_router(channels.router)
 
 
 @app.get("/")

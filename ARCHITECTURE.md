@@ -70,6 +70,111 @@ skips full Manager delegation (`delegate=False`) since it phrases its own
 reply — no reason to pay for a full multi-agent turn on every website visitor
 message.
 
+## Channels — WhatsApp & Instagram (`backend/app/services/channels/`)
+
+WhatsApp and Instagram are adapters on top of the exact pipeline above, not
+a second AI system. Every inbound message from either channel, however it
+arrived, ends up calling the same function a website visitor's message
+does:
+
+```
+Website widget  ──┐
+WhatsApp webhook ──┼──▶ conversation_service.process_message_for_business()
+Instagram webhook ─┘         (Planner → employee → tools → DB → reply)
+```
+
+- **`process_message_for_business(db, business, visitor_id, conversation_id,
+  message, channel)`** is the channel-agnostic core, extracted from what
+  used to be the widget-only `process_message()`. `process_message()` is
+  now a thin wrapper: resolve the business by its public slug (the one
+  thing the widget's `<script>` tag knows), then call the core with
+  `channel="website"` - identical behavior to before this phase, verified
+  by the existing Conversations regression suite still passing unchanged.
+  A webhook resolves the business a different way (see below) and calls
+  the same core with `channel="whatsapp"`/`"instagram"`.
+- **`visitor_id`** is whatever identifies the same customer across
+  messages on one channel - a browser-generated UUID for the widget, a
+  WhatsApp phone number, an Instagram-scoped sender id (IGSID). Combined
+  with `channel` and `business_id`, this is the entire "unified customer"
+  model - no separate customer table per channel.
+- **Conversation reuse without client-side memory.** The widget remembers
+  its own `conversation_id` in `localStorage` and sends it back on every
+  message; a webhook has no such memory. `find_conversation_by_visitor()`
+  (`repositories/conversation_repository.py`) looks up the visitor's most
+  recent conversation on that channel when no id is supplied - which also
+  covers the widget's own very-first-ever message from a new visitor
+  (finds nothing, same as before), so this is one added code path, not a
+  fork between channels.
+- **Adapters** (`whatsapp_adapter.py`, `instagram_adapter.py`) are the only
+  channel-specific code: each knows its own webhook JSON shape, computes
+  and checks `X-Hub-Signature-256` (HMAC-SHA256 over the raw request body,
+  keyed by that channel's Meta App Secret - fails closed if unconfigured,
+  not open), and calls its own Graph API send-message endpoint. Neither
+  adapter contains any AI/business logic.
+- **Tenant resolution.** Meta's webhook payload identifies which of the
+  business's connected numbers/accounts received the message (WhatsApp's
+  `phone_number_id`, Instagram's IG business account id) - not the
+  business directly. `ChannelCredential` (below) maps that id to a
+  business; `get_business_for_external_account()` is where every webhook
+  starts. A `(channel, external_account_id)` unique constraint makes it
+  impossible for two businesses to claim the same number/account, so this
+  lookup can never resolve ambiguously - verified live: a second business
+  attempting to connect an already-claimed number gets a `409`, and a
+  webhook for one business's number never surfaces in another's
+  Conversations list.
+- **Idempotency.** Meta retries a webhook delivery on anything but a fast
+  `2xx`, so the same message can arrive more than once. `claim_webhook_event()`
+  inserts a `(channel, external_message_id)` row before processing; a
+  unique-constraint violation means it's a redelivery, skipped (still
+  acking `200` - Meta doesn't need to know it was a duplicate). Verified
+  live: replaying the identical WhatsApp message id does not create a
+  second message pair.
+- **Outbound replies and honest failure.** Each adapter's `send_text_message()`
+  makes a real HTTP call to Meta's Graph API using the business's stored
+  token - it returns `True`/`False` based on the real result and never
+  fabricates success. Without a real Meta-issued token (this repository
+  has none), the call genuinely fails (verified live - a real HTTPS
+  request left this machine and Meta's/the network's real response came
+  back as a failure), and that failure is logged and swallowed at the
+  webhook layer so it can never break the `200` ack Meta needs or crash
+  a batch of other messages in the same delivery.
+- **`ChannelCredential`** (`models.py`) is a business's connection to one
+  channel - `external_account_id` + `access_token` + display label +
+  status, one row per business per channel, in the same spirit as
+  `CalendarCredential` for Google. App-level Meta secrets (the app secret
+  used for signature verification, the webhook verify token) are
+  environment variables instead, since they belong to AIFlow's own Meta
+  App configuration, not to any one tenant. Connecting is manual entry
+  (paste the phone_number_id/IG account id and access token from your own
+  Meta App Dashboard) rather than an OAuth "Connect" button, because that
+  button needs an app Meta has reviewed and approved, which this
+  repository does not have - see "What requires Meta verification" below.
+- **`ChannelWebhookEvent`** (`models.py`) is the idempotency ledger above.
+
+### What requires real Meta credentials/verification (not built here)
+
+- A Meta Business Account and a Meta App, with WhatsApp Business Platform
+  and/or Instagram Messaging products added.
+- Meta App Review / Business Verification before the app can message
+  people who haven't already messaged the business first (and before
+  Instagram messaging works at all for a non-test account).
+- Registering this deployment's webhook URL
+  (`{APP_URL}/webhooks/whatsapp`, `{APP_URL}/webhooks/instagram`) and
+  verify token in the Meta App Dashboard - the one-time `GET` handshake
+  this repository implements and has tested (`whatsapp_verify`/
+  `instagram_verify` in `routers/channels.py`) is exactly what that step
+  triggers.
+- Generating a real, long-lived access token (System User token, typically)
+  and the business's actual `phone_number_id`/IG business account id, then
+  entering them from Settings → Integrations.
+
+None of this was performed in this phase - there is no live Meta App, no
+real webhook subscription, and no real access token anywhere in this
+repository. Everything above the "What requires real Meta credentials"
+line was built and verified against real HTTP requests carrying
+Meta's documented payload shapes and signature scheme, run against the
+real backend and real Neon database - not mocked.
+
 ### Prompt-injection defenses (`backend/app/agents/prompt_guard.py`)
 
 Production hardening sub-phase 2. Every system prompt in the app mixes
