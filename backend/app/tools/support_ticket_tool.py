@@ -1,6 +1,11 @@
 from sqlalchemy.orm import Session
 
 from app.services.support_ticket_service import SupportTicketService
+from app.services.notifications.dispatcher import NotificationDispatcher
+from app.services.notifications import preferences as notif_prefs
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class SupportTicketTool:
@@ -32,5 +37,19 @@ class SupportTicketTool:
             priority=priority,
             lead_id=getattr(lead, "id", None),
         )
+
+        if ticket.priority == "high":
+            # Best-effort: a notification failure must never undo or mask a
+            # real, already-committed ticket.
+            try:
+                NotificationDispatcher().notify_owner(
+                    db=db, business=business, event_type=notif_prefs.SUPPORT_ESCALATION,
+                    subject=f"Support escalation — {business.name}",
+                    body=f"A support issue was escalated: {ticket.issue_summary}",
+                )
+            except Exception:
+                logger.exception("notification.support_escalation_failed", extra={"ctx": {
+                    "event": "notification.support_escalation_failed", "business_id": business.id, "ticket_id": ticket.id,
+                }})
 
         return {"ok": True, "ticket_id": ticket.id, "priority": ticket.priority, "status": ticket.status}

@@ -465,3 +465,24 @@ class EmployeeStatus(BaseModel):
     tools: list[str]
     provider: str
     fallback_provider: str | None = None
+
+
+# =====================================================
+# NOTIFICATION PREFERENCES
+# =====================================================
+
+class NotificationPreferenceItem(BaseModel):
+    event_type: str
+    event_label: str
+    channel: str
+    enabled: bool
+
+
+class NotificationPreferenceUpdate(BaseModel):
+    event_type: str
+    channel: str
+    enabled: bool
+
+
+class NotificationPreferencesUpdateRequest(BaseModel):
+    updates: list[NotificationPreferenceUpdate] = Field(min_length=1)

@@ -322,6 +322,39 @@ apart on its own, so `prompt_guard.py` makes the boundary explicit:
   `role: content` history joined into the system prompt) is now fenced the
   same way — previously it was string-concatenated with no framing at all.
 
+## Notifications & preferences (`backend/app/services/notifications/`)
+
+`NotificationDispatcher` is the one place anything in the app sends an
+outbound notification - never a direct SMTP/Twilio/Meta call from business
+logic. Two entry points, two audiences:
+
+- **`notify_customer(...)`** — the 4 appointment-lifecycle events
+  (`appointment_confirmed`/`_reminder`/`_cancelled`/`_rescheduled`), sent to
+  the customer's own on-file contact info. Tries WhatsApp, then SMS, then
+  email, on whichever channels are both preference-enabled and actually
+  configured (each notifier's `is_configured()` - see the channel adapter
+  files); every channel degrades to a dev-log line rather than a hard
+  failure when unconfigured, so the whole booking flow is exercisable
+  without any real provider credentials.
+- **`notify_owner(...)`** — `new_lead` (a real lead just captured by Sales)
+  and `support_escalation` (a `SupportTicket` created with `priority="high"`)
+  events, sent to `Business.contact_email`. Email only - there is no stored
+  "owner's WhatsApp number" or "owner's Instagram-scoped id" distinct from
+  the business's own connected channel credentials, so those channels
+  aren't offered for owner events rather than faked.
+
+**Preferences** (`preferences.py`, `models.NotificationPreference`,
+`GET/PUT /notifications/preferences`) gate every send per
+`(business_id, event_type, channel)`. Deliberately **opt-out, not opt-in**:
+a missing row means enabled, so a business that has never opened
+Settings → Notifications keeps getting exactly the notifications that
+already fired before this feature existed - nothing changes until an
+owner explicitly disables something. `channels_for_event()` is the single
+source of truth for which channels are valid per event (customer events:
+email/SMS/WhatsApp; owner events: email only) - both the dispatcher and
+`set_preferences()`'s validation read from it, so they can never disagree
+about what a valid combination is.
+
 ## Logging & observability (`backend/app/logging_config.py`)
 
 Production hardening sub-phase 3. Every module gets a logger the normal way

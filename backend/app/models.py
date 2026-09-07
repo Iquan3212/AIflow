@@ -491,3 +491,34 @@ class SupportTicket(Base):
     lead = relationship("Lead")
 
 
+class NotificationPreference(Base):
+    """Per-business, per-event, per-channel on/off toggle. A missing row
+    means "enabled" (see app/services/notifications/preferences.py's
+    is_enabled()) - this is an opt-OUT model, so a business that never
+    visits this settings page keeps getting exactly the notifications
+    that already fire today (appointment confirm/remind/cancel/
+    reschedule to the customer, new-lead/support-escalation to the
+    owner) with zero behavior change. A row only exists once someone
+    actually toggles something."""
+
+    __tablename__ = "notification_preferences"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # See app/services/notifications/preferences.py for the canonical event/
+    # channel lists this must stay in sync with.
+    event_type = Column(String(32), nullable=False)
+    channel = Column(String(16), nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    business = relationship("Business")
+
+    __table_args__ = (
+        UniqueConstraint("business_id", "event_type", "channel", name="uq_notification_pref_business_event_channel"),
+    )
+
+

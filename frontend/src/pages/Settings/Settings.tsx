@@ -22,6 +22,11 @@ import {
 } from "../../services/channels";
 import type { Business } from "../../services/business";
 import type { ChatbotConfig } from "../../types/chatbot";
+import {
+    getNotificationPreferences,
+    updateNotificationPreferences,
+    type NotificationPreferenceItem,
+} from "../../services/notifications";
 
 const TABS = ["Business", "AI", "Integrations", "Notifications", "Security"] as const;
 type Tab = (typeof TABS)[number];
@@ -472,13 +477,119 @@ function ChannelsSection() {
     );
 }
 
-function NotificationsTab() {
+const NOTIFICATION_CHANNEL_LABELS: Record<string, string> = { email: "Email", sms: "SMS", whatsapp: "WhatsApp" };
+
+function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange: () => void; label: string }) {
     return (
-        <Card className="p-5 max-w-lg">
-            <EmptyState
-                title="Not configurable yet"
-                description="Appointment confirmations and reminders are sent automatically by email (or SMS/WhatsApp, once configured on the server) - there's no per-channel toggle here yet."
+        <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            aria-label={label}
+            onClick={onChange}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0
+                focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500
+                ${checked ? "bg-brand-600" : "bg-slate-200"}`}
+        >
+            <span
+                className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform"
+                style={{ transform: checked ? "translateX(1.125rem)" : "translateX(0.25rem)" }}
             />
+        </button>
+    );
+}
+
+function NotificationsTab() {
+    const [items, setItems] = useState<NotificationPreferenceItem[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [savingKey, setSavingKey] = useState<string | null>(null);
+
+    async function load() {
+        setError(null);
+        try {
+            setItems(await getNotificationPreferences());
+        } catch (err) {
+            setError(getErrorMessage(err));
+        }
+    }
+
+    useEffect(() => {
+        void load();
+    }, []);
+
+    async function handleToggle(item: NotificationPreferenceItem) {
+        const key = `${item.event_type}:${item.channel}`;
+        if (savingKey) return; // prevent overlapping saves / duplicate submits
+        const nextEnabled = !item.enabled;
+
+        // Optimistic update, reverted on failure.
+        setItems((current) =>
+            current?.map((i) =>
+                i.event_type === item.event_type && i.channel === item.channel ? { ...i, enabled: nextEnabled } : i
+            ) ?? current
+        );
+        setSavingKey(key);
+        setError(null);
+        try {
+            const updated = await updateNotificationPreferences([
+                { event_type: item.event_type, channel: item.channel, enabled: nextEnabled },
+            ]);
+            setItems(updated);
+        } catch (err) {
+            setItems((current) =>
+                current?.map((i) =>
+                    i.event_type === item.event_type && i.channel === item.channel ? { ...i, enabled: item.enabled } : i
+                ) ?? current
+            );
+            setError(getErrorMessage(err));
+        } finally {
+            setSavingKey(null);
+        }
+    }
+
+    const byEvent = new Map<string, { label: string; channels: NotificationPreferenceItem[] }>();
+    for (const item of items ?? []) {
+        const entry = byEvent.get(item.event_type) ?? { label: item.event_label, channels: [] };
+        entry.channels.push(item);
+        byEvent.set(item.event_type, entry);
+    }
+
+    return (
+        <Card className="p-5 max-w-2xl">
+            <h3 className="text-sm font-semibold text-slate-700 mb-1">Notification preferences</h3>
+            <p className="text-xs text-slate-500 mb-5">
+                Choose which channels are used for each event. Off by default keeps today's behavior - nothing
+                changes until you turn something off here.
+            </p>
+
+            {items === null && !error && <LoadingState label="Loading preferences…" />}
+            {error && <ErrorState message={error} onRetry={load} />}
+            {items && items.length === 0 && <EmptyState title="No configurable events yet" />}
+
+            {items && items.length > 0 && (
+                <ul className="divide-y divide-slate-100">
+                    {Array.from(byEvent.entries()).map(([eventType, entry]) => (
+                        <li key={eventType} className="py-4 flex items-center justify-between gap-4 flex-wrap">
+                            <p className="text-sm font-medium text-slate-800">{entry.label}</p>
+                            <div className="flex items-center gap-5">
+                                {entry.channels.map((item) => (
+                                    <label
+                                        key={item.channel}
+                                        className="flex items-center gap-2 text-xs font-medium text-slate-500"
+                                    >
+                                        {NOTIFICATION_CHANNEL_LABELS[item.channel] ?? item.channel}
+                                        <ToggleSwitch
+                                            checked={item.enabled}
+                                            onChange={() => handleToggle(item)}
+                                            label={`${entry.label} via ${NOTIFICATION_CHANNEL_LABELS[item.channel] ?? item.channel}`}
+                                        />
+                                    </label>
+                                ))}
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            )}
         </Card>
     );
 }

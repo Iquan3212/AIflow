@@ -18,6 +18,7 @@ from app.repositories.appointment_repository import AppointmentRepository
 from app.services.calendar.factory import get_calendar_for
 from app.services.calendar.base import CalendarEvent
 from app.services.notifications.dispatcher import NotificationDispatcher
+from app.services.notifications import preferences as notif_prefs
 
 logger = get_logger(__name__)
 
@@ -311,6 +312,7 @@ class AppointmentService:
         body = (f"Hi {appt.customer_name or 'there'}, your appointment with {business.name} "
                 f"is confirmed for {when}. Reply to this message if you need to change it.")
         self.notifier.notify_customer(
+            db=self.db, business_id=business.id, event_type=notif_prefs.APPOINTMENT_CONFIRMED,
             name=appt.customer_name, email=appt.customer_email, phone=appt.customer_phone,
             subject=f"Appointment confirmed — {business.name}", body=body,
         )
@@ -320,6 +322,7 @@ class AppointmentService:
     def _send_reschedule(self, business, appt):
         when = humanize(appt.scheduled_at, business.timezone)
         self.notifier.notify_customer(
+            db=self.db, business_id=business.id, event_type=notif_prefs.APPOINTMENT_RESCHEDULED,
             name=appt.customer_name, email=appt.customer_email, phone=appt.customer_phone,
             subject=f"Appointment updated — {business.name}",
             body=f"Your appointment with {business.name} has been moved to {when}.",
@@ -327,6 +330,7 @@ class AppointmentService:
 
     def _send_cancellation(self, business, appt):
         self.notifier.notify_customer(
+            db=self.db, business_id=business.id, event_type=notif_prefs.APPOINTMENT_CANCELLED,
             name=appt.customer_name, email=appt.customer_email, phone=appt.customer_phone,
             subject=f"Appointment cancelled — {business.name}",
             body=f"Your appointment with {business.name} has been cancelled.",

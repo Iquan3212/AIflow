@@ -2,6 +2,11 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.services.lead_ai_service import extract_lead_information
+from app.services.notifications.dispatcher import NotificationDispatcher
+from app.services.notifications import preferences as notif_prefs
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class LeadTool:
@@ -65,6 +70,24 @@ class LeadTool:
 
         db.commit()
         db.refresh(target)
+
+        if created:
+            # Best-effort: a notification failure must never undo or mask a
+            # real, already-committed lead.
+            try:
+                NotificationDispatcher().notify_owner(
+                    db=db, business=business, event_type=notif_prefs.NEW_LEAD,
+                    subject=f"New lead — {business.name}",
+                    body=(
+                        f"A new lead came in: {target.name or 'unnamed'}"
+                        f" ({target.phone or target.email or 'no contact info'})."
+                        f" Interested in: {target.service_interested or 'not specified'}."
+                    ),
+                )
+            except Exception:
+                logger.exception("notification.new_lead_failed", extra={"ctx": {
+                    "event": "notification.new_lead_failed", "business_id": business.id, "lead_id": target.id,
+                }})
 
         return {
             "ok": True,

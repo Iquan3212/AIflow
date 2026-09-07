@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.repositories.appointment_repository import AppointmentRepository
 from app.services.notifications.dispatcher import NotificationDispatcher
+from app.services.notifications import preferences as notif_prefs
 from app.services.scheduling.datetime_utils import humanize, now_utc
 
 
@@ -32,6 +33,7 @@ class ReminderService:
             body = (f"Reminder: you have an appointment with {business.name} "
                     f"on {when}. Reply here if you need to reschedule or cancel.")
             results = self.notifier.notify_customer(
+                db=self.db, business_id=business.id, event_type=notif_prefs.APPOINTMENT_REMINDER,
                 name=appt.customer_name,
                 email=appt.customer_email,
                 phone=appt.customer_phone,
