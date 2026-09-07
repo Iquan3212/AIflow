@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.agents.employee_agent import EmployeeAgent
-from app.config import get_settings
+from app.services.llm_client import get_llm_status
 
 
 class EmployeeService:
@@ -28,16 +28,20 @@ class EmployeeService:
 
     def status(self):
 
+        llm_status = get_llm_status()
+
         return {
             "status": "online",
             "agent": "Receptionist AI",
-            "model": get_settings().llm_model,
+            "model": llm_status["model"],
             "tools": [
                 "Dashboard summary",
                 "Lead CRM",
                 "Availability",
                 "Appointment booking",
             ],
+            "provider": llm_status["provider"],
+            "fallback_provider": llm_status["fallback_provider"],
         }
 
     def history(self, business_id, conversation_id=None):

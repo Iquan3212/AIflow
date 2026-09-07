@@ -45,8 +45,11 @@ You need:
 - **A PostgreSQL database.** [Neon](https://neon.tech) is the intended
   provider (see `ARCHITECTURE.md#database`) — free tier is enough to start.
   Paste the connection string into `DATABASE_URL`.
-- **One LLM API key.** Any OpenAI-compatible provider works unmodified —
-  OpenAI, Groq, Together, Fireworks, or a self-hosted model server.
+- **One LLM provider, chosen via `LLM_PROVIDER`** in `.env` — `groq`,
+  `gemini`, `openrouter`, or `ollama` (local, no API key). Only that
+  provider's credentials are required; the other three can stay blank.
+  See "LLM providers" below and `ARCHITECTURE.md`'s "LLM provider layer"
+  section for how they're selected and swapped.
 
 Then create the schema (schema is managed by Alembic, not auto-created on
 boot — see `ARCHITECTURE.md#database`):
@@ -65,6 +68,27 @@ expect). Every response carries an `X-Request-ID` header - grep the logs
 for that id to trace one request through the whole AI Workforce pipeline.
 See `ARCHITECTURE.md#logging--observability-backendapploggingconfigpy` for
 the full design.
+
+#### LLM providers
+
+Every LLM call in the app goes through one provider-agnostic layer — pick
+one with `LLM_PROVIDER` in `.env`:
+
+| `LLM_PROVIDER` | Credentials needed | Notes |
+|---|---|---|
+| `groq` (default) | `GROQ_API_KEY` | [console.groq.com/keys](https://console.groq.com/keys). Example model: `openai/gpt-oss-20b`. |
+| `gemini` | `GEMINI_API_KEY` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Example model: `gemini-2.0-flash`. |
+| `openrouter` | `OPENROUTER_API_KEY` | [openrouter.ai/keys](https://openrouter.ai/keys). Any model id OpenRouter hosts; tool-calling only works if the chosen model supports it. |
+| `ollama` | none — runs locally | Install from [ollama.com/download](https://ollama.com/download), then `ollama pull llama3.1` (or any tool-calling-capable model) and leave it running. Set `OLLAMA_BASE_URL` if it's not on the default `http://127.0.0.1:11434`. If Ollama isn't running, requests fail with a clean "temporarily unavailable" error instead of crashing. |
+
+`LLM_MODEL` sets which model to use with the selected provider (see the
+table above for examples). Only the selected provider's credentials are
+required — the app never fails to start over an unused provider's missing
+key. Optionally set `LLM_FALLBACK_PROVIDER` to a second provider name to
+retry once on a transient failure (rate limit/timeout/unavailable) of the
+primary; leave it blank to disable (the default). `GET /manager/status`
+reports which provider/model is currently active, for operators — never a
+credential.
 
 ### 2. Frontend
 

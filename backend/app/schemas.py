@@ -463,3 +463,5 @@ class EmployeeStatus(BaseModel):
     agent: str
     model: str
     tools: list[str]
+    provider: str
+    fallback_provider: str | None = None

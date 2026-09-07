@@ -1,113 +1,119 @@
 """
-Thin wrapper around any OpenAI-compatible chat completions API.
+Thin, provider-independent facade every caller in the app already uses:
 
-Works unmodified with OpenAI, Groq, Together, Fireworks, a self-hosted
-vLLM/Ollama OpenAI-shim, or any other provider that speaks the same
-/chat/completions schema. Swap providers by changing LLM_BASE_URL and
-LLM_API_KEY in .env — nothing in this file or the rest of the app changes.
+    chat_completion(messages, tools=None, tool_choice="auto") -> ChatResult
+
+raising LLMProviderError (never a provider SDK's own exception type) on
+failure. The actual provider - Groq, Gemini, OpenRouter, or a local Ollama
+server - is selected once, at import time, by LLM_PROVIDER (see
+app/services/llm/factory.py). No caller needs to change to add or swap
+providers: ManagerAgent, the employee agents, llm_reply.py, and the tools
+all depend on this module's shape, never on a specific provider's SDK.
+
+Optional single-attempt fallback: if LLM_FALLBACK_PROVIDER names a second
+provider, a transient failure on the primary (rate limit/timeout/
+unavailable/provider_error only - never an invalid request, an auth
+problem, a prompt-injection refusal, or a tool/business-rule failure, none
+of which are provider failures in the first place) retries once against
+it. Disabled by default; never recurses - the fallback attempt's own
+failure always propagates rather than trying a third provider.
 """
 
 import time
 
-import openai
-from openai import OpenAI
-
 from app.config import get_settings
 from app.logging_config import get_logger
+from app.services.llm.base import LLMProviderError, FALLBACK_ELIGIBLE_REASONS
+from app.services.llm.factory import create_llm_provider
 
 settings = get_settings()
 logger = get_logger(__name__)
 
-_client = OpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
+# LLMProviderError is imported (not redefined) above, so
+# `from app.services.llm_client import chat_completion, LLMProviderError`
+# (every existing call site) keeps working unchanged.
+
+_provider = create_llm_provider(settings)
+
+_fallback_name = (settings.llm_fallback_provider or "").strip().lower()
+_fallback_provider = None
+if _fallback_name and _fallback_name != "none":
+    if _fallback_name == (settings.llm_provider or "groq").strip().lower():
+        logger.warning("llm.fallback_same_as_primary", extra={"ctx": {
+            "event": "llm.fallback_same_as_primary", "provider": _fallback_name,
+        }})
+    else:
+        _fallback_provider = create_llm_provider(settings, provider_name=_fallback_name)
 
 
-class LLMProviderError(Exception):
-    """The LLM provider itself rejected or failed the request - as opposed
-    to a bug in this app's own code. Wraps the specific `openai.APIError`
-    subclass so every caller (llm_reply.py, conversation_service.py, the
-    standalone extraction/quotation/campaign call sites) can react the same
-    way without each needing to know the full set of provider exception
-    classes. `reason` is a stable short code for logs/metrics; `user_message`
-    is safe to show a customer (never includes provider-specific detail -
-    org ids, billing links, raw error bodies - only in the log, via
-    `original`)."""
-
-    def __init__(self, reason: str, user_message: str, original: Exception):
-        self.reason = reason
-        self.user_message = user_message
-        self.original = original
-        super().__init__(f"{reason}: {original}")
-
-
-def _classify_provider_error(exc: openai.APIError) -> tuple[str, str]:
-    """openai.RateLimitError/AuthenticationError/APIConnectionError/etc. all
-    inherit from openai.APIError - this only ever sees genuine provider-side
-    failures, never a bug in this app's own request construction (a
-    TypeError from bad kwargs, for instance, is a different exception type
-    entirely and is not caught by the narrower `except openai.APIError` in
-    chat_completion() below, so it still surfaces as itself)."""
-    if isinstance(exc, openai.RateLimitError):
-        return "rate_limited", (
-            "Our AI assistant is getting a lot of requests right now. "
-            "Please try again in a few minutes."
-        )
-    if isinstance(exc, (openai.APIConnectionError, openai.APITimeoutError, openai.InternalServerError)):
-        return "unavailable", "Our AI assistant is temporarily unavailable. Please try again shortly."
-    if isinstance(exc, (openai.AuthenticationError, openai.PermissionDeniedError)):
-        # A real customer/owner never needs to know this is a config
-        # problem on our end - same safe message as "unavailable", but
-        # logged under its own reason so an operator can tell the
-        # difference (this needs a human to fix credentials, "unavailable"
-        # usually resolves on its own).
-        return "auth", "Our AI assistant is temporarily unavailable. Please try again shortly."
-    if isinstance(exc, openai.BadRequestError):
-        return "invalid_request", "Sorry, I couldn't process that request. Could you rephrase it?"
-    return "unknown", "Sorry, I couldn't process that just now. Could you try again?"
-
-
-def chat_completion(messages: list[dict], tools: list[dict] | None = None, tool_choice: str = "auto"):
+def chat_completion(messages: list[dict], tools: list[dict] | None = None, tool_choice: str = "auto", temperature: float = 0.4):
     """
     messages: [{"role": "system"|"user"|"assistant"|"tool", "content": "..."}]
     tools: OpenAI-style tool/function definitions (optional)
-    Returns the raw completion message object (choices[0].message).
+    Returns a ChatResult (app.services.llm.base) - `.content` and, when the
+    model made one, `.tool_calls` (each with `.id`/`.function.name`/
+    `.function.arguments`).
 
     Logs shape and timing only - never the actual message content, which
     would include system prompts and customer PII (see logging_config.py).
-
-    Raises LLMProviderError (not the raw openai.* exception) when the
-    provider itself is the cause of the failure, so every caller gets a
-    classified reason and a safe, honest user-facing message instead of
-    silently swallowing the real cause into one generic string regardless
-    of what actually went wrong.
     """
-    kwargs = {
-        "model": settings.llm_model,
-        "messages": messages,
-        "temperature": 0.4,
-    }
-    if tools:
-        kwargs["tools"] = tools
-        kwargs["tool_choice"] = tool_choice
-
     start = time.perf_counter()
     try:
-        response = _client.chat.completions.create(**kwargs)
-    except openai.APIError as exc:
-        reason, user_message = _classify_provider_error(exc)
+        result = _provider.chat(messages, tools=tools, tool_choice=tool_choice, temperature=temperature)
+    except LLMProviderError as exc:
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
         logger.exception("llm.call_failed", extra={"ctx": {
-            "event": "llm.call_failed", "model": settings.llm_model,
+            "event": "llm.call_failed", "provider": _provider.name, "model": _provider.model_name(),
             "message_count": len(messages), "tools_offered": bool(tools),
-            "duration_ms": round((time.perf_counter() - start) * 1000, 1),
-            "success": False, "error_reason": reason,
+            "duration_ms": duration_ms, "success": False, "error_reason": exc.reason,
         }})
-        raise LLMProviderError(reason, user_message, exc) from exc
 
-    message = response.choices[0].message
+        if _fallback_provider is None or exc.reason not in FALLBACK_ELIGIBLE_REASONS:
+            raise
+
+        logger.warning("llm.fallback_triggered", extra={"ctx": {
+            "event": "llm.fallback_triggered", "from_provider": _provider.name,
+            "to_provider": _fallback_provider.name, "error_reason": exc.reason,
+        }})
+        fb_start = time.perf_counter()
+        try:
+            # Exactly one fallback attempt - deliberately not wrapped in
+            # this same try/except, so a second failure here always
+            # propagates rather than ever trying a third provider.
+            result = _fallback_provider.chat(messages, tools=tools, tool_choice=tool_choice, temperature=temperature)
+        except LLMProviderError as fb_exc:
+            logger.exception("llm.fallback_failed", extra={"ctx": {
+                "event": "llm.fallback_failed", "provider": _fallback_provider.name,
+                "duration_ms": round((time.perf_counter() - fb_start) * 1000, 1),
+                "success": False, "error_reason": fb_exc.reason,
+            }})
+            raise
+
+        logger.info("llm.call_completed", extra={"ctx": {
+            "event": "llm.call_completed", "provider": _fallback_provider.name,
+            "model": _fallback_provider.model_name(), "message_count": len(messages),
+            "tools_offered": bool(tools), "tool_calls_returned": bool(result.tool_calls),
+            "duration_ms": round((time.perf_counter() - fb_start) * 1000, 1),
+            "success": True, "via_fallback": True,
+        }})
+        return result
+
+    duration_ms = round((time.perf_counter() - start) * 1000, 1)
     logger.info("llm.call_completed", extra={"ctx": {
-        "event": "llm.call_completed", "model": settings.llm_model,
+        "event": "llm.call_completed", "provider": _provider.name, "model": _provider.model_name(),
         "message_count": len(messages), "tools_offered": bool(tools),
-        "tool_calls_returned": bool(getattr(message, "tool_calls", None)),
-        "duration_ms": round((time.perf_counter() - start) * 1000, 1),
-        "success": True,
+        "tool_calls_returned": bool(result.tool_calls),
+        "duration_ms": duration_ms, "success": True,
     }})
-    return message
+    return result
+
+
+def get_llm_status() -> dict:
+    """Safe status info for an operator - provider + model names only,
+    never a key or any other credential. See routers/employee.py's
+    GET /manager/status."""
+    return {
+        "provider": _provider.name,
+        "model": _provider.model_name(),
+        "fallback_provider": _fallback_provider.name if _fallback_provider else None,
+    }

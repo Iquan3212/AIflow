@@ -1,19 +1,10 @@
 import json
 import re
-import time
 
-from openai import OpenAI
-
-from app.config import get_settings
 from app.logging_config import get_logger
+from app.services.llm_client import chat_completion
 
-settings = get_settings()
 logger = get_logger(__name__)
-
-client = OpenAI(
-    api_key=settings.llm_api_key,
-    base_url=settings.llm_base_url,
-)
 
 
 def extract_lead_information(message: str):
@@ -51,30 +42,16 @@ Customer message:
 {message}
 """
 
-    start = time.perf_counter()
-    try:
-        response = client.chat.completions.create(
-            model=settings.llm_model,
-            temperature=0,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-        )
-    except Exception:
-        logger.exception("llm.call_failed", extra={"ctx": {
-            "event": "llm.call_failed", "operation": "extract_lead_information",
-            "duration_ms": round((time.perf_counter() - start) * 1000, 1), "success": False,
-        }})
-        raise
-
-    content = response.choices[0].message.content.strip()
-    logger.info("llm.call_completed", extra={"ctx": {
-        "event": "llm.call_completed", "operation": "extract_lead_information",
-        "duration_ms": round((time.perf_counter() - start) * 1000, 1), "success": True,
-    }})
+    # Provider-agnostic now (was its own direct OpenAI(...) client) - low
+    # temperature preserved for deterministic extraction, distinct from
+    # the 0.4 default used for conversational replies elsewhere. Timing/
+    # success/failure logging, and provider-error classification, are
+    # already handled once inside chat_completion() - nothing duplicated
+    # here. A provider failure raises LLMProviderError, which the caller
+    # chain (LeadTool.execute() -> ToolRouter.execute()) already catches
+    # and logs, so this function doesn't need its own try/except.
+    completion = chat_completion([{"role": "user", "content": prompt}], temperature=0)
+    content = (completion.content or "").strip()
 
     # Remove markdown fences if present
     content = re.sub(r"^```json", "", content, flags=re.IGNORECASE).strip()

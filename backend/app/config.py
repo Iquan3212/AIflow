@@ -55,14 +55,45 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 30
 
     # =====================================================
-    # AI
+    # AI — provider-agnostic. LLM_PROVIDER selects which of the four
+    # adapters in app/services/llm/ handles every chat_completion() call
+    # in the app (see app/services/llm/factory.py). Only the SELECTED
+    # provider's credentials are required at runtime - validated lazily by
+    # the factory when it's actually constructed, not by pydantic here, so
+    # startup never fails over an unused provider's missing key.
     # =====================================================
 
-    llm_api_key: str
+    llm_provider: str = "groq"  # groq | gemini | openrouter | ollama
 
+    # Optional: if set to one of the four provider names (and different
+    # from llm_provider), a transient failure (rate limit/timeout/
+    # unavailable/provider_error - never an invalid request, an auth
+    # problem in OUR app, a prompt-injection refusal, or a tool/business-
+    # rule failure) triggers exactly one retry against this provider
+    # instead. "" or "none" (the default) disables fallback entirely.
+    llm_fallback_provider: str = ""
+
+    # The model id passed to whichever provider is selected - its meaning
+    # is provider-specific (e.g. "openai/gpt-oss-20b" for Groq, a Gemini
+    # model name for Gemini), so there's one field, not one per provider.
+    llm_model: str = "gpt-4o-mini"
+
+    # Legacy generic fields from before multi-provider support - still
+    # read as a fallback by the Groq adapter when GROQ_API_KEY/
+    # GROQ_BASE_URL aren't set, so an existing .env keeps working
+    # unchanged. New setups should use GROQ_API_KEY directly.
+    llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
 
-    llm_model: str = "gpt-4o-mini"
+    groq_api_key: str = ""
+    groq_base_url: str = ""  # blank = Groq's real endpoint (see factory.py)
+
+    gemini_api_key: str = ""
+
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = ""  # blank = OpenRouter's real endpoint
+
+    ollama_base_url: str = "http://127.0.0.1:11434"
 
     # =====================================================
     # NOTIFICATIONS (all optional — dev falls back to logging)

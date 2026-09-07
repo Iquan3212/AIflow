@@ -13,6 +13,12 @@ python-multipart>=0.0.9
 alembic>=1.13.0
 slowapi>=0.1.9
 
+# LLM providers: openai (above) covers Groq/OpenRouter/Ollama - all three
+# speak the OpenAI chat/completions schema. Gemini's API is genuinely
+# different and needs its own SDK - the current, supported one (not the
+# older, deprecated google-generativeai package).
+google-genai>=1.75.0,<2.0.0
+
 # --- Phase 3 optional integrations (enable when you wire the provider) ---
 # SMS reminders:
 # twilio>=9.0.0

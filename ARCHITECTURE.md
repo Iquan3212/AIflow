@@ -70,6 +70,104 @@ skips full Manager delegation (`delegate=False`) since it phrases its own
 reply — no reason to pay for a full multi-agent turn on every website visitor
 message.
 
+## LLM provider layer (`backend/app/services/llm/`)
+
+Every LLM call in the app — Manager/employee replies, `quotation_tool.py`,
+`campaign_tool.py`, `appointment_tool.py`'s request extraction,
+`lead_ai_service.py`'s lead extraction, the widget's tool-calling loop in
+`conversation_service.py` — goes through one facade,
+`app.services.llm_client.chat_completion(messages, tools=None,
+tool_choice="auto", temperature=0.4)`, and none of those callers know or
+care which provider is actually configured:
+
+```
+Caller (ManagerAgent/Employee/Tool)
+ -> llm_client.chat_completion(messages, tools)     (facade - unchanged signature)
+ -> app/services/llm/factory.py: create_llm_provider() (selected once, at import, from LLM_PROVIDER)
+ -> LLMProvider adapter                              (OpenAICompatibleProvider | GeminiProvider)
+ -> provider SDK (openai / google-genai)             (only place a provider SDK is imported)
+ -> ChatResult(content, tool_calls)                   (canonical shape, back to the caller)
+```
+
+- **`app/services/llm/base.py`** — the contract every adapter implements
+  and every caller depends on: `LLMProvider.chat(...)` returns a
+  `ChatResult` (`.content`, `.tool_calls` — each a `ToolCall` with
+  `.id`/`.function.name`/`.function.arguments`), deliberately shaped to
+  match the subset of the OpenAI SDK's response the app already read, so
+  `llm_reply.py`, `conversation_service.py`, and the tools needed zero
+  changes. Failures raise `LLMProviderError(reason, user_message,
+  original, provider)` — never a provider SDK's own exception type — with
+  `reason` one of six canonical categories (`rate_limited`,
+  `authentication_error`, `timeout`, `unavailable`, `invalid_request`,
+  `provider_error`). `user_message` is always safe to show a customer;
+  `original` (provider-specific detail — org ids, billing links, raw
+  error bodies) is logged, never returned to a client.
+- **`app/services/llm/openai_compatible.py`** — one adapter shared by
+  **Groq, OpenRouter, and a local Ollama server**, since all three speak
+  the same OpenAI chat/completions schema (Ollama via its own
+  `{OLLAMA_BASE_URL}/v1` OpenAI-shim endpoint) — this is exactly how the
+  app already treated Groq before this refactor. Classifies
+  `openai.APIError` subclasses (`RateLimitError`, `APITimeoutError`,
+  `APIConnectionError`/`InternalServerError`, `AuthenticationError`/
+  `PermissionDeniedError`, `BadRequestError`) into the six categories
+  above; anything else becomes `provider_error`.
+- **`app/services/llm/gemini_provider.py`** — a real, separate adapter for
+  **Google Gemini** via the current `google-genai` SDK (not the older,
+  deprecated `google-generativeai` package) — Gemini's request/response
+  shape is genuinely different, not just a different base URL: no
+  "system" role in the content array (every system-role message in the
+  incoming OpenAI-shaped list is concatenated, in order, into one
+  `system_instruction`), `assistant` maps to Gemini's `model` role, and a
+  "tool"-role result message (identified only by `tool_call_id` in the
+  OpenAI shape) is mapped to a `functionResponse` part by tracking
+  `tool_call_id -> function_name` from the preceding assistant message's
+  `tool_calls`. Classifies `google.genai.errors.APIError` by its
+  `.code` (HTTP status): 429 -> `rate_limited`, 401/403 ->
+  `authentication_error`, 400 -> `invalid_request`, 408/504 -> `timeout`,
+  5xx -> `unavailable`; a connection-level failure (no status code at
+  all, since it never reaches `APIError`) becomes `unavailable`.
+- **`app/services/llm/factory.py`** — `create_llm_provider(settings,
+  provider_name=None)` is the *only* place that branches on provider
+  name. `LLM_PROVIDER` (`groq` | `gemini` | `openrouter` | `ollama`)
+  selects the adapter; each branch validates only the credentials that
+  provider actually needs (`ProviderNotConfiguredError` if missing), so
+  an unused provider's blank API key never fails startup — Gemini/
+  OpenRouter can be left unconfigured entirely while running on Groq.
+  Ollama needs no key at all, just `OLLAMA_BASE_URL` (default
+  `http://127.0.0.1:11434`).
+- **`app/services/llm_client.py`** — the thin facade above, unchanged in
+  signature from before this refactor. Adds one optional feature:
+  **single-attempt fallback** — if `LLM_FALLBACK_PROVIDER` names a second
+  provider, a transient failure on the primary (`rate_limited` /
+  `timeout` / `unavailable` / `provider_error` only) retries once against
+  it; disabled by default, and the fallback call sits outside the
+  primary's own try/except so its failure always propagates rather than
+  ever trying a third provider. Never falls back for `invalid_request` or
+  an auth problem (identical failure on any other provider), and never
+  for a prompt-injection refusal or a tool/business-rule failure — those
+  never raise `LLMProviderError` in the first place, since they aren't
+  provider failures. `get_llm_status()` exposes `{provider, model,
+  fallback_provider}` (never a key) — see `GET /manager/status`.
+- **Backward compatibility**: the legacy `LLM_API_KEY`/`LLM_BASE_URL`
+  settings from before multi-provider support are still read as a
+  fallback by the Groq branch when `GROQ_API_KEY`/`GROQ_BASE_URL` aren't
+  set — an existing `.env` keeps working with zero changes.
+- **Tool/function calling**: the only real tool-calling call site is
+  `conversation_service.py`'s tool loop (OpenAI-style `tools`/
+  `tool_choice`, reading back `.tool_calls`). Every adapter either
+  implements this correctly (Groq/OpenRouter/Ollama via native OpenAI
+  tool-calling; Gemini via `FunctionDeclaration`/`ToolConfig`) or the
+  underlying model simply won't emit a tool call and the loop's existing
+  "no tool_calls -> return the plain reply" path handles it — there is no
+  code path that fabricates a tool result or claims a tool ran when it
+  didn't.
+- **Verified NOT changed by this refactor** (confirmed via `git diff`):
+  `prompt_guard.py`, `manager_agent.py`, every employee agent,
+  `tool_router.py`, `conversation_service.py`'s tool loop, and
+  `llm_reply.py` (including its `MAX_HISTORY_MESSAGES = 20` history
+  truncation) — the provider abstraction sits entirely below
+  `llm_client.py`; nothing above it needed to change.
+
 ## Channels — WhatsApp & Instagram (`backend/app/services/channels/`)
 
 WhatsApp and Instagram are adapters on top of the exact pipeline above, not
@@ -450,3 +548,18 @@ Full runbook: `DEPLOYMENT.md`. Summary of the repo-side configuration:
   the "Deployment" section above and `DEPLOYMENT.md`. Repo-side config
   only; not yet actually deployed to any cloud platform (no credentials
   available to this session).
+- ✅ **Provider-agnostic LLM layer** (see "LLM provider layer" section
+  above) — no provider API key is ever returned to a client; a provider
+  failure surfaces only the canonical `user_message` (e.g. "Our AI
+  assistant is getting a lot of requests right now"), never the raw
+  provider exception, org id, or billing link (those stay in the
+  structured log's `original`/exception detail, server-side only).
+  `GET /manager/status` exposes the active `provider`/`model`/
+  `fallback_provider` for operators — no secret in that response, checked
+  live. Rate limiting, prompt-injection resistance, CORS, and JWT/auth
+  behavior were re-verified unaffected: `prompt_guard.py`,
+  `manager_agent.py`, every employee agent, `tool_router.py`, and
+  `conversation_service.py`'s tool loop have zero diff from before this
+  refactor (confirmed via `git diff`); `POST /auth/login`'s 10/minute
+  limit and the CORS preflight response were both re-tested live and
+  behave identically.
