@@ -1,5 +1,13 @@
 from sqlalchemy.orm import Session
 
+from app.agents.prompt_guard import (
+    harden_system_prompt,
+    wrap_untrusted,
+    detect_injection_signals,
+    INJECTION_REINFORCEMENT,
+    leaks_system_prompt,
+    SAFE_FALLBACK_REPLY,
+)
 from app.services.draft_service import DraftService
 from app.services.llm_client import chat_completion
 
@@ -23,28 +31,35 @@ class QuotationTool:
 
         config = getattr(business, "chatbot_config", None)
         services = config.services if config and config.services else []
+        services_text = "\n".join(f"- {s}" for s in services) if services else "No services configured for this business yet."
 
-        prompt = f"""You are drafting a quotation summary for {business.name}.
-Only reference the services listed below - never invent prices, discounts, or services.
+        system_prompt = harden_system_prompt(f"""You are drafting a quotation summary for {business.name}.
+Only reference the services listed in the fenced data below - never invent
+prices, discounts, or services that aren't there.
 
-Available services:
-{chr(10).join(f"- {s}" for s in services) if services else "No services configured for this business yet."}
+{wrap_untrusted("AVAILABLE SERVICES", services_text)}
 
-Customer request:
-{message}
+Write a short, professional quotation-style reply grounded only in the data
+above. If the customer's request needs a service that isn't listed, say
+plainly that it isn't offered instead of guessing a price or availability.""")
 
-Write a short, professional quotation-style reply. If the request needs a
-service that isn't listed, say plainly that it isn't offered instead of
-guessing a price or availability."""
+        messages = [{"role": "system", "content": system_prompt}]
+        if detect_injection_signals(message):
+            messages.append({"role": "system", "content": INJECTION_REINFORCEMENT})
+        messages.append({"role": "user", "content": message})
 
         draft = ""
         for attempt in range(2):
             try:
-                completion = chat_completion([{"role": "user", "content": prompt}])
+                completion = chat_completion(messages)
                 draft = (completion.content or "").strip()
                 break
             except Exception as exc:
                 print(f"[quotation-tool:error attempt={attempt}] {exc}")
+
+        if draft and leaks_system_prompt(draft, system_prompt):
+            print("[quotation-tool:prompt-guard] draft looked like a system-prompt leak, replaced with fallback")
+            draft = SAFE_FALLBACK_REPLY
 
         draft_id = None
         if draft:

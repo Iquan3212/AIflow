@@ -33,6 +33,13 @@ from app.services.scheduling.tools import tool_definitions, ToolDispatcher
 from app.services.scheduling.datetime_utils import to_local, now_utc
 
 from app.agents.orchestrator import AIOrchestrator
+from app.agents.prompt_guard import (
+    wrap_untrusted,
+    detect_injection_signals,
+    INJECTION_REINFORCEMENT,
+    leaks_system_prompt,
+    SAFE_FALLBACK_REPLY,
+)
 
 MAX_TOOL_ROUNDS = 4
 
@@ -154,13 +161,17 @@ def process_message(
     Detected Intent:
     {agent_context['plan'].intent}
 
-    Conversation Memory:
-    {agent_context['memory']}
+    {wrap_untrusted("CONVERSATION MEMORY", agent_context['memory'])}
     """
 
     messages = [{"role": "system", "content": system_prompt}]
     for msg in history:
         messages.append({"role": msg.role, "content": msg.content})
+
+    # The heuristic only ever adds a reminder - it never blocks, refuses, or
+    # changes what gets sent to the model otherwise. See prompt_guard.py.
+    if detect_injection_signals(message):
+        messages.append({"role": "system", "content": INJECTION_REINFORCEMENT})
 
     dispatcher = ToolDispatcher(db, business, conversation, lead)
     tools = tool_definitions()
@@ -170,6 +181,13 @@ def process_message(
     tools,
     dispatcher,
 )
+
+    # Backstop: even if the model was talked into reciting its instructions
+    # despite the guard rules baked into system_prompt, never let that leave
+    # this function.
+    if leaks_system_prompt(reply_text, system_prompt):
+        print("[widget-chat:prompt-guard] reply looked like a system-prompt leak, replaced with fallback")
+        reply_text = SAFE_FALLBACK_REPLY
 
     reply_text = orchestrator.after_llm(reply_text)
 

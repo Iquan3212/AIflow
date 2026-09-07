@@ -19,15 +19,16 @@ from reality before this pass).
 | **Phase 7 — Support ticket persistence**: Support (`SupportTicketTool`) writes a real `SupportTicket` row every time it responds, reviewable/manageable from the Support page (`GET/PATCH/DELETE /support-tickets`) - the last of the six employees to gain real persistence | ✅ |
 | **Phase 8 — Alembic migrations**: schema is now managed by tracked, reversible migrations (`backend/alembic/`) instead of `create_all()` on every boot; the live Neon database is stamped at the baseline revision with zero data changes | ✅ |
 | **Production hardening, sub-phase 1 — Rate limiting**: the public chat endpoint (`POST /conversation/send` + legacy `/chat` alias) and the auth endpoints (`POST /auth/login`, `POST /auth/signup`) are throttled per client IP (`backend/app/rate_limit.py`, `slowapi`); exceeding a limit returns `429` | ✅ |
+| **Production hardening, sub-phase 2 — Prompt-injection resistance**: every persona-driven system prompt (all 6 AI Workforce employees, the Manager, the public widget, `QuotationTool`/`CampaignTool`) is built through a shared guard (`backend/app/agents/prompt_guard.py`) that treats all business/customer/tool-derived content as data, fences it with explicit delimiters, adds a reinforcement reminder on suspicious turns, and backstops replies against verbatim system-prompt leakage | ✅ |
 
 ## Deliberately not built yet, and why
 
 - **Notifications settings** — email/SMS/WhatsApp sending already works
   (`services/notifications/`), but there's no per-channel preference storage
   to build a settings UI around yet.
-- **Prompt-injection hardening, structured logging/observability, deploy
-  config** — the remaining sub-phases of Production hardening (see below);
-  rate limiting is done, these are not.
+- **Structured logging/observability, deploy config** — the remaining
+  sub-phases of Production hardening (see below); rate limiting and
+  prompt-injection resistance are done, these are not.
 
 ## Security status (checked each phase, not yet fully resolved)
 
@@ -46,11 +47,12 @@ from reality before this pass).
 Every AI Workforce employee has real, persisted output, and schema changes
 are now safe to make. What's left is production-readiness work:
 
-1. **Production hardening** — rate limiting (✅ done, see Done table above),
-   prompt-injection resistance, structured logging/observability, deploy
-   config (Railway/Render + Vercel). As anticipated, this was split into its
-   own sub-phases rather than landing as one; rate limiting was the first,
-   the remaining three are still not started.
+1. **Production hardening** — rate limiting (✅ done) and prompt-injection
+   resistance (✅ done, see Done table above), structured logging/
+   observability, deploy config (Railway/Render + Vercel). As anticipated,
+   this was split into its own sub-phases rather than landing as one; the
+   remaining two (structured logging/observability, deploy config) are
+   still not started.
 2. **WhatsApp/Instagram channels** — the chatbot engine is channel-agnostic
    already; each new channel is an adapter, not a rewrite. Gates on Meta
    Business verification, which runs on Meta's timeline.

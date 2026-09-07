@@ -1,4 +1,5 @@
 from app import models
+from app.agents.prompt_guard import harden_system_prompt, wrap_untrusted
 
 
 def build_system_prompt(
@@ -72,7 +73,7 @@ def build_system_prompt(
 CURRENT LEAD INFORMATION
 ===========================================================
 
-Customer Name:
+{wrap_untrusted("CURRENT LEAD INFORMATION", f'''Customer Name:
 {lead.name or "Not Provided"}
 
 Phone:
@@ -85,21 +86,16 @@ Service Interested:
 {lead.service_interested or "Not Provided"}
 
 Budget:
-{lead.budget or "Not Provided"}
+{lead.budget or "Not Provided"}''')}
 
 """
 
     # -----------------------------
     # Final Prompt
     # -----------------------------
-    return f"""
-You are the official AI assistant for {business.name}.
-
-===========================================================
-BUSINESS INFORMATION
-===========================================================
-
-Business Name:
+    business_data = wrap_untrusted(
+        "BUSINESS INFORMATION",
+        f"""Business Name:
 {business.name}
 
 Industry:
@@ -113,7 +109,17 @@ Services Offered:
 
 Frequently Asked Questions:
 
-{faq_text}
+{faq_text}""",
+    )
+
+    return harden_system_prompt(f"""
+You are the official AI assistant for {business.name}.
+
+===========================================================
+BUSINESS INFORMATION
+===========================================================
+
+{business_data}
 
 ===========================================================
 CHATBOT PERSONALITY
@@ -229,26 +235,24 @@ You can book, reschedule, and cancel appointments using your tools. Rules:
 - After a tool confirms a booking/reschedule/cancellation, state the exact date
   and time back to the customer in plain, friendly language.
 - Never say an appointment is booked unless a tool returned success.
-"""
+""")
 
 
 def build_dashboard_prompt(business, config, memory: str) -> str:
     """Prompt for the owner-facing AI Employee, grounded in one tenant only."""
     services = ", ".join(config.services or []) if config else "No services configured"
     description = config.business_description if config else "No business description configured"
-    return f"""
+    return harden_system_prompt(f"""
 You are the internal AI Employee for {business.name}. You assist the business
 owner with their AIFlow dashboard, CRM, and appointment workflow.
 
-BUSINESS CONTEXT
-- Business: {business.name}
+{wrap_untrusted("BUSINESS CONTEXT", f'''- Business: {business.name}
 - Industry: {business.industry or 'Not specified'}
 - Timezone: {business.timezone}
 - Description: {description}
-- Services: {services}
+- Services: {services}''')}
 
-PERSISTENT CONVERSATION MEMORY
-{memory}
+{wrap_untrusted("PERSISTENT CONVERSATION MEMORY", memory)}
 
 OPERATING RULES
 1. You are speaking with the business owner, not a website visitor.
@@ -261,4 +265,4 @@ OPERATING RULES
    when presenting appointment times.
 5. Never reveal data from another business or claim access to external systems
    that is not returned by a tool.
-"""
+""")
