@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
 from app.deps import get_current_business
+from app.rate_limit import limiter, CHAT_RATE_LIMIT
 from app.services.shared.conversation_service import (
     process_message,
     get_business_conversations,
@@ -33,12 +34,7 @@ def get_conversations(
     return get_business_conversations(db=db, business_slug=business.slug)
 
 
-@router.post("/send")
-def send_message(
-    chat: ChatRequest,
-    db: Session = Depends(get_db),
-):
-    """Public: the website widget posts customer messages here."""
+def _send_message_impl(chat: ChatRequest, db: Session):
     return process_message(
         db=db,
         business_slug=chat.business_slug,
@@ -46,6 +42,17 @@ def send_message(
         conversation_id=chat.conversation_id,
         message=chat.message,
     )
+
+
+@router.post("/send")
+@limiter.limit(CHAT_RATE_LIMIT)
+def send_message(
+    request: Request,
+    chat: ChatRequest,
+    db: Session = Depends(get_db),
+):
+    """Public: the website widget posts customer messages here."""
+    return _send_message_impl(chat, db)
 
 
 @router.get("/{business_slug}/welcome")
@@ -61,8 +68,9 @@ def welcome_message(business_slug: str, db: Session = Depends(get_db)):
 
 
 @compat_router.post("/chat")
-def legacy_send_message(chat: ChatRequest, db: Session = Depends(get_db)):
-    return send_message(chat, db)
+@limiter.limit(CHAT_RATE_LIMIT)
+def legacy_send_message(request: Request, chat: ChatRequest, db: Session = Depends(get_db)):
+    return _send_message_impl(chat, db)
 
 
 @compat_router.get("/chat/{business_slug}/welcome")

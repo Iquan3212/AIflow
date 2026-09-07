@@ -11,6 +11,7 @@ openai>=1.40.0
 python-dotenv>=1.0.1
 python-multipart>=0.0.9
 alembic>=1.13.0
+slowapi>=0.1.9
 
 # --- Phase 3 optional integrations (enable when you wire the provider) ---
 # SMS reminders:

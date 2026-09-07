@@ -18,13 +18,16 @@ from reality before this pass).
 | **Phase 6 — Persisted AI Workforce output**: Finance (`QuotationTool`) and Marketing (`CampaignTool`) write a real `AIDraft` row per generation, reviewable/manageable from the Drafts page (`GET/PATCH/DELETE /drafts`) | ✅ |
 | **Phase 7 — Support ticket persistence**: Support (`SupportTicketTool`) writes a real `SupportTicket` row every time it responds, reviewable/manageable from the Support page (`GET/PATCH/DELETE /support-tickets`) - the last of the six employees to gain real persistence | ✅ |
 | **Phase 8 — Alembic migrations**: schema is now managed by tracked, reversible migrations (`backend/alembic/`) instead of `create_all()` on every boot; the live Neon database is stamped at the baseline revision with zero data changes | ✅ |
+| **Production hardening, sub-phase 1 — Rate limiting**: the public chat endpoint (`POST /conversation/send` + legacy `/chat` alias) and the auth endpoints (`POST /auth/login`, `POST /auth/signup`) are throttled per client IP (`backend/app/rate_limit.py`, `slowapi`); exceeding a limit returns `429` | ✅ |
 
 ## Deliberately not built yet, and why
 
 - **Notifications settings** — email/SMS/WhatsApp sending already works
   (`services/notifications/`), but there's no per-channel preference storage
   to build a settings UI around yet.
-- **Rate limiting / prompt-injection hardening** on the public chat endpoint.
+- **Prompt-injection hardening, structured logging/observability, deploy
+  config** — the remaining sub-phases of Production hardening (see below);
+  rate limiting is done, these are not.
 
 ## Security status (checked each phase, not yet fully resolved)
 
@@ -43,10 +46,11 @@ from reality before this pass).
 Every AI Workforce employee has real, persisted output, and schema changes
 are now safe to make. What's left is production-readiness work:
 
-1. **Production hardening** — rate limiting, prompt-injection resistance,
-   structured logging/observability, deploy config (Railway/Render + Vercel).
-   Broad enough that it likely wants splitting into its own sub-phases
-   (e.g. rate limiting first) rather than landing as one phase.
+1. **Production hardening** — rate limiting (✅ done, see Done table above),
+   prompt-injection resistance, structured logging/observability, deploy
+   config (Railway/Render + Vercel). As anticipated, this was split into its
+   own sub-phases rather than landing as one; rate limiting was the first,
+   the remaining three are still not started.
 2. **WhatsApp/Instagram channels** — the chatbot engine is channel-agnostic
    already; each new channel is an adapter, not a rewrite. Gates on Meta
    Business verification, which runs on Meta's timeline.

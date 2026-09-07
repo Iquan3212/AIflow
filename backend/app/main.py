@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import get_settings
+from app.rate_limit import limiter
 
 from app.routers import employee, workforce, analytics, drafts, support_tickets
 
@@ -23,6 +27,12 @@ settings = get_settings()
 # startup, which has no way to express or reverse a schema change; Phase 8
 # replaced that with tracked, reversible migrations.)
 app = FastAPI(title="AIFlow API", version="0.3.0")
+
+# Rate limiting (production hardening, sub-phase 1). See app/rate_limit.py
+# for which endpoints are limited and why.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # In development, two things need to be more permissive than a fixed
 # ALLOWED_ORIGINS list:

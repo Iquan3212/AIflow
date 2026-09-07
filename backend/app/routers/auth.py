@@ -8,6 +8,7 @@ from app import models, schemas
 from app.config import get_settings
 from app.database import get_db
 from app.deps import get_current_user
+from app.rate_limit import limiter, LOGIN_RATE_LIMIT, SIGNUP_RATE_LIMIT
 from app.security import create_access_token, create_refresh_token, decode_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -44,6 +45,7 @@ def _issue_tokens(db: Session, user: models.User, business: models.Business, req
 
 
 @router.post("/signup", response_model=schemas.TokenResponse)
+@limiter.limit(SIGNUP_RATE_LIMIT)
 def signup(payload: schemas.BusinessSignup, request: Request, db: Session = Depends(get_db)):
     if db.query(models.User).filter(models.User.email == payload.owner_email).first():
         raise HTTPException(status_code=400, detail="An account with this email already exists")
@@ -83,6 +85,7 @@ def signup(payload: schemas.BusinessSignup, request: Request, db: Session = Depe
 
 
 @router.post("/login", response_model=schemas.TokenResponse)
+@limiter.limit(LOGIN_RATE_LIMIT)
 def login(payload: schemas.LoginRequest, request: Request, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == payload.email).first()
     if not user or not verify_password(payload.password, user.hashed_password):

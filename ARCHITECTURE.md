@@ -141,6 +141,18 @@ shows placeholder data while waiting on a request.
   whether this repo still references them. Rotation status cannot be
   verified from inside this repo - it requires action in those providers'
   own dashboards.
-- ⬜ No rate limiting on the public `POST /conversation/send` endpoint yet —
-  worth adding before it's reachable from the open internet.
+- ✅ **Rate limiting** (`backend/app/rate_limit.py`, production hardening
+  sub-phase 1) — the three unauthenticated, most-exposed endpoints are
+  throttled per client IP via `slowapi`: `POST /conversation/send` and its
+  legacy `POST /chat` alias (20/minute, bounds LLM-cost abuse from a single
+  IP), `POST /auth/login` (10/minute, blunts credential stuffing), and
+  `POST /auth/signup` (5/minute, blunts spam account creation). Exceeding a
+  limit returns `429` with a plain JSON error body. State is in-process
+  (slowapi's in-memory store) — correct for the current single-process
+  deployment; horizontal scaling would need a shared backend (e.g. Redis)
+  for limits to hold across processes. Every other endpoint already
+  requires a bearer token, so per-account throttling was left for a later
+  hardening pass.
 - ⬜ No prompt-injection hardening on the public chat endpoint yet.
+- ⬜ No structured logging/observability yet.
+- ⬜ No deploy config (Railway/Render + Vercel) yet.
