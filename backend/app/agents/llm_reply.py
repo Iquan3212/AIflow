@@ -13,7 +13,7 @@ from app.agents.prompt_guard import (
     SAFE_FALLBACK_REPLY,
 )
 from app.logging_config import get_logger
-from app.services.llm_client import chat_completion
+from app.services.llm_client import chat_completion, LLMProviderError
 
 logger = get_logger(__name__)
 
@@ -121,17 +121,29 @@ def generate_employee_reply(
         messages.append({"role": "system", "content": INJECTION_REINFORCEMENT})
 
     reply = ""
+    last_provider_error: LLMProviderError | None = None
     for attempt in range(2):  # some models occasionally emit a spurious tool-call
         try:                  # even with no tools offered; one retry clears it.
             completion = chat_completion(messages)
             reply = (completion.content or "").strip()
             break
-        except Exception:
+        except LLMProviderError as exc:
+            # A provider-level rejection (rate limit, auth, provider outage)
+            # won't be fixed by an immediate retry - keep the loop (a
+            # transient connection blip can still clear on the second try)
+            # but remember the classified error so a customer sees an
+            # honest, specific message instead of the generic "something
+            # went wrong" text if both attempts fail this way.
+            last_provider_error = exc
             logger.warning("llm.retry", extra={"ctx": {
                 "event": "llm.retry", "employee": employee_name, "attempt": attempt,
+                "error_reason": exc.reason,
             }}, exc_info=True)
 
-    reply = reply or "Sorry, I couldn't process that just now. Could you try again?"
+    if not reply:
+        reply = last_provider_error.user_message if last_provider_error else (
+            "Sorry, I couldn't process that just now. Could you try again?"
+        )
 
     # Backstop: even if the model was talked into reciting its instructions
     # despite CORE_GUARD, never let that leave this function.

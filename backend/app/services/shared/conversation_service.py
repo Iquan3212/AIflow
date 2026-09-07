@@ -28,7 +28,7 @@ from app.repositories.conversation_repository import (
     load_history,
     get_business_conversations as repo_get_business_conversations,
 )
-from app.services.llm_client import chat_completion
+from app.services.llm_client import chat_completion, LLMProviderError
 from app.services.prompt_builder import build_system_prompt
 from app.services.scheduling.tools import tool_definitions, ToolDispatcher
 from app.services.scheduling.datetime_utils import to_local, now_utc
@@ -202,38 +202,53 @@ def process_message(
 
 def _run_tool_loop(messages: list[dict], tools: list[dict], dispatcher: ToolDispatcher) -> str:
     """Drive the model through as many tool rounds as it needs (bounded), then
-    return the final assistant text."""
-    for _ in range(MAX_TOOL_ROUNDS):
-        msg = chat_completion(messages, tools=tools, tool_choice="auto")
-        tool_calls = getattr(msg, "tool_calls", None)
+    return the final assistant text.
 
-        if not tool_calls:
-            return (msg.content or "").strip() or "Sorry, could you say that again?"
+    A real website visitor must never see a raw 500/"Internal Server
+    Error" just because the LLM provider is rate-limited or temporarily
+    down - that's not something they caused or can fix by reloading, and
+    the chat widget should degrade the same way the Manager AI path
+    already does: a real, honest chat-style reply explaining the AI is
+    temporarily unavailable, not a generic server error. LLMProviderError
+    carries a message classified by actual cause (rate limit vs. provider
+    outage vs. something else) - see llm_client.py."""
+    try:
+        for _ in range(MAX_TOOL_ROUNDS):
+            msg = chat_completion(messages, tools=tools, tool_choice="auto")
+            tool_calls = getattr(msg, "tool_calls", None)
 
-        messages.append({
-            "role": "assistant",
-            "content": msg.content or "",
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                }
-                for tc in tool_calls
-            ],
-        })
-        for tc in tool_calls:
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            start = time.perf_counter()
-            result = dispatcher.run(tc.function.name, args)
-            logger.info("tool.executed", extra={"ctx": {
-                "event": "tool.executed", "tool": tc.function.name, "channel": "widget",
-                "duration_ms": round((time.perf_counter() - start) * 1000, 1),
-            }})
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+            if not tool_calls:
+                return (msg.content or "").strip() or "Sorry, could you say that again?"
 
-    final = chat_completion(messages, tools=None)
-    return (final.content or "").strip() or "Let me get back to you on that."
+            messages.append({
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in tool_calls
+                ],
+            })
+            for tc in tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                start = time.perf_counter()
+                result = dispatcher.run(tc.function.name, args)
+                logger.info("tool.executed", extra={"ctx": {
+                    "event": "tool.executed", "tool": tc.function.name, "channel": "widget",
+                    "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+                }})
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+
+        final = chat_completion(messages, tools=None)
+        return (final.content or "").strip() or "Let me get back to you on that."
+    except LLMProviderError as exc:
+        logger.warning("conversation.llm_provider_error", extra={"ctx": {
+            "event": "conversation.llm_provider_error", "channel": "widget", "error_reason": exc.reason,
+        }})
+        return exc.user_message
