@@ -19,7 +19,7 @@ from app.tools.quotation_tool import QuotationTool
 from app.tools.campaign_tool import CampaignTool
 from app.tools.analytics_tool import AnalyticsTool
 from app.tools.support_ticket_tool import SupportTicketTool
-from app.tools.gmail_tool import GmailSearchTool, GmailReadTool, GmailDraftTool, GmailSendTool
+from app.tools.gmail_tool import GmailStatusTool, GmailSearchTool, GmailReadTool, GmailDraftTool, GmailSendTool
 
 
 class AIOrchestrator:
@@ -53,6 +53,11 @@ class AIOrchestrator:
         # but only "manager" is granted it below (via all_tools()), not any
         # specialist employee's fixed per-turn tool. See
         # app/tools/gmail_tool.py's module docstring for why.
+        # gmail_status is DB-only (no real Gmail API call, no LLM
+        # extraction) - lets Manager answer "are you connected?" from
+        # real application state instead of guessing or running a
+        # semantically-wrong real search just to find out.
+        self.registry.register_tool("gmail_status", GmailStatusTool())
         self.registry.register_tool("gmail_search", GmailSearchTool())
         self.registry.register_tool("gmail_read", GmailReadTool())
         self.registry.register_tool("gmail_draft", GmailDraftTool())

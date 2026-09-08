@@ -28,6 +28,24 @@ from app.services.gmail import gmail_ai_service
 from app.services.gmail.gmail_service import GmailService
 
 
+class GmailStatusTool:
+    """Deterministic connection/capability check - no real Gmail API call,
+    no LLM extraction (unlike the other four tools here). Lets Manager
+    answer a capability question ("do you have access to my Gmail?") from
+    real, current application state (GmailCredential row - connected,
+    scopes/send_mode) instead of the model guessing or inventing an
+    answer, and instead of running a semantically-wrong real search just
+    to find out whether it's even connected."""
+
+    def execute(
+        self, message: str, db: Session = None, business: models.Business = None,
+        conversation=None, lead=None, **kwargs,
+    ) -> dict:
+        if business is None:
+            return {"ok": False, "error": "missing_business"}
+        return GmailService(db).status(business)
+
+
 class GmailSearchTool:
     def execute(
         self, message: str, db: Session = None, business: models.Business = None,

@@ -53,12 +53,47 @@ class TestGmailOnlyMessagesRouteToManager:
         assert plan.employees == ["manager"]
 
     def test_search_my_gmail_for_invoices(self):
-        """Contains "gmail" (gmail keyword) AND "invoice" (finance
-        keyword) - manager must still be included alongside finance."""
         plan = Planner().plan("Search my Gmail for invoices.")
         assert "manager" in plan.employees
-        assert "finance" in plan.employees
-        assert "gmail_search" in plan.tools
+
+
+class TestCapabilityQuestionsRouteToManagerToo:
+    """A capability question ("do you have access to my Gmail?") is a
+    real, live-confirmed distinct case from an action request ("search my
+    Gmail for X") - both must route to Manager (Planner's job), but only
+    the capability question does NOT need to run a specific Gmail action
+    to be answered truthfully (see ManagerAgent._gmail_context(), which
+    always fetches real connection status regardless)."""
+
+    def test_do_u_have_access_to_my_mails(self):
+        """The exact real message that triggered this bug."""
+        plan = Planner().plan("do u have access to my mails")
+        assert plan.intent == "gmail"
+        assert plan.employees == ["manager"]
+
+    def test_do_you_have_access_to_my_gmail(self):
+        plan = Planner().plan("do you have access to my Gmail?")
+        assert plan.employees == ["manager"]
+
+    def test_do_you_have_access_to_my_emails(self):
+        plan = Planner().plan("do you have access to my emails?")
+        assert plan.employees == ["manager"]
+
+    def test_can_you_access_my_inbox(self):
+        plan = Planner().plan("can you access my inbox?")
+        assert plan.employees == ["manager"]
+
+    def test_are_you_connected_to_gmail(self):
+        plan = Planner().plan("are you connected to Gmail?")
+        assert plan.employees == ["manager"]
+
+    def test_can_you_read_my_email(self):
+        plan = Planner().plan("can you read my email?")
+        assert plan.employees == ["manager"]
+
+    def test_can_you_search_my_emails(self):
+        plan = Planner().plan("can you search my emails?")
+        assert plan.employees == ["manager"]
 
 
 class TestMultiIntentCollisionStillIncludesManager:

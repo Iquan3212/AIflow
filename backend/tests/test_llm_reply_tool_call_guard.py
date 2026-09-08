@@ -291,6 +291,31 @@ class TestCapabilityDenialCannotOverrideARealSuccessfulResult:
         assert mock_chat.call_count == 1
         assert reply == "I don't have access to your Gmail right now."
 
+    def test_a_capability_denial_is_discarded_when_gmail_connection_status_says_connected(self):
+        """Regression for a real, live-confirmed capability-awareness bug:
+        ManagerAgent._gmail_context() now always attaches a real
+        gmail_connection status (ok=True exactly when actually connected)
+        alongside whatever action result applies - a denial must be
+        rejected by this same backstop when grounded in that combined
+        shape, not just a bare {"ok": True, "results": [...]}."""
+        responses = [
+            ChatResult(content="I don't have access to your Gmail or any external email accounts."),
+            ChatResult(content="Yes, your Gmail is connected - I can search and read your emails."),
+        ]
+        with patch("app.agents.llm_reply.chat_completion", side_effect=responses) as mock_chat:
+            reply = generate_employee_reply(
+                "manager", "You are the Manager AI.", "do u have access to my mails",
+                tool_result={
+                    "ok": True,
+                    "gmail_connection": {"ok": True, "connected": True, "send_mode": "approval_required"},
+                    "gmail_action_result": {"ok": True, "results": []},
+                },
+            )
+
+        assert mock_chat.call_count == 2
+        assert "don't have access" not in reply.lower()
+        assert reply == "Yes, your Gmail is connected - I can search and read your emails."
+
 
 class TestCapabilityGroundingInstructionIsGenericAndAlwaysPresent:
     def test_instruction_never_names_gmail_or_any_specific_tool(self):

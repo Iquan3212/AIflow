@@ -14,11 +14,31 @@ Run: python3 -m pytest tests/test_gmail_tool.py -q   (from backend/)
 
 from unittest.mock import MagicMock, patch
 
-from app.tools.gmail_tool import GmailSearchTool, GmailReadTool, GmailDraftTool, GmailSendTool
+from app.tools.gmail_tool import GmailStatusTool, GmailSearchTool, GmailReadTool, GmailDraftTool, GmailSendTool
 
 
 class FakeBusiness:
     id = "biz-tool-test"
+
+
+class TestGmailStatusTool:
+    def test_missing_business_returns_error(self):
+        assert GmailStatusTool().execute("do you have gmail access?", db=MagicMock(), business=None) == {
+            "ok": False, "error": "missing_business",
+        }
+
+    def test_never_calls_llm_extraction_or_the_real_gmail_api(self):
+        """Purely DB-backed - a capability question must never cost a real
+        LLM token or a real Gmail API round-trip just to answer "are you
+        connected?"."""
+        with patch("app.tools.gmail_tool.GmailService") as MockService, \
+             patch("app.tools.gmail_tool.gmail_ai_service") as mock_ai_service:
+            MockService.return_value.status.return_value = {"ok": True, "connected": True, "send_mode": "approval_required"}
+            result = GmailStatusTool().execute("do you have access to my gmail?", db=MagicMock(), business=FakeBusiness())
+
+        mock_ai_service.extract_search_request.assert_not_called()
+        mock_ai_service.extract_send_request.assert_not_called()
+        assert result == {"ok": True, "connected": True, "send_mode": "approval_required"}
 
 
 class TestGmailSearchTool:

@@ -27,6 +27,35 @@ class GmailService:
         self.db = db
         self.adapter = GmailAdapter(db)
 
+    # ---- capability status - DB-only, no real Gmail API call ----------------
+
+    def status(self, business) -> dict:
+        """Deterministic, real connection/capability state - reuses the
+        exact same is_configured()/send_mode() checks every other method
+        here already enforces, so this can never drift from what
+        search/read/draft/send actually do. Exists so a capability
+        question ("do you have access to my Gmail?") can be answered from
+        real application state instead of the model guessing or a wasted
+        real search - see app/tools/gmail_tool.py's GmailStatusTool."""
+        connected = self.adapter.is_configured(business)
+        if not connected:
+            return {
+                "ok": True, "connected": False, "send_mode": None,
+                "capabilities": {"search": False, "read": False, "draft": False, "send": False},
+            }
+        mode = self.adapter.send_mode(business)
+        return {
+            "ok": True,
+            "connected": True,
+            "send_mode": mode,
+            "capabilities": {
+                "search": True,
+                "read": True,
+                "draft": mode != READ_ONLY,
+                "send": AUTOMATED if mode == AUTOMATED else (APPROVAL_REQUIRED if mode == APPROVAL_REQUIRED else False),
+            },
+        }
+
     # ---- read actions - always allowed once connected, regardless of send_mode ----
 
     def search(self, business, query: str, max_results: int = 10) -> dict:

@@ -129,6 +129,14 @@ Only describe emails, senders, or message contents that appear in the real
 tool result given to you below; if no tool result is present, or it
 reports an error, say so honestly instead of guessing.
 
+If the tool result below includes gmail_connection status, that is the
+real, current, authoritative answer to any question about whether Gmail
+is connected and what you're currently allowed to do with it (search and
+read are always available once connected; draft depends on the current
+mode; send may require the owner's approval or be fully automated) -
+answer capability questions directly from that, and never claim a
+capability (like automated sending) that it doesn't list as available.
+
 Answer general questions helpfully and concisely. Never invent business
 facts, prices, or appointment slots yourself - that work belongs to the
 specialist employees."""
@@ -142,11 +150,48 @@ specialist employees."""
         router = tool_router or self.tool_router
 
         tool_result = None
-        gmail_tool_name = _gmail_tool_for((message or "").lower())
-        if gmail_tool_name and router is not None:
-            res = router.execute(employee="manager", tool_name=gmail_tool_name, message=message)
-            if res.get("success"):
-                tool_result = res["result"]
+        text = (message or "").lower()
+        if any(k in text for k in GMAIL_KEYWORDS) and router is not None:
+            tool_result = self._gmail_context(message, text, router)
+
+        reply = generate_employee_reply(
+            "manager", self.system_prompt, message, history,
+            tool_result=tool_result, extra_context=facts_context(analysis),
+        )
+        return {"employee": "manager", "intent": "general", "reply": reply, "tool_result": tool_result}
+
+    def _gmail_context(self, message: str, text: str, router: Any) -> Dict[str, Any]:
+        """Always fetches the real, current Gmail connection/capability
+        status (gmail_status - DB-only, no real Gmail API call, no LLM
+        extraction) whenever the message is Gmail-relevant at all, in
+        addition to whichever specific action _gmail_tool_for() selects.
+
+        Root cause this fixes: a pure capability question ("do you have
+        access to my Gmail?") used to only ever get a tool_result when
+        _gmail_tool_for()'s action-keyword guess (defaulting to
+        gmail_search) happened to run - the model had no OTHER way to
+        know Gmail was actually connected, and nothing stopped it from
+        answering "I don't have access" from its own (wrong) assumption
+        instead of real application state. Deliberately NOT trying to
+        classify "is this JUST a capability question" and skip the action
+        tool - that classification is exactly the kind of fragile, easy-
+        to-get-wrong heuristic that would either miss real capability
+        questions or wrongly skip a real action request. Both pieces of
+        real information are simply always given together; the model
+        (with CAPABILITY_GROUNDING_INSTRUCTION already in force - see
+        llm_reply.py) answers whichever part is actually relevant."""
+        status_res = router.execute(employee="manager", tool_name="gmail_status", message=message)
+        if status_res.get("success"):
+            connection = status_res["result"]
+        else:
+            connection = {"ok": False, "connected": False, "error": status_res.get("error", "tool_error")}
+
+        action_result = None
+        gmail_tool_name = _gmail_tool_for(text)
+        if gmail_tool_name:
+            action_res = router.execute(employee="manager", tool_name=gmail_tool_name, message=message)
+            if action_res.get("success"):
+                action_result = action_res["result"]
             else:
                 # A router-level refusal (forbidden/unknown tool) rather than
                 # a Gmail-API-level failure - still real, still worth
@@ -154,13 +199,13 @@ specialist employees."""
                 # to tool_result=None (which is exactly how this bug looked
                 # to begin with: a Gmail request answered with no Gmail
                 # awareness at all).
-                tool_result = {"ok": False, "error": res.get("error", "tool_error"), "message": res.get("message")}
+                action_result = {"ok": False, "error": action_res.get("error", "tool_error"), "message": action_res.get("message")}
 
-        reply = generate_employee_reply(
-            "manager", self.system_prompt, message, history,
-            tool_result=tool_result, extra_context=facts_context(analysis),
-        )
-        return {"employee": "manager", "intent": "general", "reply": reply, "tool_result": tool_result}
+        return {
+            "ok": connection.get("connected") is True,
+            "gmail_connection": connection,
+            "gmail_action_result": action_result,
+        }
 
     def delegate(self, plan: Any, message: str, history: List[Any]) -> Dict[str, Any]:
         """

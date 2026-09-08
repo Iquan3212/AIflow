@@ -91,6 +91,52 @@ class TestNotConnected:
         assert result["error"] == "not_connected"
 
 
+class TestStatus:
+    """Deterministic capability status - DB-only, no real Gmail API call.
+    Used by ManagerAgent to answer a capability question ("do you have
+    access to my Gmail?") from real application state - see
+    app/tools/gmail_tool.py's GmailStatusTool and
+    ManagerAgent._gmail_context()."""
+
+    def test_disconnected_reports_no_capabilities(self, disconnected_business):
+        db, biz = disconnected_business
+        result = GmailService(db).status(biz)
+        assert result == {
+            "ok": True, "connected": False, "send_mode": None,
+            "capabilities": {"search": False, "read": False, "draft": False, "send": False},
+        }
+
+    def test_connected_approval_required_reflects_actual_send_gating(self, connected_business):
+        """The real, current configured mode for this business (see
+        ARCHITECTURE.md's Gmail section: approval_required is the safe
+        default) - a capability answer must never claim unrestricted
+        automated sending when this is what's actually configured."""
+        db, biz, cred = connected_business
+        result = GmailService(db).status(biz)
+        assert result["ok"] is True
+        assert result["connected"] is True
+        assert result["send_mode"] == APPROVAL_REQUIRED
+        assert result["capabilities"] == {
+            "search": True, "read": True, "draft": True, "send": APPROVAL_REQUIRED,
+        }
+
+    def test_connected_read_only_disables_draft_and_send(self, connected_business):
+        db, biz, cred = connected_business
+        cred.send_mode = READ_ONLY
+        db.commit()
+
+        result = GmailService(db).status(biz)
+        assert result["capabilities"] == {"search": True, "read": True, "draft": False, "send": False}
+
+    def test_connected_automated_allows_real_send(self, connected_business):
+        db, biz, cred = connected_business
+        cred.send_mode = AUTOMATED
+        db.commit()
+
+        result = GmailService(db).status(biz)
+        assert result["capabilities"]["send"] == AUTOMATED
+
+
 class TestReadOnlyMode:
     def test_draft_refused(self, connected_business):
         db, biz, cred = connected_business

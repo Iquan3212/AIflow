@@ -12,7 +12,7 @@ Run: python3 -m pytest tests/test_gmail_registry_wiring.py -q   (from backend/)
 from unittest.mock import MagicMock, patch
 
 from app.agents.orchestrator import AIOrchestrator
-from app.tools.gmail_tool import GmailSearchTool, GmailReadTool, GmailDraftTool, GmailSendTool
+from app.tools.gmail_tool import GmailStatusTool, GmailSearchTool, GmailReadTool, GmailDraftTool, GmailSendTool
 
 
 class FakeBusiness:
@@ -40,11 +40,20 @@ class TestToolRegistration:
         assert isinstance(tools["gmail_draft"], GmailDraftTool)
         assert isinstance(tools["gmail_send"], GmailSendTool)
 
+    def test_gmail_status_tool_registered(self):
+        """Deterministic connection/capability check - see
+        ManagerAgent._gmail_context(), which fetches this alongside
+        whichever action tool applies, so capability questions ("do you
+        have access to my Gmail?") can be answered from real application
+        state instead of the model guessing."""
+        orch = _build_orchestrator()
+        assert isinstance(orch.registry.all_tools()["gmail_status"], GmailStatusTool)
+
 
 class TestPermissions:
     def test_manager_has_all_gmail_tools(self):
         orch = _build_orchestrator()
-        for tool_name in ("gmail_search", "gmail_read", "gmail_draft", "gmail_send"):
+        for tool_name in ("gmail_status", "gmail_search", "gmail_read", "gmail_draft", "gmail_send"):
             assert orch.registry.employee_has_tool("manager", tool_name) is True
 
     def test_unrelated_employee_does_not_have_gmail_by_default(self):
