@@ -40,6 +40,7 @@ from app.services.scheduling.tools import tool_definitions, ToolDispatcher
 from app.services.scheduling.datetime_utils import to_local, now_utc
 
 from app.agents.orchestrator import AIOrchestrator
+from app.agents.llm_reply import knowledge_context_messages
 from app.agents.prompt_guard import (
     wrap_untrusted,
     detect_injection_signals,
@@ -48,6 +49,7 @@ from app.agents.prompt_guard import (
     SAFE_FALLBACK_REPLY,
     is_fallback_reply,
 )
+from app.services.knowledge.retrieval import retrieve_context
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -229,6 +231,25 @@ def process_message_for_business(
     # changes what gets sent to the model otherwise. See prompt_guard.py.
     if detect_injection_signals(message):
         messages.append({"role": "system", "content": INJECTION_REINFORCEMENT})
+
+    # Knowledge Base / RAG grounding - this pipeline is the customer-facing
+    # widget/website/WhatsApp/Instagram path, architecturally separate from
+    # the AI Workforce (see this module's own docstring/ARCHITECTURE.md:
+    # "a separate, older pipeline"), so it never goes through ManagerAgent/
+    # employee delegation (delegate=False above) or the ToolRouter/Registry
+    # permission layer those use for knowledge_search. It calls the SAME
+    # underlying retrieve() every employee's knowledge_search tool calls
+    # (via retrieve_context() - a thin dict-shaping wrapper, not a second
+    # implementation of retrieval/embedding/pgvector logic), and grounds
+    # the reply using the EXACT same precedence/fencing rules via the
+    # shared knowledge_context_messages() helper - so a customer asking
+    # "what's your delivery charge?" gets the same real, sourced,
+    # non-fabricated answer an owner testing the same question through
+    # Manager AI would. Always attempted, same as every AI Workforce
+    # employee - the relevance threshold and empty-vs-populated handling
+    # do the actual work of deciding whether a result matters.
+    knowledge_context = retrieve_context(db, business.id, message)
+    messages.extend(knowledge_context_messages(knowledge_context))
 
     dispatcher = ToolDispatcher(db, business, conversation, lead)
     tools = tool_definitions()

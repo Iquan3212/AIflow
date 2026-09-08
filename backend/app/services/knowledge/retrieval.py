@@ -116,3 +116,24 @@ def retrieve(
         "candidates": len(rows), "returned": len(results),
     }})
     return results
+
+
+def retrieve_context(db: Session, business_id: str, query: str, top_k: int = DEFAULT_TOP_K) -> list[dict]:
+    """Thin convenience wrapper for callers that want the plain-dict shape
+    (`document_name`/`content`/`score`) app/agents/llm_reply.py's grounding
+    logic already expects, WITHOUT going through the AI Workforce's
+    ToolRouter/Registry permission layer - there is no employee/tool-
+    permission concept in the customer-facing widget/website conversation
+    pipeline (`conversation_service.py`), so that layer would be pure
+    overhead here, not a safety boundary being bypassed. Tenant isolation
+    still goes through the exact same `retrieve()` above - the one real
+    choke point - this only reshapes its output.
+
+    Unlike `retrieve()`, this never distinguishes "not attempted" from
+    "attempted, found nothing" (always returns a list, never None) -
+    every caller of this function always attempts retrieval
+    unconditionally (the same "always fetch, let relevance-filtering
+    decide" pattern the AI Workforce side already uses), so there is no
+    legitimate "didn't even try" case to represent here."""
+    results = retrieve(db, business_id, query, top_k=top_k)
+    return [{"document_name": r.document_name, "content": r.content, "score": r.score} for r in results]

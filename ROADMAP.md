@@ -73,6 +73,30 @@ See `ARCHITECTURE.md`'s "Knowledge Base / RAG" section and
 16 new deterministic tests added; one live Manager/RAG query re-verified
 the fix end-to-end (real grounded ₹320 answer, correctly sourced).
 
+## Bug fixed: customer conversations never used the Knowledge Base at all
+
+A real Phase 4 gap, not a scoring/threshold bug: `conversation_service.py`
+(the website widget/WhatsApp/Instagram pipeline) is architecturally
+separate from the AI Workforce (`delegate=False` - it never runs
+`ManagerAgent.delegate()`) and Phase 4 only ever wired `knowledge_search`
+into the Workforce side - this pipeline never called it at all. A
+customer question directly answered by an uploaded document got "I don't
+have that handy"; an unanswerable geographic question got a confidently
+fabricated policy. Fixed additively (no Manager/employee routing change)
+by calling the same `retrieve()` every employee's `knowledge_search` tool
+uses (via a new `retrieve_context()` wrapper) directly in
+`conversation_service.py`, and grounding with the exact same shared
+`knowledge_context_messages()` helper `generate_employee_reply()` uses
+(extracted out of it, not duplicated) - plus a strengthened anti-
+inference instruction ("don't state a plausible-sounding but unsupported
+policy") shared by both paths. See `ARCHITECTURE.md`'s "Knowledge Base /
+RAG" section for the full trace. 12 new deterministic tests added; one
+live customer-conversation query re-verified the fix end-to-end (real
+grounded "₹50" answer, correctly sourced) - a first live attempt against
+a not-yet-restarted server reproduced the original bug and was correctly
+identified as invalid (stale code, not a disproof) before the real
+verification.
+
 ## Technical debt reviewed, not changed (pre-Phase 5)
 
 Two Sales/Planner behaviors flagged during Phase 4 QA were reviewed

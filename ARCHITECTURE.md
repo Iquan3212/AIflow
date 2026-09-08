@@ -671,6 +671,31 @@ Customer/owner message
   `knowledge_context` handling do the actual work of deciding whether a
   result matters. This is a read-only, side-effect-free tool grant, added
   to every specialist's existing tool list, not a replacement for it.
+- **Customer-conversation integration** (`conversation_service.py`) - the
+  website widget/WhatsApp/Instagram pipeline is architecturally SEPARATE
+  from the AI Workforce (see "The AI Workforce" section above: it never
+  runs `ManagerAgent.delegate()` - `before_llm(..., delegate=False)` -
+  and builds its own system prompt via `build_system_prompt()`, not any
+  employee's persona prompt). Phase 4 originally wired retrieval only
+  into the Workforce side; this pipeline never called `knowledge_search`
+  at all - a real, live-reported bug (a customer question directly
+  answered by an uploaded document got an honest-sounding "I don't have
+  that handy", and an unanswerable geographic question got a confidently
+  WRONG fabricated policy, because the model was never given any
+  document content either way and had no rule against inferring a
+  plausible-sounding but unsupported specific). Fixed additively, without
+  routing this pipeline through Manager/employee delegation (that would
+  be a much larger, unrelated architectural change): it now calls
+  `retrieve_context()` (`retrieval.py` - a thin dict-shaping wrapper
+  around the same `retrieve()` every employee's `knowledge_search` tool
+  already calls, not a second retrieval implementation) directly with the
+  customer's message, then grounds the reply via the exact same shared
+  `knowledge_context_messages()` helper (extracted out of
+  `generate_employee_reply()` in `llm_reply.py`, used by both paths now)
+  - so a customer gets the same real, sourced, non-fabricated answer an
+  owner testing the same question through Manager AI would, using the
+  same precedence/fencing/anti-fabrication rules. Always attempted, same
+  as every Workforce employee.
 - **Grounding & precedence** - `generate_employee_reply()` distinguishes
   three cases: never searched (no system message at all), searched and
   found nothing relevant (`knowledge_context=[]`, an explicit
