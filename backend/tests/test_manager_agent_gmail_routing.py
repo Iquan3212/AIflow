@@ -97,6 +97,36 @@ class TestManagerAgentGmailRouting:
         router.execute.assert_not_called()
         assert result["tool_result"] is None
 
+    def test_gmail_tool_is_never_invoked_twice_even_when_synthesis_retries(self):
+        """The gmail_* tool call and the LLM reply-synthesis call are two
+        separate steps (ManagerAgent.respond() calls the tool exactly
+        once, then generate_employee_reply() may retry the LLM completion
+        itself 1-2 times) - a retry inside synthesis must never re-invoke
+        ToolRouter. Exercises the REAL generate_employee_reply() (only
+        chat_completion is mocked, at the lower level) so this is a true
+        end-to-end, zero-token check of that boundary, including the real
+        capability-denial retry path from a real, successful Gmail result."""
+        manager = self._build_manager()
+        router = MagicMock()
+        router.execute.return_value = {
+            "success": True,
+            "result": {"ok": True, "results": [{"subject": "Invoice #1"}]},
+        }
+
+        from app.services.llm.base import ChatResult
+        responses = iter([
+            ChatResult(content="I'm sorry, but I don't have access to your Gmail."),  # stale/contaminated draft
+            ChatResult(content="Found 1 email matching 'invoice': Invoice #1."),        # corrected on retry
+        ])
+
+        with patch("app.agents.llm_reply.chat_completion", side_effect=lambda *a, **k: next(responses)) as mock_chat:
+            result = manager.respond("Find emails containing invoice.", [], tool_router=router)
+
+        assert mock_chat.call_count == 2          # synthesis retried once
+        router.execute.assert_called_once()        # but the Gmail tool was not re-invoked
+        assert result["reply"] == "Found 1 email matching 'invoice': Invoice #1."
+        assert "don't have access" not in result["reply"].lower()
+
     def test_falls_back_to_self_tool_router_when_none_passed_explicitly(self):
         """delegate() always passes tool_router explicitly, but respond()
         may also be called directly (e.g. by tests or future callers)

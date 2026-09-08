@@ -23,7 +23,13 @@ Run: python3 -m pytest tests/test_llm_reply_tool_call_guard.py -q   (from backen
 
 from unittest.mock import patch
 
-from app.agents.llm_reply import generate_employee_reply, NO_TOOL_CALL_INSTRUCTION, SYNTHESIS_TEMPERATURE
+from app.agents.llm_reply import (
+    generate_employee_reply,
+    NO_TOOL_CALL_INSTRUCTION,
+    SYNTHESIS_TEMPERATURE,
+    CAPABILITY_GROUNDING_INSTRUCTION,
+)
+from app.agents.prompt_guard import RATE_LIMIT_MESSAGE
 from app.services.llm.base import ChatResult, LLMProviderError, INVALID_REQUEST, INVALID_REQUEST_MESSAGE
 
 
@@ -182,6 +188,191 @@ class TestSynthesisNeverExecutesTools:
 
         assert isinstance(reply, str)
         assert reply == "Fine, plain text."
+
+
+class TestCapabilityDenialCannotOverrideARealSuccessfulResult:
+    """Regression for a real live bug: a genuine (not app-generated) prior
+    assistant sentence like "I don't have access to your Gmail" is not
+    recognized by is_fallback_reply() (that only catches THIS APP's own
+    canonical failure strings), so it gets replayed as real history on
+    later turns - and a later turn with a fresh, real, successful tool
+    result was observed live still repeating the stale denial instead of
+    describing the real result. Also covers the same shape when two
+    employees' replies collide in the same turn (Planner can legitimately
+    delegate one message to several employees at once - see
+    test_planner_gmail_multi_intent.py)."""
+
+    def test_denial_with_a_successful_tool_result_is_discarded_and_retried(self):
+        responses = [
+            ChatResult(content="I'm sorry, but I don't have access to your Gmail or any external email accounts."),
+            ChatResult(content="Here are 2 emails matching 'invoice': ..."),
+        ]
+        with patch("app.agents.llm_reply.chat_completion", side_effect=responses) as mock_chat:
+            reply = generate_employee_reply(
+                "manager", "You are the Manager AI.", "find emails containing invoice",
+                tool_result={"ok": True, "results": [{"subject": "Invoice #1"}, {"subject": "Invoice #2"}]},
+            )
+
+        assert mock_chat.call_count == 2
+        assert reply == "Here are 2 emails matching 'invoice': ..."
+
+    def test_the_retry_carries_an_explicit_correction_not_a_bare_identical_repeat(self):
+        """SYNTHESIS_TEMPERATURE=0 makes decoding near-deterministic - a
+        bare retry with identical input would likely just reproduce the
+        exact same denial. The messages sent on attempt 2 must actually
+        differ from attempt 1. `messages` is mutated in place across
+        attempts, so the call must be snapshotted (length recorded) AT
+        call time, not read back afterwards from call_args - by then both
+        calls point at the same, fully-mutated list."""
+        responses = iter([
+            ChatResult(content="I don't have access to that."),
+            ChatResult(content="Real answer."),
+        ])
+        observed_lengths = []
+
+        def fake_chat_completion(messages, **kwargs):
+            observed_lengths.append(len(messages))
+            return next(responses)
+
+        with patch("app.agents.llm_reply.chat_completion", side_effect=fake_chat_completion):
+            generate_employee_reply(
+                "manager", "You are the Manager AI.", "find emails containing invoice",
+                tool_result={"ok": True, "results": []},
+            )
+
+        assert len(observed_lengths) == 2
+        assert observed_lengths[1] > observed_lengths[0]
+
+    def test_both_attempts_denying_falls_back_to_honest_generic_message_never_the_denial(self):
+        responses = [
+            ChatResult(content="I don't have access to your Gmail."),
+            ChatResult(content="I don't have access to your Gmail."),
+        ]
+        with patch("app.agents.llm_reply.chat_completion", side_effect=responses) as mock_chat:
+            reply = generate_employee_reply(
+                "manager", "You are the Manager AI.", "find emails containing invoice",
+                tool_result={"ok": True, "results": []},
+            )
+
+        assert mock_chat.call_count == 2
+        assert "don't have access" not in reply.lower()
+        assert reply == "Sorry, I couldn't process that just now. Could you try again?"
+
+    def test_denial_without_a_successful_tool_result_is_left_alone(self):
+        """The backstop only fires when there IS a real, current success to
+        contradict - a genuine "I can't do that" for an employee with no
+        tool result at all (or a failed one) is not touched; that may be
+        an honest, correct answer."""
+        with patch("app.agents.llm_reply.chat_completion") as mock_chat:
+            mock_chat.return_value = ChatResult(content="I don't have access to that particular system.")
+            reply = generate_employee_reply("finance", "You are the Finance AI.", "check my email")
+
+        assert mock_chat.call_count == 1
+        assert reply == "I don't have access to that particular system."
+
+    def test_denial_with_a_failed_tool_result_is_left_alone(self):
+        """ok=False is a real, current failure - a denial here is not a
+        contradiction, it's honest (e.g. not_connected)."""
+        with patch("app.agents.llm_reply.chat_completion") as mock_chat:
+            mock_chat.return_value = ChatResult(content="I don't have access to your Gmail right now.")
+            reply = generate_employee_reply(
+                "manager", "You are the Manager AI.", "search my gmail",
+                tool_result={"ok": False, "error": "not_connected"},
+            )
+
+        assert mock_chat.call_count == 1
+        assert reply == "I don't have access to your Gmail right now."
+
+
+class TestCapabilityGroundingInstructionIsGenericAndAlwaysPresent:
+    def test_instruction_never_names_gmail_or_any_specific_tool(self):
+        assert "gmail" not in CAPABILITY_GROUNDING_INSTRUCTION.lower()
+
+    def test_instruction_is_present_for_every_employee_not_just_manager(self):
+        with patch("app.agents.llm_reply.chat_completion") as mock_chat:
+            mock_chat.return_value = ChatResult(content="Sure, here are invoice details.")
+            generate_employee_reply("finance", "You are the Finance AI.", "explain my invoice")
+
+        messages = mock_chat.call_args.args[0]
+        assert {"role": "system", "content": CAPABILITY_GROUNDING_INSTRUCTION} in messages
+
+    def test_grounding_instruction_precedes_the_no_tool_call_instruction(self):
+        with patch("app.agents.llm_reply.chat_completion") as mock_chat:
+            mock_chat.return_value = ChatResult(content="ok")
+            generate_employee_reply("manager", "You are the Manager AI.", "hello")
+
+        messages = mock_chat.call_args.args[0]
+        assert messages[-2] == {"role": "system", "content": CAPABILITY_GROUNDING_INSTRUCTION}
+        assert messages[-1] == {"role": "system", "content": NO_TOOL_CALL_INSTRUCTION}
+
+
+class TestOldFallbackMessagesNeverContaminateFutureCapabilityClaims:
+    """History-contamination fix, both halves:
+
+    1. This app's OWN canonical failure/apology strings were already
+       correctly stripped from replayed history by is_fallback_reply() -
+       confirmed still true after this change.
+    2. A genuine (not app-generated) past denial like "I don't have access
+       to your Gmail" was NOT caught by that check - confirmed live: a
+       weaker model (Groq's gpt-oss-20b) literally re-echoed that exact
+       verbatim precedent on a later turn even with a real, successful
+       tool result AND CAPABILITY_GROUNDING_INSTRUCTION both present - the
+       instruction alone wasn't a strong enough counter-signal against
+       concrete "evidence" already sitting in its own context. Now
+       excluded from replay the same way a fallback reply already is."""
+
+    def test_a_past_provider_error_apology_is_stripped_from_replayed_history(self):
+        history = [
+            {"role": "user", "content": "search my gmail"},
+            {"role": "assistant", "content": RATE_LIMIT_MESSAGE},
+            {"role": "user", "content": "search my gmail again"},
+        ]
+        with patch("app.agents.llm_reply.chat_completion") as mock_chat:
+            mock_chat.return_value = ChatResult(content="Here you go.")
+            generate_employee_reply(
+                "manager", "You are the Manager AI.", "search my gmail again", history=history,
+                tool_result={"ok": True, "results": []},
+            )
+
+        messages = mock_chat.call_args.args[0]
+        assert not any(m.get("content") == RATE_LIMIT_MESSAGE for m in messages)
+
+    def test_a_past_genuine_capability_denial_is_stripped_from_replayed_history(self):
+        """The exact real, live failure mode: a real assistant turn from
+        earlier in the SAME conversation said "I don't have access to your
+        Gmail" (not one of this app's canonical fallback strings), and the
+        next turn - now with a real, successful tool result - must never
+        see that stale sentence again."""
+        history = [
+            {"role": "user", "content": "Find emails containing invoice."},
+            {"role": "assistant", "content": "I'm sorry, but I don't have access to your Gmail or any external email accounts."},
+            {"role": "user", "content": "Search my Gmail for the latest email."},
+        ]
+        with patch("app.agents.llm_reply.chat_completion") as mock_chat:
+            mock_chat.return_value = ChatResult(content="Here's your latest email: ...")
+            generate_employee_reply(
+                "manager", "You are the Manager AI.", "Search my Gmail for the latest email.", history=history,
+                tool_result={"ok": True, "results": [{"subject": "Latest"}]},
+            )
+
+        messages = mock_chat.call_args.args[0]
+        assert not any("don't have access" in (m.get("content") or "").lower() for m in messages)
+
+    def test_a_past_denial_from_a_user_turn_is_still_replayed_unchanged(self):
+        """Only ASSISTANT turns are filtered - a customer's own message
+        (which might happen to contain similar words, e.g. quoting the
+        bad reply back) must never be silently dropped from context."""
+        history = [
+            {"role": "user", "content": "Why don't you have access to my Gmail?"},
+        ]
+        with patch("app.agents.llm_reply.chat_completion") as mock_chat:
+            mock_chat.return_value = ChatResult(content="Let me check that for you.")
+            generate_employee_reply(
+                "manager", "You are the Manager AI.", "Search my Gmail for the latest email.", history=history,
+            )
+
+        messages = mock_chat.call_args.args[0]
+        assert any(m.get("content") == "Why don't you have access to my Gmail?" for m in messages)
 
 
 class TestRealToolResultStillGroundsTheReply:

@@ -36,6 +36,60 @@ MAX_HISTORY_MESSAGES = 20
 # else (tool-calling turns, marketing/quotation generation) changes.
 SYNTHESIS_TEMPERATURE = 0
 
+# Generic, employee-agnostic grounding rule - fixes two related, real
+# failure modes:
+#
+# 1. History contamination: a genuine (not app-generated) LLM sentence
+#    like "I don't have access to your Gmail" is not caught by
+#    is_fallback_reply() below (that only recognizes THIS APP's own
+#    canonical failure strings, not arbitrary model text) and is replayed
+#    as real assistant history on every later turn - a later turn with a
+#    fresh, real, successful tool_result was observed live treating its
+#    own earlier claim as more authoritative than the current tool result
+#    and repeating the stale denial instead.
+# 2. Multi-employee cross-talk: Planner can legitimately delegate one
+#    message to several employees at once (e.g. "Find emails ... invoice"
+#    matches both "finance" and "gmail" keywords - see planner.py). An
+#    employee with no awareness of a capability outside its own role (e.g.
+#    Finance has no idea Gmail exists) can generate an honest-for-itself
+#    but system-wide-incorrect blanket denial, which ManagerAgent's
+#    _merge_replies() then concatenates right next to another employee's
+#    correct, tool-grounded answer in the same final reply.
+#
+# Never names Gmail or any other specific tool - this is a standing rule
+# for every employee synthesis call, not a Gmail-specific patch.
+CAPABILITY_GROUNDING_INSTRUCTION = (
+    "Base every claim about what you can or cannot do right now ONLY on "
+    "your role described above and the real tool result given to you in "
+    "this message, if any - never on something you or another assistant "
+    "said in an earlier turn of this same conversation. A capability you "
+    "personally don't use is not necessarily unavailable to the business "
+    "as a whole. If today's request is outside your own role, say so "
+    "narrowly and only about your own role - never make a blanket claim "
+    "that the business's systems cannot do something, since another "
+    "specialist may be answering that exact part of the same request "
+    "elsewhere in this reply."
+)
+
+# Narrow, deterministic backstop (not a substitute for the instruction
+# above - prompt wording alone is not reliable, per this same failure
+# category's earlier tool-call quirk): if the tool actually run THIS turn
+# genuinely succeeded (tool_result["ok"] is True - the one convention
+# every tool in this app already returns), a reply that still denies
+# having access is a direct contradiction of real, current ground truth,
+# never a legitimate answer - discarded and retried like any other
+# invalid synthesis output, the same way a stray tool_call already is.
+_CAPABILITY_DENIAL_PHRASES = (
+    "don't have access", "do not have access",
+    "no access to", "don't have any access", "do not have any access",
+    "can't access", "cannot access", "not able to access",
+)
+
+
+def _denies_capability(text: str) -> bool:
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in _CAPABILITY_DENIAL_PHRASES)
+
 
 def _message_role_content(item: Any) -> tuple[Optional[str], Optional[str]]:
     if isinstance(item, dict):
@@ -110,6 +164,23 @@ def generate_employee_reply(
         # model its own past excuse as if it had actually said that.
         if role == "assistant" and is_fallback_reply(content):
             continue
+        # Confirmed live: a genuine (not app-generated) past assistant
+        # sentence denying a capability - e.g. "I don't have access to
+        # your Gmail" - is not caught by is_fallback_reply() above (that
+        # only recognizes THIS APP's canonical failure strings), so it was
+        # being replayed as real history on every later turn. A weaker
+        # model was observed literally re-echoing that verbatim precedent
+        # even with CAPABILITY_GROUNDING_INSTRUCTION present and even when
+        # the CURRENT turn had a real, successful tool result - the
+        # instruction alone wasn't a strong enough counter-signal against
+        # concrete prior "evidence" sitting right there in its own context.
+        # Excluded from replay exactly like a fallback reply is (not
+        # deleted from the conversation's persisted history/DB - still
+        # there for the transcript/UI, just not fed back into the next
+        # completion) - the same pattern already used above, just widened
+        # to this second, real category of stale-but-not-canonical text.
+        if role == "assistant" and _denies_capability(content):
+            continue
         messages.append({"role": role if role in ("user", "assistant") else "user", "content": content})
 
     if not messages[1:] or messages[-1].get("content") != message:
@@ -143,7 +214,10 @@ def generate_employee_reply(
     # of model (recency-weighted attention), and it must survive being
     # appended after the tool result / injection reminder above, not be
     # overridden by them.
+    messages.append({"role": "system", "content": CAPABILITY_GROUNDING_INSTRUCTION})
     messages.append({"role": "system", "content": NO_TOOL_CALL_INSTRUCTION})
+
+    tool_result_succeeded = isinstance(tool_result, dict) and tool_result.get("ok") is True
 
     reply = ""
     last_provider_error: LLMProviderError | None = None
@@ -164,7 +238,7 @@ def generate_employee_reply(
             }}, exc_info=True)
             continue
 
-        reply = (completion.content or "").strip()
+        candidate = (completion.content or "").strip()
         # No `tools` were ever offered on this call, so `tool_calls` has no
         # legitimate reason to be present at all - log it every time it
         # shows up (even alongside usable content) purely for operator
@@ -174,15 +248,48 @@ def generate_employee_reply(
         if completion.tool_calls:
             logger.warning("llm_reply.unexpected_tool_call_in_synthesis", extra={"ctx": {
                 "event": "llm_reply.unexpected_tool_call_in_synthesis",
-                "employee": employee_name, "attempt": attempt, "had_content": bool(reply),
+                "employee": employee_name, "attempt": attempt, "had_content": bool(candidate),
             }})
-        if reply:
+            # SYNTHESIS_TEMPERATURE=0 makes decoding near-deterministic -
+            # retrying with the exact same messages would likely just
+            # reproduce the exact same stray tool_call. Appending a
+            # correction before the next attempt is what actually gives
+            # the retry a real chance to land differently.
+            messages.append({"role": "system", "content": NO_TOOL_CALL_INSTRUCTION})
+
+        if candidate and tool_result_succeeded and _denies_capability(candidate):
+            # A real, successful tool result exists for THIS turn - a
+            # denial contradicts current ground truth outright (almost
+            # always history contamination or multi-employee cross-talk;
+            # see CAPABILITY_GROUNDING_INSTRUCTION above). Never returned
+            # as-is: discarded and retried exactly like an empty/stray-
+            # tool-call response.
+            logger.warning("llm_reply.capability_denial_contradicts_tool_result", extra={"ctx": {
+                "event": "llm_reply.capability_denial_contradicts_tool_result",
+                "employee": employee_name, "attempt": attempt,
+            }})
+            candidate = ""
+            # Same determinism problem as above - an explicit correction
+            # naming what just went wrong, not a bare identical retry.
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Your last draft of this reply incorrectly claimed you "
+                    "lack access to something, even though the tool result "
+                    "above shows it succeeded just now. Do not repeat that "
+                    "claim - describe the real result instead."
+                ),
+            })
+
+        if candidate:
+            reply = candidate
             break
-        # An empty-content response - whether or not it also carried a
-        # stray tool_call - used to be treated as a final (empty) success
-        # and returned as-is, skipping the second attempt entirely even
-        # though the loop exists exactly to absorb this. Falling through
-        # here instead lets attempt 2 actually run.
+        # An empty candidate - whether from empty content, a stray
+        # tool_call, or a discarded capability-denial contradiction - used
+        # to be treated as a final (empty) success and returned as-is,
+        # skipping the second attempt entirely even though the loop exists
+        # exactly to absorb this. Falling through here instead lets
+        # attempt 2 actually run.
 
     if not reply:
         reply = last_provider_error.user_message if last_provider_error else (
