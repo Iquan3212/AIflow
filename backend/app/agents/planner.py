@@ -1,6 +1,20 @@
 from dataclasses import dataclass
 from typing import List
 
+# Single canonical keyword list for "this message is about the business's
+# connected Gmail inbox" - shared with manager_agent.py's own
+# _gmail_tool_for() gate (which decides WHICH gmail_* tool applies once
+# Planner has already routed here) so the two can never drift out of sync
+# again the way they silently did before: "tell me my most recent mail"
+# and "find my most recent message" matched neither list ("mail" is not a
+# substring of "email", and "message" wasn't present at all), so both
+# Planner and Manager silently treated them as ordinary general chat -
+# Gmail's tools were never even attempted, confirmed live and via
+# deterministic tracing (Planner intent=general, employees=["manager"],
+# Manager's own _gmail_tool_for() returning None) - not a synthesis,
+# memory, or provider bug.
+GMAIL_KEYWORDS = ("gmail", "email", "inbox", "mail", "message")
+
 
 @dataclass
 class Plan:
@@ -98,11 +112,7 @@ class Planner:
             # specific gmail_* tool (search/read/draft/send) actually
             # gets called - that finer-grained decision doesn't fit this
             # one-intent-to-one-tool-list mapping.
-            "gmail": [
-                "gmail",
-                "email",
-                "inbox",
-            ],
+            "gmail": list(GMAIL_KEYWORDS),
         }
 
         # Which tools are typically required per employee intent

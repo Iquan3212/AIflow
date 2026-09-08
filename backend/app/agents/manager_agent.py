@@ -4,24 +4,27 @@ from typing import Any, Dict, List, Optional
 
 from app.agents.llm_reply import facts_context, generate_employee_reply
 from app.agents.memory import ConversationMemory
+from app.agents.planner import GMAIL_KEYWORDS
 from app.agents.registry import Registry
 from app.logging_config import get_logger
 from app.services.llm_client import denies_capability
 
 logger = get_logger(__name__)
 
-# Keyword gate for the Manager's own general-chat path (respond(), below).
-# Planner already routes "gmail"/"email"/"inbox" messages to employees=
-# ["manager"] (see planner.py's intent_employee mapping) - this second,
-# local check picks WHICH of the four gmail_* tools that grant applies to,
-# since Plan.tools is an unordered list, not a single action. Deliberately
-# a plain keyword check (no LLM call) to match the rest of this class's
-# philosophy of never spending a token to decide whether to call a tool.
-_GMAIL_KEYWORDS = ("gmail", "email", "inbox")
-
 
 def _gmail_tool_for(text: str) -> Optional[str]:
-    if not any(k in text for k in _GMAIL_KEYWORDS):
+    """Keyword gate for the Manager's own general-chat path (respond(),
+    below). Planner already routes GMAIL_KEYWORDS messages to employees=
+    ["manager"] (see planner.py's intent_employee mapping) - this second,
+    local check picks WHICH of the four gmail_* tools that grant applies
+    to, since Plan.tools is an unordered list, not a single action.
+    Deliberately a plain keyword check (no LLM call), and deliberately
+    the SAME shared GMAIL_KEYWORDS Planner uses - these two used to be
+    separately-maintained, coincidentally-identical tuples, which is
+    exactly how they silently drifted apart from what real users actually
+    type (neither list recognized "mail" or "message" as Gmail-relevant,
+    confirmed live and via deterministic tracing)."""
+    if not any(k in text for k in GMAIL_KEYWORDS):
         return None
     if "send" in text:
         return "gmail_send"

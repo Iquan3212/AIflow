@@ -35,6 +35,14 @@ class TestGmailToolSelection:
     def test_non_gmail_message_returns_none(self):
         assert _gmail_tool_for("what is my revenue today") is None
 
+    def test_tell_me_my_most_recent_mail_now_maps_to_search(self):
+        """Regression for a real, live-confirmed routing gap: "mail" was
+        not a substring of "email" (the reverse is true), so this exact
+        real message previously matched no Gmail keyword at all here
+        either - see test_planner_gmail_multi_intent.py's Planner-level
+        version of this same regression."""
+        assert _gmail_tool_for("tell me my most recent mail") == "gmail_search"
+
 
 class TestManagerAgentGmailRouting:
     def _build_manager(self):
@@ -126,6 +134,26 @@ class TestManagerAgentGmailRouting:
         router.execute.assert_called_once()        # but the Gmail tool was not re-invoked
         assert result["reply"] == "Found 1 email matching 'invoice': Invoice #1."
         assert "don't have access" not in result["reply"].lower()
+
+    def test_a_previous_turns_tool_router_args_do_not_leak_into_the_next_turn(self):
+        """Each respond() call must build its own fresh tool_name/message
+        from the CURRENT text - a previous turn's Gmail action (e.g. a
+        draft) must never be silently reused for an unrelated later
+        message, and vice versa."""
+        manager = self._build_manager()
+        router = MagicMock()
+        router.execute.return_value = {"success": True, "result": {"ok": True, "results": []}}
+
+        with patch("app.agents.manager_agent.generate_employee_reply", return_value="ok"):
+            manager.respond("create a draft reply to the latest email", [], tool_router=router)
+            first_call_kwargs = router.execute.call_args.kwargs
+
+            manager.respond("search my gmail for the latest email", [], tool_router=router)
+            second_call_kwargs = router.execute.call_args.kwargs
+
+        assert first_call_kwargs["tool_name"] == "gmail_draft"
+        assert second_call_kwargs["tool_name"] == "gmail_search"
+        assert second_call_kwargs["message"] == "search my gmail for the latest email"
 
     def test_falls_back_to_self_tool_router_when_none_passed_explicitly(self):
         """delegate() always passes tool_router explicitly, but respond()

@@ -92,6 +92,25 @@ class TestFallbackReplyPollution:
         assert is_fallback_reply("") is False
         assert is_fallback_reply(None) is False
 
+    def test_a_fallback_string_embedded_in_a_merged_multi_employee_reply_is_still_caught(self):
+        """Confirmed live: ManagerAgent._merge_replies() can fold one
+        employee's own fallback text into a larger labeled reply
+        ("Manager: Sorry, I couldn't process that just now. Could you try
+        again?\n\nFinance: ..."), which never equals any canonical string
+        outright - the old exact-match check let this slip into replayed
+        history. Now a substring match, so this is caught too."""
+        merged = (
+            "Manager: Sorry, I couldn't process that just now. Could you try again?\n\n"
+            "Finance: I'm sorry, but I don't have access to your Gmail or any external email accounts."
+        )
+        assert is_fallback_reply(merged) is True
+
+    def test_a_real_reply_that_happens_to_share_words_with_a_fallback_string_is_not_flagged(self):
+        """The substring check must match a full canonical sentence, not
+        stray shared words - "process" or "sorry" alone must never
+        false-positive a genuine reply."""
+        assert is_fallback_reply("Sorry to hear that - I can process a refund for you right away.") is False
+
     def test_memory_summary_excludes_fallback_assistant_turns(self):
         """Root cause reproduced: a prior rate-limit apology, once
         persisted as a normal assistant message, was replayed inside

@@ -214,3 +214,40 @@ class TestDelegateEndToEndReconciliation:
 
         assert "Sales: Lead created for Rahul." in result["final_reply"]
         assert "Receptionist: Appointment booked for 3pm." in result["final_reply"]
+
+    def test_a_multi_intent_turns_employee_results_do_not_leak_into_the_next_single_employee_turn(self):
+        """delegate() builds a brand-new, empty employee_results dict on
+        every call - a previous turn's Finance/Manager multi-employee
+        state (and its reconciliation) must never bleed into a later,
+        unrelated single-employee Gmail turn."""
+        manager = _build_manager()
+
+        finance_stub = MagicMock()
+        finance_stub.respond.return_value = {
+            "reply": "I'm sorry, but I don't have access to your Gmail or any external email accounts.",
+            "tool_result": {"ok": True, "draft": "some quotation text"},
+        }
+        manager_stub = MagicMock()
+        manager_stub.respond.side_effect = [
+            {"reply": "Here are your invoice emails: Invoice #1.", "tool_result": {"ok": True, "results": [{"subject": "Invoice #1"}]}},
+            {"reply": "Here's your most recent email: Latest Subject.", "tool_result": {"ok": True, "results": [{"subject": "Latest Subject"}]}},
+        ]
+
+        def get_employee(name):
+            return {"finance": finance_stub, "manager": manager_stub}.get(name)
+        manager.registry.get_employee.side_effect = get_employee
+
+        first_plan = FakePlan(employees=["finance", "manager"])
+        first_result = manager.delegate(first_plan, "Find emails in my inbox containing the word invoice.", [])
+        assert "don't have access" not in first_result["final_reply"].lower()
+        assert "Invoice #1" in first_result["final_reply"]
+
+        second_plan = FakePlan(employees=["manager"])
+        second_result = manager.delegate(second_plan, "tell me my most recent mail", [])
+
+        # The second turn's result must be built fresh - only Manager's
+        # own new reply, no trace of Finance's denial or the first turn's
+        # employee_results dict.
+        assert "finance" not in second_result["employee_results"]
+        assert second_result["final_reply"] == "Here's your most recent email: Latest Subject."
+        assert "don't have access" not in second_result["final_reply"].lower()

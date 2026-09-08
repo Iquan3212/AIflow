@@ -205,8 +205,17 @@ FALLBACK_REPLY_TEXTS = frozenset({
 
 
 def is_fallback_reply(text: str) -> bool:
-    """True if `text` is one of this app's own generated failure/fallback
-    messages rather than real assistant content - see FALLBACK_REPLY_TEXTS.
+    """True if `text` IS, or embeds, one of this app's own generated
+    failure/fallback messages, rather than genuine assistant content - see
+    FALLBACK_REPLY_TEXTS. Substring match, not just exact equality:
+    ManagerAgent._merge_replies() can fold one employee's own fallback
+    text into a larger, multi-employee reply ("Manager: Sorry, I couldn't
+    process that just now. Could you try again?\n\nFinance: ..."), which
+    would never equal any canonical string outright even though it still
+    carries the exact same stale-context risk this check exists to catch.
     Used only to keep a transient failure from being fed back to the model
     as if it were prior conversation content in a later turn."""
-    return (text or "").strip() in FALLBACK_REPLY_TEXTS
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    return any(marker in stripped for marker in FALLBACK_REPLY_TEXTS)
