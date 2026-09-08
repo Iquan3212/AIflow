@@ -1,5 +1,6 @@
 import re
 import time
+from email.utils import parseaddr
 from typing import Any, Dict, List, Optional
 
 from app.agents.llm_reply import facts_context, generate_employee_reply
@@ -33,6 +34,17 @@ def _gmail_tool_for(text: str) -> Optional[str]:
     if "read" in text or "open" in text:
         return "gmail_read"
     return "gmail_search"
+
+
+def _sender_address(from_header: Optional[str]) -> Optional[str]:
+    """Extracts a bare email address from a raw RFC-2822 "From" header
+    value (e.g. '"Anthropic, PBC" <invoice+statements@mail.anthropic.com>')
+    - stdlib email.utils.parseaddr handles the quoting/edge cases
+    correctly rather than a hand-rolled regex."""
+    if not from_header:
+        return None
+    _, addr = parseaddr(from_header)
+    return addr or None
 
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
@@ -189,7 +201,27 @@ specialist employees."""
         action_result = None
         gmail_tool_name = _gmail_tool_for(text)
         if gmail_tool_name:
-            action_res = router.execute(employee="manager", tool_name=gmail_tool_name, message=message)
+            extra_kwargs: Dict[str, Any] = {}
+            if gmail_tool_name in ("gmail_draft", "gmail_send") and "@" not in message:
+                # "Reply to the LATEST email" gives GmailDraftTool/
+                # GmailSendTool nothing to resolve a recipient from - they
+                # only ever see this raw free-text message, with no
+                # automatic link to a prior search. Confirmed live and via
+                # deterministic tracing: this is exactly why a real draft
+                # request failed with "missing_fields" (no explicit
+                # address in the message). Resolve it here with one real
+                # gmail_search (empty query = Gmail's own default
+                # ordering, most-recent-first, max_results=1) and thread
+                # the reply's subject - never fabricated, honestly falls
+                # through to the existing missing_fields failure below if
+                # the search itself finds nothing or isn't connected.
+                to_addr, subject = self._resolve_reply_target(router, message)
+                if to_addr:
+                    extra_kwargs["to"] = to_addr
+                if subject:
+                    extra_kwargs["subject"] = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+
+            action_res = router.execute(employee="manager", tool_name=gmail_tool_name, message=message, **extra_kwargs)
             if action_res.get("success"):
                 action_result = action_res["result"]
             else:
@@ -206,6 +238,33 @@ specialist employees."""
             "gmail_connection": connection,
             "gmail_action_result": action_result,
         }
+
+    def _resolve_reply_target(self, router: Any, message: str) -> tuple[Optional[str], Optional[str]]:
+        """One real gmail_search (query="", the same "no filter" shape
+        Gmail's own API already treats as its default, most-recent-first
+        ordering - max_results=1) to find out who "the latest email" - the
+        thing being replied to - actually is, and its subject to thread
+        the reply. Returns (None, None) on any failure (not connected, no
+        messages, a real search error) - never fabricated, the caller
+        falls through to the existing, honest missing_fields failure."""
+        try:
+            search_res = router.execute(
+                employee="manager", tool_name="gmail_search", message=message, query="", max_results=1,
+            )
+        except Exception:
+            logger.exception("manager.reply_target_resolution_failed", extra={"ctx": {
+                "event": "manager.reply_target_resolution_failed",
+            }})
+            return None, None
+
+        if not search_res.get("success"):
+            return None, None
+        result = search_res.get("result")
+        if not (isinstance(result, dict) and result.get("ok") and result.get("results")):
+            return None, None
+
+        latest = result["results"][0]
+        return _sender_address(latest.get("from")), latest.get("subject")
 
     def delegate(self, plan: Any, message: str, history: List[Any]) -> Dict[str, Any]:
         """

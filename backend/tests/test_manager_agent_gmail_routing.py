@@ -229,8 +229,13 @@ class TestManagerAgentGmailRouting:
 
         with patch("app.agents.manager_agent.generate_employee_reply", return_value="ok"):
             manager.respond("create a draft reply to the latest email", [], tool_router=router)
+            # "create a draft reply to the latest email" has no explicit
+            # address, so it also triggers one real gmail_search to resolve
+            # who "the latest email" is from (see _resolve_reply_target) -
+            # the actual draft call is the final one, not just "any
+            # non-status call".
             first_action_call = next(
-                c for c in router.execute.call_args_list if c.kwargs["tool_name"] != "gmail_status"
+                c for c in router.execute.call_args_list if c.kwargs["tool_name"] == "gmail_draft"
             )
 
             router.execute.reset_mock()
