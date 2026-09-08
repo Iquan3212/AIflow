@@ -23,7 +23,7 @@ Run: python3 -m pytest tests/test_llm_reply_tool_call_guard.py -q   (from backen
 
 from unittest.mock import patch
 
-from app.agents.llm_reply import generate_employee_reply, NO_TOOL_CALL_INSTRUCTION
+from app.agents.llm_reply import generate_employee_reply, NO_TOOL_CALL_INSTRUCTION, SYNTHESIS_TEMPERATURE
 from app.services.llm.base import ChatResult, LLMProviderError, INVALID_REQUEST, INVALID_REQUEST_MESSAGE
 
 
@@ -45,6 +45,36 @@ class TestFinalSynthesisNeverOffersTools:
         args, kwargs = mock_chat.call_args
         assert "tools" not in kwargs
         assert len(args) == 1  # only `messages` - no tools/tool_choice positional either
+
+    def test_synthesis_uses_the_low_deterministic_temperature(self):
+        """Lower sampling variance reduces how often a tool-trained model
+        wanders into an unsolicited tool-call-shaped generation, and this
+        call only ever restates already-computed facts - it never needs to
+        be creative. Scoped to this one call site (see SYNTHESIS_TEMPERATURE's
+        own docstring) - chat_completion()'s own default (0.4) is untouched
+        for every other caller (tool-calling turns, marketing/quotation
+        generation)."""
+        with patch("app.agents.llm_reply.chat_completion") as mock_chat:
+            mock_chat.return_value = ChatResult(content="Hi there.")
+            generate_employee_reply("manager", "You are the Manager AI.", "hello")
+
+        assert mock_chat.call_args.kwargs["temperature"] == SYNTHESIS_TEMPERATURE
+        assert SYNTHESIS_TEMPERATURE == 0
+
+    def test_no_tool_call_instruction_and_temperature_are_gmail_agnostic(self):
+        """This is a generic, provider-level safety mechanism - it must
+        apply identically for every employee/message, not be special-cased
+        around Gmail wording, and the instruction text itself must never
+        name Gmail or any other specific tool."""
+        assert "gmail" not in NO_TOOL_CALL_INSTRUCTION.lower()
+
+        with patch("app.agents.llm_reply.chat_completion") as mock_chat:
+            mock_chat.return_value = ChatResult(content="Sure, I can help with pricing.")
+            generate_employee_reply("sales", "You are the Sales AI.", "what's the price of the premium plan?")
+
+        messages = mock_chat.call_args.args[0]
+        assert messages[-1] == {"role": "system", "content": NO_TOOL_CALL_INSTRUCTION}
+        assert mock_chat.call_args.kwargs["temperature"] == SYNTHESIS_TEMPERATURE
 
     def test_no_tool_call_instruction_is_always_the_last_system_message(self):
         with patch("app.agents.llm_reply.chat_completion") as mock_chat:
@@ -99,6 +129,59 @@ class TestToolCallShapedResponseIsHandledSafely:
 
         assert mock_chat.call_count == 2  # both attempts happen, no infinite loop
         assert reply == INVALID_REQUEST_MESSAGE
+
+    def test_plain_empty_content_with_no_tool_calls_is_also_retried(self):
+        """Empty content is worth retrying regardless of whether it came
+        with a stray tool_call - not just the tool-call-shaped case."""
+        responses = [ChatResult(content=""), ChatResult(content="Real reply.")]
+        with patch("app.agents.llm_reply.chat_completion", side_effect=responses) as mock_chat:
+            reply = generate_employee_reply("manager", "You are the Manager AI.", "hello")
+
+        assert mock_chat.call_count == 2
+        assert reply == "Real reply."
+
+    def test_tool_calls_alongside_real_content_uses_the_content_and_never_leaks_the_call(self):
+        """Policy for 'unsolicited tool_calls + content': use the real
+        text, discard the tool_calls - never execute them (this function
+        has no ToolRouter reference at all - see
+        TestSynthesisNeverExecutesTools below) and never surface the raw
+        call JSON to the customer."""
+        fake_call = object()
+        with patch("app.agents.llm_reply.chat_completion") as mock_chat:
+            mock_chat.return_value = ChatResult(content="Here's your answer.", tool_calls=[fake_call])
+            reply = generate_employee_reply("manager", "You are the Manager AI.", "hello")
+
+        assert mock_chat.call_count == 1  # a usable reply is still final on attempt 1
+        assert reply == "Here's your answer."
+        assert "tool_call" not in reply.lower()
+        assert repr(fake_call) not in reply
+
+
+class TestSynthesisNeverExecutesTools:
+    def test_module_holds_no_tool_router_reference(self):
+        """The final synthesis layer must remain strictly non-tool-executing
+        - real execution already happened earlier, through ToolRouter,
+        before this module is ever called. Asserted structurally: llm_reply
+        never imports ToolRouter/Registry at all, so there is no code path
+        by which a stray tool_call - however it arrives - could trigger a
+        second, unintended tool execution."""
+        import app.agents.llm_reply as llm_reply_module
+        assert "ToolRouter" not in dir(llm_reply_module)
+        assert "Registry" not in dir(llm_reply_module)
+
+    def test_a_stray_tool_call_never_triggers_any_side_effect(self):
+        """Even when the provider hands back tool_calls, generate_employee_
+        reply() must produce ONLY a string - no tool is invoked, no
+        exception escapes, no ToolRouter-shaped object is touched."""
+        with patch("app.agents.llm_reply.chat_completion") as mock_chat:
+            mock_chat.side_effect = [
+                ChatResult(content=None, tool_calls=[object()]),
+                ChatResult(content="Fine, plain text."),
+            ]
+            reply = generate_employee_reply("manager", "You are the Manager AI.", "hello")
+
+        assert isinstance(reply, str)
+        assert reply == "Fine, plain text."
 
 
 class TestRealToolResultStillGroundsTheReply:

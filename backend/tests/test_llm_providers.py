@@ -201,6 +201,72 @@ class TestOpenAICompatibleProvider:
         with pytest.raises(TypeError):
             provider.chat([{"role": "user", "content": "hi"}])
 
+    def _tool_use_failed_error(self):
+        """Reproduces Groq's real error shape observed live against
+        openai/gpt-oss-20b: a 400 whose body's `code` is "tool_use_failed"
+        and message says the model called a tool despite none being
+        offered. The OpenAI SDK's _make_status_error unwraps body["error"]
+        before constructing the exception (confirmed by reading
+        openai/_client.py), so `exc.code` reads directly off that inner
+        dict - not a guess."""
+        body = {
+            "error": {
+                "message": "Tool choice is none, but model called a tool",
+                "type": "invalid_request_error",
+                "code": "tool_use_failed",
+                "failed_generation": '{"name": "gmail_search", "arguments": {}}',
+            }
+        }
+        return openai.BadRequestError(
+            "bad request", response=httpx.Response(400, request=_fake_openai_request(), json=body), body=body["error"],
+        )
+
+    def test_unsolicited_tool_call_with_no_tools_offered_is_reclassified_as_provider_error(self):
+        """The request itself was valid (no tools declared, nothing for the
+        model to call) - this is the model's own misbehavior, not a
+        malformed request on our end, and unlike a genuinely invalid
+        request, a retry or a configured fallback provider can actually
+        succeed here (observed live). PROVIDER_ERROR (not INVALID_REQUEST)
+        reflects that and makes it fallback-eligible."""
+        provider, mock_client = self._provider()
+        mock_client.chat.completions.create.side_effect = self._tool_use_failed_error()
+
+        with pytest.raises(LLMProviderError) as excinfo:
+            provider.chat([{"role": "user", "content": "hi"}])  # no tools=
+
+        assert excinfo.value.reason == PROVIDER_ERROR
+        assert excinfo.value.reason in FALLBACK_ELIGIBLE_REASONS
+
+    def test_same_error_code_with_tools_genuinely_offered_is_left_as_invalid_request(self):
+        """Isolation check: a real tool-calling request (tools actually
+        offered) hitting this same error code for a different reason (e.g.
+        a malformed tool call) must NOT be reclassified - the special case
+        is gated on `not tools_offered`, so legitimate tool-calling
+        workflows are entirely unaffected by this change."""
+        provider, mock_client = self._provider()
+        mock_client.chat.completions.create.side_effect = self._tool_use_failed_error()
+        tools = [{"type": "function", "function": {"name": "book", "parameters": {}}}]
+
+        with pytest.raises(LLMProviderError) as excinfo:
+            provider.chat([{"role": "user", "content": "hi"}], tools=tools)
+
+        assert excinfo.value.reason == INVALID_REQUEST
+
+    def test_ordinary_bad_request_without_the_special_code_is_unaffected(self):
+        """Guards against over-broadening: only this exact, observed error
+        code is reclassified - every other 400 (malformed message shape,
+        unsupported param, etc.) still lands as INVALID_REQUEST exactly as
+        before, tools offered or not."""
+        provider, mock_client = self._provider()
+        mock_client.chat.completions.create.side_effect = openai.BadRequestError(
+            "bad request", response=httpx.Response(400, request=_fake_openai_request(), json={}), body={},
+        )
+
+        with pytest.raises(LLMProviderError) as excinfo:
+            provider.chat([{"role": "user", "content": "hi"}])
+
+        assert excinfo.value.reason == INVALID_REQUEST
+
 
 # =====================================================================
 # GEMINI

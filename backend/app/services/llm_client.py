@@ -29,6 +29,27 @@ from app.services.llm.factory import create_llm_provider
 settings = get_settings()
 logger = get_logger(__name__)
 
+# Shared safety instruction for any caller running a completion with no
+# `tools` offered, specifically because real tool execution already
+# happened earlier (through ToolRouter or ToolDispatcher) and this call is
+# only meant to phrase the final natural-language reply. No `tools` are
+# passed in that shape of call, so it has no function-calling ability by
+# request shape alone - but some tool-trained models (observed: Groq's
+# openai/gpt-oss-20b) can still emit a tool-call-shaped generation anyway,
+# which the provider then rejects since none were declared. Provider- and
+# tool-agnostic (never names a specific tool) - used by both
+# app/agents/llm_reply.py (the Manager/employee dashboard path) and
+# app/services/shared/conversation_service.py's own post-tool-loop final
+# call, never by any call site that genuinely offers `tools`.
+NO_TOOL_CALL_INSTRUCTION = (
+    "This is a final natural-language reply, not a tool-use step. Respond "
+    "with plain conversational text only. Do not call, invoke, or emit a "
+    "function/tool call in any form - no JSON, no code block, no "
+    "structured call syntax - even if one seems relevant; instead describe "
+    "the outcome in your own words using only the information already "
+    "given to you above."
+)
+
 # LLMProviderError is imported (not redefined) above, so
 # `from app.services.llm_client import chat_completion, LLMProviderError`
 # (every existing call site) keeps working unchanged.

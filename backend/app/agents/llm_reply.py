@@ -14,7 +14,7 @@ from app.agents.prompt_guard import (
     is_fallback_reply,
 )
 from app.logging_config import get_logger
-from app.services.llm_client import chat_completion, LLMProviderError
+from app.services.llm_client import chat_completion, LLMProviderError, NO_TOOL_CALL_INSTRUCTION
 
 logger = get_logger(__name__)
 
@@ -24,25 +24,17 @@ logger = get_logger(__name__)
 # disagree about what's still in scope.
 MAX_HISTORY_MESSAGES = 20
 
-# This module is only ever the FINAL natural-language synthesis step for an
-# employee's turn - real tool execution already happened earlier, through
-# ToolRouter, and its outcome (if any) arrives here as `tool_result`. No
-# `tools` are ever passed to chat_completion() below, so this call has no
-# function-calling ability by request shape alone; some tool-trained models
-# (observed: Groq's openai/gpt-oss-20b) can still emit a tool-call-shaped
-# generation anyway - especially once the prompt contains data that reads
-# like a completed tool's output - which the provider then rejects outright
-# since no tools were declared. This reminder is provider- and tool-agnostic
-# (never names a specific tool) and is appended to every synthesis call, not
-# just Gmail's, since the failure mode isn't Gmail-specific.
-NO_TOOL_CALL_INSTRUCTION = (
-    "This is a final natural-language reply to the customer, not a tool-use "
-    "step. Respond with plain conversational text only. Do not call, invoke, "
-    "or emit a function/tool call in any form - no JSON, no code block, no "
-    "structured call syntax - even if one seems relevant; instead describe "
-    "the outcome in your own words using only the information already given "
-    "to you above."
-)
+# Deterministic, not creative: this call only ever restates a real,
+# already-computed tool result (or answers plainly) in natural language -
+# it never needs to be inventive, and lower sampling variance also directly
+# reduces how often a tool-trained model wanders into an unsolicited
+# tool-call-shaped generation (see NO_TOOL_CALL_INSTRUCTION above/below).
+# Matches the temperature already used for this codebase's other
+# accuracy-over-creativity completions (lead_ai_service.py,
+# gmail_ai_service.py's free-text extraction, both temperature=0) - scoped
+# to only this call site, not chat_completion()'s own default, so nothing
+# else (tool-calling turns, marketing/quotation generation) changes.
+SYNTHESIS_TEMPERATURE = 0
 
 
 def _message_role_content(item: Any) -> tuple[Optional[str], Optional[str]]:
@@ -157,7 +149,7 @@ def generate_employee_reply(
     last_provider_error: LLMProviderError | None = None
     for attempt in range(2):  # some models occasionally emit a spurious tool-call
         try:                  # even with no tools offered; one retry clears it.
-            completion = chat_completion(messages)
+            completion = chat_completion(messages, temperature=SYNTHESIS_TEMPERATURE)
         except LLMProviderError as exc:
             # A provider-level rejection (rate limit, auth, provider outage)
             # won't be fixed by an immediate retry - keep the loop (a
@@ -173,18 +165,24 @@ def generate_employee_reply(
             continue
 
         reply = (completion.content or "").strip()
-        if reply:
-            break
-        # A response that came back with no exception but also no usable
-        # text - e.g. tool_calls only, no content - used to be treated as a
-        # final (empty) success and returned as-is, skipping the second
-        # attempt entirely even though the loop exists exactly to absorb
-        # this. Falling through here instead lets attempt 2 actually run.
+        # No `tools` were ever offered on this call, so `tool_calls` has no
+        # legitimate reason to be present at all - log it every time it
+        # shows up (even alongside usable content) purely for operator
+        # visibility. It is never executed and never surfaced to the user:
+        # `reply` is built only from `.content` above, so a stray tool_call
+        # cannot leak into what the customer sees or trigger ToolRouter.
         if completion.tool_calls:
             logger.warning("llm_reply.unexpected_tool_call_in_synthesis", extra={"ctx": {
                 "event": "llm_reply.unexpected_tool_call_in_synthesis",
-                "employee": employee_name, "attempt": attempt,
+                "employee": employee_name, "attempt": attempt, "had_content": bool(reply),
             }})
+        if reply:
+            break
+        # An empty-content response - whether or not it also carried a
+        # stray tool_call - used to be treated as a final (empty) success
+        # and returned as-is, skipping the second attempt entirely even
+        # though the loop exists exactly to absorb this. Falling through
+        # here instead lets attempt 2 actually run.
 
     if not reply:
         reply = last_provider_error.user_message if last_provider_error else (

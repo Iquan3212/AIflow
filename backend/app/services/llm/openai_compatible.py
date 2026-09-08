@@ -75,7 +75,7 @@ class OpenAICompatibleProvider(LLMProvider):
         try:
             response = self._client.chat.completions.create(**kwargs)
         except openai.APIError as exc:
-            reason, user_message = _classify(exc)
+            reason, user_message = _classify(exc, tools_offered=bool(tools))
             raise LLMProviderError(reason, user_message, original=exc, provider=self.name) from exc
 
         message = response.choices[0].message
@@ -88,7 +88,19 @@ class OpenAICompatibleProvider(LLMProvider):
         return ChatResult(content=message.content, tool_calls=tool_calls)
 
 
-def _classify(exc: "openai.APIError") -> tuple[str, str]:
+# Groq's own error code for "the model emitted a tool call but the request
+# didn't make one possible" - confirmed live against openai/gpt-oss-20b:
+# `openai.BadRequestError.code == "tool_use_failed"`, body message "Tool
+# choice is none, but model called a tool". Isolated to this one adapter
+# (Groq/OpenRouter/Ollama's shared OpenAI-compatible schema) and gated on
+# `not tools_offered` below, so it can only ever apply to a call that WE
+# ourselves declared with no tools - a genuine tool-calling request (tools
+# actually offered) hitting this same code for a different reason (e.g. a
+# malformed tool call) is untouched and still classified INVALID_REQUEST.
+_UNSOLICITED_TOOL_CALL_CODE = "tool_use_failed"
+
+
+def _classify(exc: "openai.APIError", tools_offered: bool) -> tuple[str, str]:
     """openai.RateLimitError/AuthenticationError/APIConnectionError/etc.
     all inherit from openai.APIError - this only ever sees genuine
     provider-side failures. A bug in this app's own request construction
@@ -117,6 +129,17 @@ def _classify(exc: "openai.APIError") -> tuple[str, str]:
         # resolves on its own).
         return AUTHENTICATION_ERROR, _UNAVAILABLE_MSG
     if isinstance(exc, (openai.BadRequestError, openai.NotFoundError)):
+        if not tools_offered and getattr(exc, "code", None) == _UNSOLICITED_TOOL_CALL_CODE:
+            # Our request was well-formed (we declared no tools, so there
+            # was nothing to call) - this is the model spontaneously
+            # emitting a tool-call-shaped generation on its own, which is a
+            # provider/model-side misbehavior, not a malformed request on
+            # our end. Unlike a truly invalid request (never worth
+            # retrying - see below), a second attempt or a configured
+            # fallback provider can genuinely succeed here, as observed
+            # live, so this is classified like any other provider hiccup
+            # instead of the terminal "you sent something invalid" bucket.
+            return PROVIDER_ERROR, _UNKNOWN_MSG
         # NotFoundError (404) here means "model not found" - a misconfigured
         # LLM_MODEL for this provider, not a transient provider failure.
         # Confirmed live: an outdated/wrong model id returns 404, and

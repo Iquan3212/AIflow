@@ -29,7 +29,7 @@ from app.repositories.conversation_repository import (
     load_history,
     get_business_conversations as repo_get_business_conversations,
 )
-from app.services.llm_client import chat_completion, LLMProviderError
+from app.services.llm_client import chat_completion, LLMProviderError, NO_TOOL_CALL_INSTRUCTION
 from app.services.prompt_builder import build_system_prompt
 from app.services.scheduling.tools import tool_definitions, ToolDispatcher
 from app.services.scheduling.datetime_utils import to_local, now_utc
@@ -294,7 +294,17 @@ def _run_tool_loop(messages: list[dict], tools: list[dict], dispatcher: ToolDisp
                 }})
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
-        final = chat_completion(messages, tools=None)
+        # No more tool rounds are allowed past this point (tools=None) - the
+        # same structural shape as llm_reply.py's own final synthesis call,
+        # so it carries the same safety instruction and low, deterministic
+        # temperature rather than a Gmail/tool-specific fix. The in-loop
+        # calls above (which DO offer tools) are untouched.
+        messages.append({"role": "system", "content": NO_TOOL_CALL_INSTRUCTION})
+        final = chat_completion(messages, tools=None, temperature=0)
+        if not (final.content or "").strip() and final.tool_calls:
+            logger.warning("conversation.unexpected_tool_call_in_synthesis", extra={"ctx": {
+                "event": "conversation.unexpected_tool_call_in_synthesis", "channel": channel,
+            }})
         return (final.content or "").strip() or "Let me get back to you on that."
     except LLMProviderError as exc:
         logger.warning("conversation.llm_provider_error", extra={"ctx": {
