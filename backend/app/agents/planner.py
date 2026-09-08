@@ -91,6 +91,18 @@ class Planner:
                 "refund",
                 "pricing",
             ],
+            # Gmail is an owner-level capability (the business's own
+            # connected inbox), not a specialist persona - routes to
+            # "manager" below, same as "general". See
+            # ManagerAgent.respond()'s own keyword sub-routing for which
+            # specific gmail_* tool (search/read/draft/send) actually
+            # gets called - that finer-grained decision doesn't fit this
+            # one-intent-to-one-tool-list mapping.
+            "gmail": [
+                "gmail",
+                "email",
+                "inbox",
+            ],
         }
 
         # Which tools are typically required per employee intent
@@ -102,6 +114,7 @@ class Planner:
             "support": [],
             "finance": ["quotation"],
             "manager": [],
+            "gmail": ["gmail_search", "gmail_read", "gmail_draft", "gmail_send"],
         }
 
         # Lower number = higher priority
@@ -112,8 +125,19 @@ class Planner:
             "support": 25,
             "analytics": 30,
             "marketing": 40,
+            "gmail": 45,
             "general": 50,
         }
+
+        # Explicit intent -> employee mapping. Every intent used to
+        # implicitly assume its own name was also a valid registered
+        # employee name (receptionist/sales/analytics/marketing/support/
+        # finance all are) - "gmail" breaks that assumption (there is no
+        # "gmail" employee in the Registry, only "manager", which is
+        # granted the gmail_* tools - see AIOrchestrator/ARCHITECTURE.md),
+        # so it needs an explicit entry rather than relying on the
+        # intent-name-equals-employee-name shortcut.
+        self.intent_employee = {"gmail": "manager"}
 
     def plan(self, message: str) -> Plan:
         text = (message or "").lower()
@@ -139,7 +163,12 @@ class Planner:
         confidences = []
 
         for intent in detected:
-            employees.append(intent if intent in self.intent_tools else "manager")
+            if intent in self.intent_employee:
+                employees.append(self.intent_employee[intent])
+            elif intent in self.intent_tools:
+                employees.append(intent)
+            else:
+                employees.append("manager")
             tools.extend(self.intent_tools.get(intent, []))
             confidences.append(0.9)
 

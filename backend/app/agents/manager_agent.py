@@ -8,6 +8,27 @@ from app.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Keyword gate for the Manager's own general-chat path (respond(), below).
+# Planner already routes "gmail"/"email"/"inbox" messages to employees=
+# ["manager"] (see planner.py's intent_employee mapping) - this second,
+# local check picks WHICH of the four gmail_* tools that grant applies to,
+# since Plan.tools is an unordered list, not a single action. Deliberately
+# a plain keyword check (no LLM call) to match the rest of this class's
+# philosophy of never spending a token to decide whether to call a tool.
+_GMAIL_KEYWORDS = ("gmail", "email", "inbox")
+
+
+def _gmail_tool_for(text: str) -> Optional[str]:
+    if not any(k in text for k in _GMAIL_KEYWORDS):
+        return None
+    if "send" in text:
+        return "gmail_send"
+    if "draft" in text or "reply" in text:
+        return "gmail_draft"
+    if "read" in text or "open" in text:
+        return "gmail_read"
+    return "gmail_search"
+
 
 class ManagerAgent:
     """
@@ -29,18 +50,45 @@ class ManagerAgent:
 You coordinate a workforce of AI specialists: Sales, Receptionist, Support,
 Finance, Marketing, and Analytics.
 
+You also have direct access to the business's own connected Gmail inbox -
+you can search it, read a message, create a draft reply, and send email
+(sending may require the owner's approval before it actually goes out).
+Only describe emails, senders, or message contents that appear in the real
+tool result given to you below; if no tool result is present, or it
+reports an error, say so honestly instead of guessing.
+
 Answer general questions helpfully and concisely. Never invent business
 facts, prices, or appointment slots yourself - that work belongs to the
 specialist employees."""
 
     def respond(self, message: str, history: List[Any], tool_router: Optional[Any] = None) -> Dict[str, Any]:
         """The Manager's own reply for general chat that no specialist
-        intent was detected for."""
+        intent was detected for - including Gmail requests, since Gmail is
+        an owner-level capability granted to "manager", not a specialist
+        persona (see planner.py)."""
         analysis = {"memory": self.memory.shared_context(history)}
+        router = tool_router or self.tool_router
+
+        tool_result = None
+        gmail_tool_name = _gmail_tool_for((message or "").lower())
+        if gmail_tool_name and router is not None:
+            res = router.execute(employee="manager", tool_name=gmail_tool_name, message=message)
+            if res.get("success"):
+                tool_result = res["result"]
+            else:
+                # A router-level refusal (forbidden/unknown tool) rather than
+                # a Gmail-API-level failure - still real, still worth
+                # grounding the reply in rather than silently dropping back
+                # to tool_result=None (which is exactly how this bug looked
+                # to begin with: a Gmail request answered with no Gmail
+                # awareness at all).
+                tool_result = {"ok": False, "error": res.get("error", "tool_error"), "message": res.get("message")}
+
         reply = generate_employee_reply(
-            "manager", self.system_prompt, message, history, extra_context=facts_context(analysis)
+            "manager", self.system_prompt, message, history,
+            tool_result=tool_result, extra_context=facts_context(analysis),
         )
-        return {"employee": "manager", "intent": "general", "reply": reply, "tool_result": None}
+        return {"employee": "manager", "intent": "general", "reply": reply, "tool_result": tool_result}
 
     def delegate(self, plan: Any, message: str, history: List[Any]) -> Dict[str, Any]:
         """
