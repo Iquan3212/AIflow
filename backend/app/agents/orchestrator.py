@@ -19,6 +19,7 @@ from app.tools.quotation_tool import QuotationTool
 from app.tools.campaign_tool import CampaignTool
 from app.tools.analytics_tool import AnalyticsTool
 from app.tools.support_ticket_tool import SupportTicketTool
+from app.tools.gmail_tool import GmailSearchTool, GmailReadTool, GmailDraftTool, GmailSendTool
 
 
 class AIOrchestrator:
@@ -46,6 +47,16 @@ class AIOrchestrator:
         self.registry.register_tool("campaign", CampaignTool(db=self.db))
         self.registry.register_tool("dashboard", AnalyticsTool(db=self.db))
         self.registry.register_tool("support_ticket", SupportTicketTool(db=self.db))
+        # Gmail: an owner-facing capability (the business's own connected
+        # inbox), not a per-customer-conversation one - reachable through
+        # the same Tool Router/permission machinery as every other tool,
+        # but only "manager" is granted it below (via all_tools()), not any
+        # specialist employee's fixed per-turn tool. See
+        # app/tools/gmail_tool.py's module docstring for why.
+        self.registry.register_tool("gmail_search", GmailSearchTool())
+        self.registry.register_tool("gmail_read", GmailReadTool())
+        self.registry.register_tool("gmail_draft", GmailDraftTool())
+        self.registry.register_tool("gmail_send", GmailSendTool())
 
         # Employee agents
         self.registry.register_employee("sales", SalesAgent(self.business, self.lead), tools=["lead"])

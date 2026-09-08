@@ -522,3 +522,77 @@ class NotificationPreference(Base):
     )
 
 
+class GmailCredential(Base):
+    """Stored OAuth tokens for a business's connected Gmail account. One row
+    per business (unlike CalendarCredential, which is keyed by provider too
+    since it anticipates Outlook/Apple - Gmail is Gmail). Written by the
+    OAuth callback (app/routers/gmail.py), read by
+    app/services/gmail/gmail_adapter.py. Same shape/refresh pattern as
+    CalendarCredential deliberately, for the same reason: this is a
+    provider-specific adapter concern, never something Manager/Planner/
+    employees touch directly.
+
+    send_mode governs what GmailTool is allowed to do without a human:
+    - read_only: search/read only; draft/send are refused outright.
+    - approval_required (default - the safe choice): draft is allowed
+      (a draft sits in Drafts, sent to nobody); send instead creates a
+      GmailPendingAction and does NOT call the Gmail API until an owner
+      approves it.
+    - automated: draft and send both execute immediately for real.
+    """
+
+    __tablename__ = "gmail_credentials"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    business_id = Column(
+        UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"),
+        nullable=False, unique=True, index=True,
+    )
+    google_email = Column(String(255), nullable=True)  # display only - which inbox is connected
+    access_token = Column(Text, nullable=True)
+    refresh_token = Column(Text, nullable=True)
+    token_uri = Column(String(255), default="https://oauth2.googleapis.com/token")
+    scopes = Column(Text, nullable=True)  # space-separated, as returned by Google
+    expiry = Column(DateTime(timezone=True), nullable=True)  # access-token expiry (UTC)
+    send_mode = Column(String(20), nullable=False, default="approval_required")
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    business = relationship("Business")
+
+
+class GmailPendingAction(Base):
+    """One row per Gmail send that required approval (send_mode ==
+    "approval_required"). Created the moment an employee proposes sending
+    an email; the real Gmail API send only ever happens from the approval
+    endpoint, never from the tool call that created this row - see
+    app/services/gmail/gmail_service.py. This is the audit trail for every
+    Gmail send this app has ever proposed, approved, rejected, or sent,
+    independent of the structured request logs."""
+
+    __tablename__ = "gmail_pending_actions"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(UUID(as_uuid=False), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
+
+    employee = Column(String(32), nullable=True)  # which AI Workforce employee proposed this
+    action_type = Column(String(20), nullable=False, default="send_email")
+    to_address = Column(String(255), nullable=False)
+    subject = Column(String(500), nullable=False)
+    body = Column(Text, nullable=False)
+
+    status = Column(String(16), nullable=False, default="pending")  # pending | approved | rejected | sent | failed
+    gmail_message_id = Column(String(255), nullable=True)  # only ever set after a real, successful send
+    error = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    decided_at = Column(DateTime, nullable=True)
+    decided_by_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    business = relationship("Business")
+    conversation = relationship("Conversation")
+    decided_by = relationship("User")
+
+

@@ -486,3 +486,35 @@ class NotificationPreferenceUpdate(BaseModel):
 
 class NotificationPreferencesUpdateRequest(BaseModel):
     updates: list[NotificationPreferenceUpdate] = Field(min_length=1)
+
+
+# =====================================================
+# GMAIL
+# =====================================================
+
+class GmailStatus(BaseModel):
+    available: bool          # is Gmail OAuth configured on the server at all
+    connected: bool          # does this business have a stored refresh token
+    google_email: str | None = None
+    send_mode: str
+
+
+class GmailModeUpdate(BaseModel):
+    send_mode: str = Field(pattern="^(read_only|approval_required|automated)$")
+
+
+class GmailPendingActionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    conversation_id: UUID | None = None
+    employee: str | None = None
+    action_type: str
+    to_address: str
+    subject: str
+    body: str
+    status: str
+    gmail_message_id: str | None = None
+    error: str | None = None
+    created_at: datetime
+    decided_at: datetime | None = None

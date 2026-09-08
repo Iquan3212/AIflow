@@ -19,12 +19,16 @@ slowapi>=0.1.9
 # older, deprecated google-generativeai package).
 google-genai>=1.75.0,<2.0.0
 
+# Google Calendar sync AND Gmail (app/services/calendar/, app/services/
+# gmail/) - both adapters use this client library for the actual API
+# calls once OAuth tokens exist. google-auth (Credentials) is already a
+# transitive dep of google-genai; declared explicitly here since both
+# adapters import it directly, not just incidentally.
+google-api-python-client>=2.130.0
+google-auth>=2.30.0
+
 # --- Phase 3 optional integrations (enable when you wire the provider) ---
 # SMS reminders:
 # twilio>=9.0.0
-# Google Calendar sync:
-# google-api-python-client>=2.130.0
-# google-auth>=2.30.0
-# google-auth-oauthlib>=1.2.0
 # Long-running reminder scheduler (cron works without this):
 # apscheduler>=3.10.0

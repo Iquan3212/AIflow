@@ -27,6 +27,18 @@ import {
     updateNotificationPreferences,
     type NotificationPreferenceItem,
 } from "../../services/notifications";
+import {
+    getGmailStatus,
+    getGmailConnectUrl,
+    disconnectGmail,
+    setGmailSendMode,
+    listGmailPending,
+    approveGmailPending,
+    rejectGmailPending,
+    type GmailStatus,
+    type GmailSendMode,
+    type GmailPendingAction,
+} from "../../services/gmail";
 
 const TABS = ["Business", "AI", "Integrations", "Notifications", "Security"] as const;
 type Tab = (typeof TABS)[number];
@@ -292,6 +304,15 @@ function IntegrationsTab() {
             )}
 
             <div>
+                <h3 className="text-sm font-semibold text-slate-700 mb-1">Gmail</h3>
+                <p className="text-xs text-slate-500 mb-3">
+                    Let your AI Workforce search, read, draft, and send email from a connected Gmail account -
+                    sending can require your approval before anything actually goes out.
+                </p>
+                <GmailSection />
+            </div>
+
+            <div>
                 <h3 className="text-sm font-semibold text-slate-700 mb-1">Messaging channels</h3>
                 <p className="text-xs text-slate-500 mb-3">
                     Connect WhatsApp and Instagram so customers can message your AI Workforce there too - the same
@@ -299,6 +320,190 @@ function IntegrationsTab() {
                 </p>
                 <ChannelsSection />
             </div>
+        </div>
+    );
+}
+
+const GMAIL_MODE_LABELS: Record<GmailSendMode, string> = {
+    read_only: "Read only",
+    approval_required: "Approval required",
+    automated: "Automated",
+};
+const GMAIL_MODE_DESCRIPTIONS: Record<GmailSendMode, string> = {
+    read_only: "Search and read only - drafting and sending are disabled entirely.",
+    approval_required: "Drafts are created immediately; sending queues here for your approval first.",
+    automated: "Drafts and sends both happen immediately, with no approval step.",
+};
+
+function GmailSection() {
+    const [status, setStatus] = useState<GmailStatus | null>(null);
+    const [pending, setPending] = useState<GmailPendingAction[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [busy, setBusy] = useState(false);
+
+    async function load() {
+        setError(null);
+        try {
+            const [s, p] = await Promise.all([getGmailStatus(), listGmailPending("pending")]);
+            setStatus(s);
+            setPending(p);
+        } catch (err) {
+            setError(getErrorMessage(err));
+        }
+    }
+
+    useEffect(() => {
+        void load();
+        // Feedback after returning from the Google OAuth redirect.
+        const params = new URLSearchParams(window.location.search);
+        const gmail = params.get("gmail");
+        if (gmail) {
+            window.history.replaceState({}, "", window.location.pathname);
+            void load();
+        }
+    }, []);
+
+    async function handleConnect() {
+        setError(null);
+        try {
+            window.location.href = await getGmailConnectUrl();
+        } catch (err) {
+            setError(getErrorMessage(err));
+        }
+    }
+
+    async function handleDisconnect() {
+        setBusy(true);
+        setError(null);
+        try {
+            await disconnectGmail();
+            await load();
+        } catch (err) {
+            setError(getErrorMessage(err));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function handleModeChange(mode: GmailSendMode) {
+        if (busy) return;
+        setBusy(true);
+        setError(null);
+        try {
+            setStatus(await setGmailSendMode(mode));
+        } catch (err) {
+            setError(getErrorMessage(err));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function handleDecision(id: string, decision: "approve" | "reject") {
+        if (busy) return;
+        setBusy(true);
+        setError(null);
+        try {
+            if (decision === "approve") await approveGmailPending(id);
+            else await rejectGmailPending(id);
+            await load();
+        } catch (err) {
+            setError(getErrorMessage(err));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    if (!status && !error) return <LoadingState label="Loading Gmail…" />;
+    if (error && !status) return <ErrorState message={error} onRetry={load} />;
+
+    return (
+        <div className="space-y-4 max-w-lg">
+            <Card className="p-5">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-sm font-medium text-slate-800">
+                            {status?.connected ? status.google_email : "Not connected"}
+                        </p>
+                        {!status?.available && (
+                            <p className="text-xs text-slate-400 mt-0.5">Not configured on the server yet.</p>
+                        )}
+                    </div>
+                    <Badge tone={status?.connected ? "success" : "neutral"}>
+                        {status?.connected ? "Connected" : "Not connected"}
+                    </Badge>
+                </div>
+
+                {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
+
+                <div className="mt-4">
+                    {status?.connected ? (
+                        <Button variant="secondary" size="sm" onClick={handleDisconnect} loading={busy}>
+                            Disconnect
+                        </Button>
+                    ) : (
+                        <Button size="sm" onClick={handleConnect} disabled={!status?.available}>
+                            Connect Gmail
+                        </Button>
+                    )}
+                </div>
+
+                {status?.connected && (
+                    <div className="mt-5 pt-5 border-t border-slate-100">
+                        <p className="text-xs font-medium text-slate-700 mb-2">Sending mode</p>
+                        <div className="flex flex-col gap-2">
+                            {(Object.keys(GMAIL_MODE_LABELS) as GmailSendMode[]).map((mode) => (
+                                <label key={mode} className="flex items-start gap-2.5 text-sm">
+                                    <input
+                                        type="radio"
+                                        name="gmail-send-mode"
+                                        checked={status.send_mode === mode}
+                                        onChange={() => handleModeChange(mode)}
+                                        disabled={busy}
+                                        className="mt-0.5"
+                                    />
+                                    <span>
+                                        <span className="font-medium text-slate-800">{GMAIL_MODE_LABELS[mode]}</span>
+                                        <span className="block text-xs text-slate-500">{GMAIL_MODE_DESCRIPTIONS[mode]}</span>
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </Card>
+
+            {status?.connected && (
+                <Card className="p-5">
+                    <h4 className="text-sm font-semibold text-slate-700 mb-1">Pending approvals</h4>
+                    <p className="text-xs text-slate-500 mb-3">Emails your AI Workforce wants to send, waiting on you.</p>
+                    {pending === null && <LoadingState label="Loading…" />}
+                    {pending && pending.length === 0 && <EmptyState title="Nothing waiting on approval" />}
+                    {pending && pending.length > 0 && (
+                        <ul className="divide-y divide-slate-100">
+                            {pending.map((action) => (
+                                <li key={action.id} className="py-3">
+                                    <p className="text-sm font-medium text-slate-800">To: {action.to_address}</p>
+                                    <p className="text-xs text-slate-500 mt-0.5">{action.subject || "(no subject)"}</p>
+                                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">{action.body}</p>
+                                    <div className="flex gap-2 mt-2">
+                                        <Button size="sm" onClick={() => handleDecision(action.id, "approve")} disabled={busy}>
+                                            Approve &amp; send
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            onClick={() => handleDecision(action.id, "reject")}
+                                            disabled={busy}
+                                        >
+                                            Reject
+                                        </Button>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </Card>
+            )}
         </div>
     );
 }

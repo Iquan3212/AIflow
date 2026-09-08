@@ -355,6 +355,111 @@ email/SMS/WhatsApp; owner events: email only) - both the dispatcher and
 `set_preferences()`'s validation read from it, so they can never disagree
 about what a valid combination is.
 
+## Gmail integration (`backend/app/services/gmail/`, `backend/app/tools/gmail_tool.py`)
+
+OAuth-based (never a password), following the exact shape of the existing
+Google Calendar connection (`backend/app/services/calendar/google_oauth.py`)
+on its own callback route and its own scope - `gmail_oauth.py` is a
+deliberate near-copy of `google_oauth.py`'s stdlib-urllib consent/exchange/
+refresh flow, signed-JWT `state` (with a `purpose` claim so a Calendar
+callback can never be replayed against Gmail's, or vice versa), and lazy
+optional-dependency import pattern (`google-api-python-client`/
+`google-auth`, now real, declared dependencies rather than the commented-
+out "install when you go live" note they were before this phase, since
+both adapters genuinely need them).
+
+**Scopes** - `gmail.readonly` + `gmail.compose`, nothing broader. `compose`
+covers both drafting and sending (there is no narrower official scope that
+allows drafting without also allowing send, and send-only `gmail.send`
+cannot create drafts) - this is the minimum practical set for search+read+
+draft+send, never the full-mailbox `mail.google.com` scope.
+
+**Architecture**: `GmailAdapter` (raw Gmail API calls, message parsing) is
+wrapped by `GmailService` (business logic - the only thing anything else
+in the app calls), which four separate tools
+(`gmail_search`/`gmail_read`/`gmail_draft`/`gmail_send`, one execute() per
+action, matching how every other tool in this app has exactly one fixed
+entrypoint per `tool_name`) call through the real Tool Router/Registry -
+permission-checked exactly like `LeadTool`/`AppointmentTool`, not a stub
+sitting outside the architecture. Each tool prefers explicit structured
+kwargs (`to`/`subject`/`body`/`query`/`message_id`) when a caller already
+has them (fully deterministic, zero LLM calls); only when they're missing
+does it fall back to `gmail_ai_service.py`'s LLM-based extraction from the
+free-text message, mirroring `lead_ai_service.py`'s
+`extract_lead_information()` pattern exactly.
+
+**Who can use it**: registered tools are granted to `manager` (which
+already receives every registered tool - see `AIOrchestrator`'s
+`register_employee("manager", ..., tools=list(self.registry.all_tools()...`
+- no code change needed there), not auto-added to any specialist
+employee's fixed per-turn tool call. Gmail is the *business owner's own
+inbox*, not a per-customer-conversation capability the way Sales/Support's
+existing tools are - wiring a specific employee to invoke it automatically
+on some trigger (e.g. "Sales drafts a follow-up after every new lead") is
+a deliberate follow-up product decision, not a missing capability; the
+tool itself is real, callable, and tested today.
+
+**Approval modes** (`GmailCredential.send_mode`, one of three, default the
+safest):
+- `read_only` - search/read only; draft/send are refused outright with a
+  real `read_only_mode` error, never a silent no-op.
+- `approval_required` - a draft executes immediately (it sits in the
+  connected mailbox's Drafts folder, reaching nobody, so there's nothing
+  to approve); a **send** instead creates a `GmailPendingAction` row and
+  returns `{"sent": false, "queued_for_approval": true, "pending_action_id"}`
+  - the real Gmail API is never called until `POST
+  /gmail/pending/{id}/approve` is hit by an owner. This is the literal
+  implementation of "never silently execute an approval-required action."
+- `automated` - both draft and send execute immediately for real.
+
+`GmailPendingAction` is a complete, standalone audit trail of every send
+this app has ever proposed, approved, rejected, or sent (independent of
+the structured request logs) - `employee`/`conversation_id` record who
+proposed it, `decided_by_user_id`/`decided_at` record who acted on it,
+`gmail_message_id` is only ever populated after a real, successful send.
+
+**Never fabricated**: every failure path (`not_connected`, `read_only_mode`,
+`not_available` - Gmail not configured, not connected, or the optional
+client library not installed - and `provider_error`) returns
+`{"ok": false, ...}` with the real reason; there is no code path that
+invents a message id, a draft id, or a "sent" status without the real
+Gmail API (or, for approval_required sends, a real pending-approval row)
+actually being involved.
+
+**What requires a real Google Cloud OAuth client** (none exists for this
+repository - the code above is fully built and tested, but has never
+talked to a real Gmail inbox):
+1. Create (or reuse the existing Calendar one - see below) an OAuth 2.0
+   Client ID of type "Web application" in Google Cloud Console →
+   APIs & Services → Credentials.
+2. Enable the **Gmail API** for the project (APIs & Services → Library).
+3. Add an **Authorized redirect URI** matching `GOOGLE_GMAIL_REDIRECT_URI`
+   exactly (e.g. `http://localhost:8000/gmail/callback` in dev, or your
+   real backend host in production) - Google matches redirect URIs
+   exactly, so this must be registered verbatim, in addition to (not
+   instead of) Calendar's own `GOOGLE_REDIRECT_URI` if both are in use on
+   the same client.
+4. No "Authorized JavaScript origins" are needed - this flow never runs
+   Google's client-side JS SDK; it's a server-side redirect/callback.
+5. Configure the **OAuth consent screen**: add both scopes
+   (`.../auth/gmail.readonly`, `.../auth/gmail.compose`) under "Scopes",
+   and add the Google account(s) you'll test with under **Test users**
+   while the app is in "Testing" publishing status (the default) - Google
+   restricts unverified apps to explicitly listed test users. Full
+   Google verification (required to let arbitrary users connect, not just
+   listed test accounts) is a separate, longer process only needed before
+   real customers connect their own Gmail - not required for development
+   or for the account owner testing their own connection.
+6. Set these environment variables:
+   `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (shared with Calendar if
+   reusing the same client), `GOOGLE_GMAIL_REDIRECT_URI`.
+7. Google-specific restriction worth knowing during development: a
+   refresh token is only ever returned on the *first* consent for a given
+   user+client+scope combination unless the consent screen is forced
+   again (`prompt=consent`, already set in `build_consent_url()`) - so
+   revoking test access from https://myaccount.google.com/permissions
+   between test runs may be necessary to get a fresh refresh token.
+
 ## Logging & observability (`backend/app/logging_config.py`)
 
 Production hardening sub-phase 3. Every module gets a logger the normal way
@@ -596,3 +701,13 @@ Full runbook: `DEPLOYMENT.md`. Summary of the repo-side configuration:
   refactor (confirmed via `git diff`); `POST /auth/login`'s 10/minute
   limit and the CORS preflight response were both re-tested live and
   behave identically.
+- ⚠️ **Gmail/Calendar OAuth token storage** — `access_token`/
+  `refresh_token` are stored as plain columns in `gmail_credentials`/
+  `calendar_credentials` (never logged, never returned by any API
+  response - `GmailStatus` only ever exposes `connected`/`google_email`),
+  protected by the same database access controls as every other row, but
+  **not** application-level encrypted at an additional layer (no separate
+  encryption key wrapping those columns). This mirrors the existing
+  Calendar integration's design exactly, not a gap introduced by Gmail -
+  worth hardening (e.g. envelope encryption) before either integration
+  handles many real customers' tokens, but out of scope for this phase.

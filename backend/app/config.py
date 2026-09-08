@@ -138,6 +138,21 @@ class Settings(BaseSettings):
     google_redirect_uri: str = ""
 
     # =====================================================
+    # GMAIL (Google OAuth — optional)
+    #
+    # Reuses GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET above - Gmail and
+    # Calendar can be the same Google Cloud OAuth client, since a single
+    # client is allowed multiple registered redirect URIs and each
+    # connect flow requests only the scope it needs (see
+    # app/services/gmail/gmail_oauth.py's SCOPES). GOOGLE_GMAIL_REDIRECT_URI
+    # must be its own distinct, separately-registered URI - Google matches
+    # redirect URIs exactly, and Gmail's callback (app/routers/gmail.py)
+    # is a different route than Calendar's.
+    # =====================================================
+
+    google_gmail_redirect_uri: str = ""
+
+    # =====================================================
     # WHATSAPP / INSTAGRAM CHANNELS (Meta — optional)
     #
     # These belong to AIFlow's own Meta App configuration (one per
