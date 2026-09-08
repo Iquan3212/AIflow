@@ -50,6 +50,53 @@ NO_TOOL_CALL_INSTRUCTION = (
     "given to you above."
 )
 
+# Shared, tool-agnostic heuristic for "this text claims a capability isn't
+# available" - used in three places that all need the SAME definition to
+# stay consistent: llm_reply.py's synthesis retry backstop (discard a
+# reply that contradicts a real, successful tool result this turn),
+# llm_reply.py's history replay (never replay a past turn's stale denial
+# as if it were still true), and manager_agent.py's multi-employee merge
+# (a specialist with nothing to contribute must not have its blanket
+# denial contaminate a sibling employee's real, successful result in the
+# same reply). Never Gmail-specific - a plain phrase match, not an LLM
+# call, so it costs nothing and never needs a specific tool's name.
+CAPABILITY_DENIAL_PHRASES = (
+    "don't have access", "do not have access",
+    "no access to", "don't have any access", "do not have any access",
+    "can't access", "cannot access", "not able to access",
+)
+
+
+def denies_capability(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(phrase in lowered for phrase in CAPABILITY_DENIAL_PHRASES)
+
+
+def format_tool_result_for_prompt(value, indent: int = 0) -> str:
+    """Renders any tool result (dict/list/scalar) as clean, human-readable
+    text instead of raw JSON. Shared by llm_reply.py (grounding the LLM's
+    own synthesis) and, when synthesis itself fails entirely, as the basis
+    for a deterministic, code-generated fallback reply - never invents
+    data, only reformats whatever the tool actually returned."""
+    pad = "  " * indent
+    if isinstance(value, dict):
+        lines = []
+        for key, val in value.items():
+            label = str(key).replace("_", " ")
+            if isinstance(val, (dict, list)) and val:
+                lines.append(f"{pad}{label}:")
+                lines.append(format_tool_result_for_prompt(val, indent + 1))
+            else:
+                lines.append(f"{pad}{label}: {format_tool_result_for_prompt(val, 0) if not isinstance(val, (dict, list)) else '(none)'}")
+        return "\n".join(lines)
+    if isinstance(value, list):
+        if not value:
+            return f"{pad}(none)"
+        return "\n".join(f"{pad}- {format_tool_result_for_prompt(item, 0)}" for item in value)
+    if value is None:
+        return "(not set)"
+    return str(value)
+
 # LLMProviderError is imported (not redefined) above, so
 # `from app.services.llm_client import chat_completion, LLMProviderError`
 # (every existing call site) keeps working unchanged.

@@ -1,3 +1,4 @@
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -5,6 +6,7 @@ from app.agents.llm_reply import facts_context, generate_employee_reply
 from app.agents.memory import ConversationMemory
 from app.agents.registry import Registry
 from app.logging_config import get_logger
+from app.services.llm_client import denies_capability
 
 logger = get_logger(__name__)
 
@@ -28,6 +30,65 @@ def _gmail_tool_for(text: str) -> Optional[str]:
     if "read" in text or "open" in text:
         return "gmail_read"
     return "gmail_search"
+
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _strip_capability_denial_sentences(text: str) -> str:
+    """Removes only the sentence(s) that deny a capability, keeping the
+    rest of an employee's reply intact - e.g. "Your invoice total is $50.
+    I don't have access to your Gmail though." keeps the first sentence
+    and drops only the second. Deterministic, no LLM call; a naive
+    sentence split can occasionally mis-split (an abbreviation, a decimal
+    number) but the worst case is a slightly imperfect split, never a
+    fabrication or a crash."""
+    if not text:
+        return text
+    sentences = _SENTENCE_SPLIT_RE.split(text)
+    kept = [s for s in sentences if not denies_capability(s)]
+    return " ".join(kept).strip()
+
+
+def _reconcile_cross_employee_capability_denials(employee_results: Dict[str, Dict[str, Any]]) -> None:
+    """Relevance-aware merge fix (mutates employee_results in place):
+    Planner can legitimately delegate one message to several employees at
+    once (e.g. "Find emails ... invoice" matches both "finance" and
+    "gmail" keywords - see planner.py). A specialist with no awareness of
+    a capability outside its own role (e.g. Finance has no idea Gmail
+    exists) can independently generate an honest-for-itself but system-
+    wide-incorrect blanket denial ("I don't have access to your Gmail").
+    _merge_replies() below just concatenates every non-empty reply, so
+    that denial would sit right next to a SIBLING employee's real,
+    successful answer to the exact same part of the request.
+
+    This does NOT remove Finance from the plan, and does NOT discard a
+    Finance reply that has genuine, relevant content - it only strips the
+    specific denial sentence(s) from an employee whose OWN tool result
+    did not succeed, and only when some OTHER employee in this same turn
+    DID succeed (nothing to reconcile against otherwise - an
+    uncontradicted "I can't do that" may be an honest, correct answer)."""
+    any_success = any(
+        isinstance(res.get("tool_result"), dict) and res["tool_result"].get("ok") is True
+        for res in employee_results.values()
+    )
+    if not any_success or len(employee_results) < 2:
+        return
+
+    for name, res in employee_results.items():
+        own_tool_result = res.get("tool_result")
+        own_succeeded = isinstance(own_tool_result, dict) and own_tool_result.get("ok") is True
+        if own_succeeded:
+            continue
+        original = res.get("reply") or ""
+        if not denies_capability(original):
+            continue
+        cleaned = _strip_capability_denial_sentences(original)
+        if cleaned != original.strip():
+            logger.warning("manager.capability_denial_stripped_from_merge", extra={"ctx": {
+                "event": "manager.capability_denial_stripped_from_merge", "employee": name,
+            }})
+            res["reply"] = cleaned
 
 
 class ManagerAgent:
@@ -150,6 +211,7 @@ specialist employees."""
 
             employee_results[emp] = result
 
+        _reconcile_cross_employee_capability_denials(employee_results)
         final_reply = self._merge_replies(plan, employee_results, history)
         shared = self.memory.shared_context(history)
 

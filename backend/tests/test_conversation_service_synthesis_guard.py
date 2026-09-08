@@ -18,8 +18,9 @@ Run: python3 -m pytest tests/test_conversation_service_synthesis_guard.py -q   (
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from app.services.llm.base import LLMProviderError, INVALID_REQUEST, INVALID_REQUEST_MESSAGE
 from app.services.llm_client import NO_TOOL_CALL_INSTRUCTION
-from app.services.shared.conversation_service import _run_tool_loop, MAX_TOOL_ROUNDS
+from app.services.shared.conversation_service import _run_tool_loop, MAX_TOOL_ROUNDS, _deterministic_fallback_reply
 
 
 def _msg(content=None, tool_calls=None):
@@ -91,8 +92,9 @@ class TestPostLoopFinalSynthesisIsHardened:
     def test_unsolicited_tool_call_with_empty_content_on_final_call_is_handled_safely(self):
         """Policy for the final call: never execute the stray tool_call
         (dispatcher.run is not called again after the loop ends), never
-        fabricate success, and return the same honest fallback text this
-        function already used for a plain empty reply."""
+        fabricate success, and - since real tool results WERE gathered
+        this turn - fall back to the deterministic summary of them rather
+        than a generic "couldn't do that" that would hide a real result."""
         dispatcher = MagicMock()
         with patch("app.services.shared.conversation_service.chat_completion") as mock_chat:
             mock_chat.side_effect = self._exhaust_rounds(dispatcher) + [
@@ -100,9 +102,37 @@ class TestPostLoopFinalSynthesisIsHardened:
             ]
             reply = _run_tool_loop([{"role": "system", "content": "sys"}], tools=[{"type": "function"}], dispatcher=dispatcher)
 
-        assert reply == "Let me get back to you on that."
         assert dispatcher.run.call_count == MAX_TOOL_ROUNDS  # not MAX_TOOL_ROUNDS + 1
         assert "tool_call" not in reply.lower()
+        assert "ok: True" in reply  # the real dispatcher.run() result, mechanically reformatted
+
+    def test_final_call_raising_a_provider_error_still_falls_back_to_the_real_gathered_results(self):
+        """The exact recurring live failure shape for the Manager path
+        (Groq's tool_use_failed quirk) applies here too - if the FINAL
+        call raises LLMProviderError, real tool results already gathered
+        this turn must not be discarded in favor of the generic
+        classified message."""
+        dispatcher = MagicMock()
+        with patch("app.services.shared.conversation_service.chat_completion") as mock_chat:
+            mock_chat.side_effect = self._exhaust_rounds(dispatcher) + [
+                LLMProviderError(INVALID_REQUEST, INVALID_REQUEST_MESSAGE, provider="groq"),
+            ]
+            reply = _run_tool_loop([{"role": "system", "content": "sys"}], tools=[{"type": "function"}], dispatcher=dispatcher)
+
+        assert reply != INVALID_REQUEST_MESSAGE
+        assert "ok: True" in reply
+
+    def test_an_in_loop_provider_error_is_unaffected_uses_the_classified_message(self):
+        """Only the FINAL call is special-cased - an error from an in-loop
+        call (which DID offer tools) is unchanged: no tool results exist
+        yet to fall back to, so the classified message is correct."""
+        dispatcher = MagicMock()
+        with patch("app.services.shared.conversation_service.chat_completion") as mock_chat:
+            mock_chat.side_effect = LLMProviderError(INVALID_REQUEST, INVALID_REQUEST_MESSAGE, provider="groq")
+            reply = _run_tool_loop([{"role": "system", "content": "sys"}], tools=[{"type": "function"}], dispatcher=dispatcher)
+
+        assert reply == INVALID_REQUEST_MESSAGE
+        dispatcher.run.assert_not_called()
 
     def test_tool_call_alongside_content_on_final_call_uses_the_content(self):
         dispatcher = MagicMock()
@@ -114,3 +144,22 @@ class TestPostLoopFinalSynthesisIsHardened:
 
         assert reply == "Here you go."
         assert dispatcher.run.call_count == MAX_TOOL_ROUNDS
+
+
+class TestDeterministicFallbackReplyHelper:
+    def test_no_results_returns_none_not_a_fabricated_placeholder(self):
+        assert _deterministic_fallback_reply([]) is None
+
+    def test_real_json_result_is_reformatted_not_reworded(self):
+        summary = _deterministic_fallback_reply(['{"ok": true, "available": true}'])
+        assert "ok: True" in summary
+        assert "available: True" in summary
+
+    def test_non_json_string_result_is_included_as_is(self):
+        summary = _deterministic_fallback_reply(["plain text result"])
+        assert "plain text result" in summary
+
+    def test_never_fabricates_content_not_present_in_the_raw_results(self):
+        summary = _deterministic_fallback_reply(['{"ok": true, "slot": "3pm"}'])
+        assert "3pm" in summary
+        assert "5pm" not in summary

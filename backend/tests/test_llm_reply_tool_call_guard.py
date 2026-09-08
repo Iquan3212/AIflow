@@ -243,7 +243,14 @@ class TestCapabilityDenialCannotOverrideARealSuccessfulResult:
         assert len(observed_lengths) == 2
         assert observed_lengths[1] > observed_lengths[0]
 
-    def test_both_attempts_denying_falls_back_to_honest_generic_message_never_the_denial(self):
+    def test_both_attempts_denying_falls_back_to_a_deterministic_summary_of_the_real_result(self):
+        """When BOTH attempts stubbornly deny access despite a real,
+        successful tool result, the reply must still never show the
+        denial - and, since the underlying action genuinely succeeded,
+        must not collapse to the generic "couldn't process" apology
+        either (that would hide a real success behind a fake failure
+        message). Falls back to a deterministic, zero-token summary of
+        the real result instead - see llm_reply.deterministic_fallback_used."""
         responses = [
             ChatResult(content="I don't have access to your Gmail."),
             ChatResult(content="I don't have access to your Gmail."),
@@ -251,12 +258,13 @@ class TestCapabilityDenialCannotOverrideARealSuccessfulResult:
         with patch("app.agents.llm_reply.chat_completion", side_effect=responses) as mock_chat:
             reply = generate_employee_reply(
                 "manager", "You are the Manager AI.", "find emails containing invoice",
-                tool_result={"ok": True, "results": []},
+                tool_result={"ok": True, "results": [{"subject": "Invoice #1"}]},
             )
 
         assert mock_chat.call_count == 2
         assert "don't have access" not in reply.lower()
-        assert reply == "Sorry, I couldn't process that just now. Could you try again?"
+        assert reply != "Sorry, I couldn't process that just now. Could you try again?"
+        assert "Invoice #1" in reply
 
     def test_denial_without_a_successful_tool_result_is_left_alone(self):
         """The backstop only fires when there IS a real, current success to
@@ -398,3 +406,61 @@ class TestRealToolResultStillGroundsTheReply:
         messages = mock_chat.call_args.args[0]
         joined = "\n".join(_system_contents(messages))
         assert "TOOL RESULT" not in joined
+
+
+class TestDeterministicFallbackPreservesARealSuccessfulResult:
+    """A real, successful tool result must never be lost just because
+    every synthesis attempt failed - see llm_reply.deterministic_fallback_used.
+    Distinguishes "the action failed" (still the classified provider
+    message / generic apology) from "the action succeeded but phrasing it
+    failed" (a real, code-generated summary of the actual data - never
+    invented)."""
+
+    def test_provider_error_on_both_attempts_with_a_successful_result_shows_the_real_data(self):
+        err = LLMProviderError(INVALID_REQUEST, INVALID_REQUEST_MESSAGE, provider="groq")
+        with patch("app.agents.llm_reply.chat_completion", side_effect=err) as mock_chat:
+            reply = generate_employee_reply(
+                "manager", "You are the Manager AI.", "search my gmail",
+                tool_result={"ok": True, "results": [{"subject": "Weekly Statement"}]},
+            )
+
+        assert mock_chat.call_count == 2
+        assert reply != INVALID_REQUEST_MESSAGE
+        assert "Weekly Statement" in reply
+
+    def test_provider_error_with_no_tool_result_still_uses_the_classified_message(self):
+        """No real success to fall back to - the honest classified error
+        message is correct here, unchanged from before."""
+        err = LLMProviderError(INVALID_REQUEST, INVALID_REQUEST_MESSAGE, provider="groq")
+        with patch("app.agents.llm_reply.chat_completion", side_effect=err) as mock_chat:
+            reply = generate_employee_reply("manager", "You are the Manager AI.", "search my gmail")
+
+        assert mock_chat.call_count == 2
+        assert reply == INVALID_REQUEST_MESSAGE
+
+    def test_provider_error_with_a_failed_tool_result_still_uses_the_classified_message(self):
+        """ok=False is a real, current failure too - nothing to show
+        instead of the honest error message."""
+        err = LLMProviderError(INVALID_REQUEST, INVALID_REQUEST_MESSAGE, provider="groq")
+        with patch("app.agents.llm_reply.chat_completion", side_effect=err) as mock_chat:
+            reply = generate_employee_reply(
+                "manager", "You are the Manager AI.", "search my gmail",
+                tool_result={"ok": False, "error": "not_connected"},
+            )
+
+        assert mock_chat.call_count == 2
+        assert reply == INVALID_REQUEST_MESSAGE
+
+    def test_fallback_never_fabricates_data_not_present_in_the_real_result(self):
+        err = LLMProviderError(INVALID_REQUEST, INVALID_REQUEST_MESSAGE, provider="groq")
+        real_result = {"ok": True, "results": [{"subject": "Real Subject", "from": "real@sender.com"}]}
+        with patch("app.agents.llm_reply.chat_completion", side_effect=err):
+            reply = generate_employee_reply(
+                "manager", "You are the Manager AI.", "search my gmail", tool_result=real_result,
+            )
+
+        assert "Real Subject" in reply
+        assert "real@sender.com" in reply
+        # No invented sender/subject text sneaks in - only content that
+        # traces back to the real result dict above.
+        assert "Fake" not in reply and "invented" not in reply.lower()

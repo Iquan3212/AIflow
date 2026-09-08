@@ -29,7 +29,12 @@ from app.repositories.conversation_repository import (
     load_history,
     get_business_conversations as repo_get_business_conversations,
 )
-from app.services.llm_client import chat_completion, LLMProviderError, NO_TOOL_CALL_INSTRUCTION
+from app.services.llm_client import (
+    chat_completion,
+    LLMProviderError,
+    NO_TOOL_CALL_INSTRUCTION,
+    format_tool_result_for_prompt,
+)
 from app.services.prompt_builder import build_system_prompt
 from app.services.scheduling.tools import tool_definitions, ToolDispatcher
 from app.services.scheduling.datetime_utils import to_local, now_utc
@@ -261,6 +266,10 @@ def _run_tool_loop(messages: list[dict], tools: list[dict], dispatcher: ToolDisp
     temporarily unavailable, not a generic server error. LLMProviderError
     carries a message classified by actual cause (rate limit vs. provider
     outage vs. something else) - see llm_client.py."""
+    # Raw dispatcher.run() outputs from this turn - kept so a real,
+    # successful action isn't lost if final synthesis (below) fails or
+    # comes back unusable; see _deterministic_fallback_reply().
+    tool_results_this_turn: list[str] = []
     try:
         for _ in range(MAX_TOOL_ROUNDS):
             msg = chat_completion(messages, tools=tools, tool_choice="auto")
@@ -288,6 +297,7 @@ def _run_tool_loop(messages: list[dict], tools: list[dict], dispatcher: ToolDisp
                     args = {}
                 start = time.perf_counter()
                 result = dispatcher.run(tc.function.name, args)
+                tool_results_this_turn.append(result)
                 logger.info("tool.executed", extra={"ctx": {
                     "event": "tool.executed", "tool": tc.function.name, "channel": channel,
                     "duration_ms": round((time.perf_counter() - start) * 1000, 1),
@@ -300,14 +310,49 @@ def _run_tool_loop(messages: list[dict], tools: list[dict], dispatcher: ToolDisp
         # temperature rather than a Gmail/tool-specific fix. The in-loop
         # calls above (which DO offer tools) are untouched.
         messages.append({"role": "system", "content": NO_TOOL_CALL_INSTRUCTION})
-        final = chat_completion(messages, tools=None, temperature=0)
+        try:
+            final = chat_completion(messages, tools=None, temperature=0)
+        except LLMProviderError as exc:
+            # Only THIS final call is special-cased (never the in-loop
+            # calls above, which still propagate to the outer except) -
+            # real tool results were already gathered this turn and must
+            # not be discarded just because phrasing them failed.
+            logger.warning("conversation.final_synthesis_failed", extra={"ctx": {
+                "event": "conversation.final_synthesis_failed", "channel": channel, "error_reason": exc.reason,
+            }})
+            return _deterministic_fallback_reply(tool_results_this_turn) or exc.user_message
+
         if not (final.content or "").strip() and final.tool_calls:
             logger.warning("conversation.unexpected_tool_call_in_synthesis", extra={"ctx": {
                 "event": "conversation.unexpected_tool_call_in_synthesis", "channel": channel,
             }})
-        return (final.content or "").strip() or "Let me get back to you on that."
+        text = (final.content or "").strip()
+        if text:
+            return text
+        return _deterministic_fallback_reply(tool_results_this_turn) or "Let me get back to you on that."
     except LLMProviderError as exc:
         logger.warning("conversation.llm_provider_error", extra={"ctx": {
             "event": "conversation.llm_provider_error", "channel": channel, "error_reason": exc.reason,
         }})
         return exc.user_message
+
+
+def _deterministic_fallback_reply(raw_tool_results: list[str]) -> str | None:
+    """Zero-LLM, code-generated summary of this turn's real tool results -
+    used only when final synthesis itself fails or comes back empty/
+    unusable. Never invents data: each entry is exactly what
+    ToolDispatcher.run() actually returned (a JSON string per tool - see
+    app/services/scheduling/tools.py), mechanically reformatted, never
+    reworded or embellished. Returns None (not a fabricated placeholder)
+    when there's nothing real to show, so the caller falls back to its own
+    honest generic message instead."""
+    if not raw_tool_results:
+        return None
+    parts = []
+    for raw in raw_tool_results:
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            data = raw
+        parts.append(format_tool_result_for_prompt(data) if isinstance(data, (dict, list)) else str(data))
+    return "Here's what I found:\n\n" + "\n\n".join(parts)
