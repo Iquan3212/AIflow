@@ -54,6 +54,39 @@ from reality before this pass).
 - ✅ No secrets are committed to git (`.env` has never appeared in this
   repo's history; verified again this phase).
 
+## Bug fixed: Knowledge Base retrieval returned nothing for real questions
+
+A live UI report ("Search Knowledge" returns "No relevant content found"
+for real, answerable questions like "What is the price of mutton
+biryani?" against real uploaded documents) traced through the entire
+pipeline (frontend contract, API, query embedding, stored embeddings,
+pgvector config/index, threshold math, tenant filter, document content -
+all confirmed correct) to `MockEmbeddingProvider`'s original whole-
+string-hash algorithm, which had zero relationship between a text's
+actual words and its vector - cosine similarity between any two
+different strings was pure noise regardless of true relevance. Fixed by
+rewriting it as a deterministic hashed bag-of-words embedding and giving
+each `EmbeddingProvider` its own calibrated `relevance_threshold` (mock's
+sparse-vector scale is fundamentally different from Gemini's dense one).
+See `ARCHITECTURE.md`'s "Knowledge Base / RAG" section and
+`embeddings.py`'s `MockEmbeddingProvider` docstring for the full trace.
+16 new deterministic tests added; one live Manager/RAG query re-verified
+the fix end-to-end (real grounded ₹320 answer, correctly sourced).
+
+## Technical debt reviewed, not changed (pre-Phase 5)
+
+Two Sales/Planner behaviors flagged during Phase 4 QA were reviewed
+against the actual code and both pre-date Phase 4 (zero diff on
+`planner.py`, `sales_agent.py`, `finance_agent.py`, `support_agent.py`,
+`lead_tool.py`). Neither was proven incorrect, so neither was changed -
+see `ARCHITECTURE.md`'s "Known limitations" subsection (under "The AI
+Workforce") for the full reasoning: (1) a bare price question can create
+a CRM lead + owner notification even without contact info or an explicit
+purchase decision - ambiguous CRM-policy question, not a provable bug;
+(2) a refund request can get a concatenated Support+Finance reply -
+confirmed intentional multi-employee delegation (`ManagerAgent`'s merge/
+reconciliation code exists specifically for this), not a bug.
+
 ## Candidate next phase (pick one — not started)
 
 Every AI Workforce employee has real, persisted output, schema changes are

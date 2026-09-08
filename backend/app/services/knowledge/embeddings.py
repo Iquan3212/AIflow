@@ -16,14 +16,21 @@ implementation must conform to it (see config.py).
 from __future__ import annotations
 
 import hashlib
-import random
+import re
 from abc import ABC, abstractmethod
 
 from app.config import Settings
 from app.logging_config import get_logger
-from app.services.knowledge.config import EMBEDDING_DIMENSION
+from app.services.knowledge.config import (
+    EMBEDDING_DIMENSION,
+    MOCK_EMBEDDING_STOPWORDS,
+    MOCK_RELEVANCE_THRESHOLD,
+    RELEVANCE_THRESHOLD,
+)
 
 logger = get_logger(__name__)
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
 class EmbeddingError(Exception):
@@ -36,6 +43,13 @@ class EmbeddingError(Exception):
 class EmbeddingProvider(ABC):
     name: str = "unknown"
     dimension: int = EMBEDDING_DIMENSION
+    # The cosine-similarity cutoff appropriate for THIS provider's own
+    # score distribution (see retrieval.py, which uses this whenever a
+    # caller doesn't pass an explicit threshold) - not a single global
+    # constant, because different embedding representations (sparse hashed
+    # bag-of-words vs. a dense neural embedding) have fundamentally
+    # different typical cosine-similarity ranges for a genuine match.
+    relevance_threshold: float = RELEVANCE_THRESHOLD
 
     @abstractmethod
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -45,24 +59,58 @@ class EmbeddingProvider(ABC):
 
 
 class MockEmbeddingProvider(EmbeddingProvider):
-    """Deterministic, zero-cost, zero-network - the SAME text always
-    produces the SAME vector (seeded by a hash of the text), so tests are
-    fully reproducible. NOT semantically meaningful (unrelated text can
-    land arbitrarily close or far apart) - this is correct for testing
-    the ingestion/retrieval PLUMBING, never a substitute for judging real
-    retrieval quality, which needs a real provider (see GeminiEmbeddingProvider)."""
+    """Deterministic, zero-cost, zero-network hashed bag-of-words
+    ("feature hashing") embedding - the SAME text always produces the SAME
+    vector, and (unlike the original whole-string-hash implementation this
+    replaced) two DIFFERENT texts that share real vocabulary now produce
+    genuinely correlated vectors too.
+
+    Root-caused via a live UI bug report: "Search Knowledge" always
+    returned "No relevant content found" for real, obviously-answerable
+    questions against real uploaded documents. The original
+    implementation seeded an RNG from a SHA256 hash of the ENTIRE input
+    string, so changing even one character produced a completely
+    uncorrelated vector - cosine similarity between any two different
+    strings was pure noise regardless of true relevance, confirmed live:
+    an EXACT-text query scored 1.0 through the real API (proving
+    pgvector/threshold/tenant-filter/pipeline code was all correct), while
+    natural paraphrases of the same content scored ~0.02-0.03 (statistical
+    noise) instead of a meaningfully high score.
+
+    This tokenizes (lowercased, stopwords stripped - see
+    MOCK_EMBEDDING_STOPWORDS), hashes each remaining token into one of
+    `dimension` buckets with a hashed sign bit (the standard "hashing
+    trick" - a real, well-known sparse-embedding technique, not a
+    keyword-matching bypass), and L2-normalizes the result. Two texts that
+    share vocabulary land closer together in cosine distance; two that
+    don't, don't - genuinely relevance-sensitive while remaining 100%
+    deterministic, zero-network, and going through the exact same
+    pgvector cosine-distance path as every other provider. Still not a
+    substitute for real semantic understanding (synonyms/paraphrases with
+    NO shared words won't match) - that needs a real provider (see
+    GeminiEmbeddingProvider) - but it is no longer blind to a query and a
+    document plainly sharing the same words."""
 
     name = "mock"
+    relevance_threshold = MOCK_RELEVANCE_THRESHOLD
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [self._vector_for(text) for text in texts]
 
     def _vector_for(self, text: str) -> list[float]:
-        seed = int.from_bytes(hashlib.sha256((text or "").encode("utf-8")).digest()[:8], "big")
-        rng = random.Random(seed)
-        raw = [rng.uniform(-1.0, 1.0) for _ in range(self.dimension)]
-        norm = sum(v * v for v in raw) ** 0.5 or 1.0
-        return [v / norm for v in raw]
+        vec = [0.0] * self.dimension
+        for token in self._tokenize(text):
+            digest = hashlib.sha256(token.encode("utf-8")).digest()
+            bucket = int.from_bytes(digest[:4], "big") % self.dimension
+            sign = 1.0 if (digest[4] & 1) == 0 else -1.0
+            vec[bucket] += sign
+        norm = sum(v * v for v in vec) ** 0.5 or 1.0
+        return [v / norm for v in vec]
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        tokens = _TOKEN_RE.findall((text or "").lower())
+        return [t for t in tokens if t not in MOCK_EMBEDDING_STOPWORDS]
 
 
 class GeminiEmbeddingProvider(EmbeddingProvider):

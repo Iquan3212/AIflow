@@ -74,6 +74,94 @@ skips full Manager delegation (`delegate=False`) since it phrases its own
 reply — no reason to pay for a full multi-agent turn on every website visitor
 message.
 
+### Known limitations (technical-debt review, pre-Phase 5)
+
+Two behaviors were flagged during Phase 4's live QA and reviewed here
+before Phase 5 - both predate Phase 4 (`git diff` against `planner.py`,
+`sales_agent.py`, `finance_agent.py`, `support_agent.py`, and
+`app/tools/lead_tool.py` is empty; Phase 4 never touched any of them).
+Neither was changed - see the reasoning below for why.
+
+- **A bare price question ("What is the price of X?") routes to Sales and
+  can create a CRM lead with `buying_intent: true`.** Mechanism: Planner
+  routes `price`/`cost`/`quote`/`buy`/`purchase`/`discount`/`pricing` all
+  to `sales` + the `lead` tool (`planner.py`); `SalesAgent.respond()`
+  calls the `lead` tool unconditionally, with no intent check of its own;
+  `LeadTool.execute()` calls `extract_lead_information()` (a real LLM
+  call) and only refuses to persist a lead if `name`/`phone`/`email`/
+  `service_interested`/`budget` are ALL empty - `service_interested`
+  alone (the model naming a menu item back to itself) is enough to pass.
+  Reviewed and **not changed**, because it could not be proven incorrect
+  rather than merely debatable:
+  - `extract_lead_information()` already computes a `buying_intent`
+    boolean specifically meant to represent real purchase interest, but
+    the persistence gate never consults it - this looks like it could be
+    an incomplete implementation, but live evidence from Phase 4's own QA
+    shows the model already returns `buying_intent: true` for a bare
+    price question ("What is the price of chicken biryani?" →
+    `service_interested: "chicken biryani"`, `buying_intent: true`) - so
+    gating on that field would not actually change this behavior, which
+    means the field's ambiguous definition (any interest vs. a firm
+    purchase decision), not an unused-variable bug, is the real question.
+  - `LeadTool`'s own owner-notification body has a built-in `"no contact
+    info"` fallback string for when `name`/`phone`/`email` are all
+    absent - textual evidence the original author anticipated and
+    formatted for a contact-less lead, not that it was an oversight.
+  - "Log every pricing touchpoint as a raw, unqualified lead for a human
+    to triage later" is a legitimate, common CRM design philosophy, not
+    an obviously wrong one - there is no test, comment, or spec anywhere
+    in this repository asserting the opposite (that only explicit
+    purchase intent or supplied contact info should create a lead).
+  - Real, measurable side effect worth a **deliberate** future product
+    decision (not a silent code change): every such question also
+    inflates the lead counts shown on Dashboard/Analytics and fires a
+    real owner email notification (`notify_owner`, `NEW_LEAD` event) -
+    including when the business owner is themselves just testing the
+    Manager AI. If the intended behavior should instead require real
+    purchase signal, the minimal fix is adding `and info.get(
+    "buying_intent")` to `LeadTool.execute()`'s existing gate - but that
+    is a product-policy call for whoever owns lead-qualification rules,
+    not something to change without that sign-off, especially since (as
+    above) the model already marks bare price questions as
+    `buying_intent: true` today, so that specific fix would need to be
+    paired with a prompt change in `extract_lead_information()`, verified
+    live, to actually take effect.
+- **A refund-related request can produce a concatenated "Support: ...
+  Finance: ..." reply.** Mechanism: `planner.py` deliberately lists
+  `"refund"` under both the `support` and `finance` keyword lists in the
+  same file, by the same author - not an accidental collision between two
+  unrelated lists. **Confirmed intentional, not a bug**:
+  - `ManagerAgent._merge_replies()`'s own docstring states the labeled,
+    concatenated multi-employee format exists precisely "so a multi-intent
+    request... reads as one unified answer instead of losing either
+    half" - this is the designed behavior for any multi-intent message,
+    not specific to refunds (e.g. "create a lead and book an appointment"
+    merges identically).
+  - `ManagerAgent._reconcile_cross_employee_capability_denials()`'s
+    docstring explicitly says "Planner can legitimately delegate one
+    message to several employees at once" and exists specifically to keep
+    such merges coherent (stripping a sibling's incorrect blanket denial)
+    - this is real, deliberate engineering investment in making
+    multi-employee merges work, the opposite of an unaddressed bug.
+  - Live-verified (Phase 4 QA transcript) that no duplicate side effect
+    occurs: exactly one `SupportTicket` was created for the refund
+    message (`FinanceAgent.respond()` only calls the `quotation` tool
+    when its own keyword gate matches `finance`/`emi`/`loan`/`budget`/
+    `quotation`/`invoice`/`payment`/`price`, none of which appeared in
+    the test message, so Finance's tool never fired) - the concatenation
+    is two employees independently and accurately explaining the same
+    real refund policy in their own words, not a data-integrity issue,
+    contradiction, or fabrication.
+  - The only real, soft critique is stylistic: Support's and Finance's
+    answers overlap in content rather than each covering a distinct
+    facet of the request. That is an LLM output-quality nuance of the
+    persona prompts, not a structural defect - worth a future prompt
+    refinement (e.g. telling Finance to defer to Support on the apology/
+    ticket half of a refund and only add financial specifics) if it comes
+    up again, not a change made here without a live LLM comparison to
+    verify it actually improves the reply rather than just moving the
+    redundancy elsewhere.
+
 ## LLM provider layer (`backend/app/services/llm/`)
 
 Every LLM call in the app — Manager/employee replies, `quotation_tool.py`,
@@ -523,12 +611,26 @@ Customer/owner message
   layer): a business can run its Manager AI on Groq while Knowledge Base
   embeddings come from Gemini, with neither layer aware of the other's
   provider choice. `EMBEDDING_PROVIDER` (default `mock`) selects:
-  - `mock` - deterministic, hash-seeded, zero-cost, zero-network. **Not
-    semantically meaningful** (confirmed live: a paraphrased query scores
-    near zero against real document text; only exact or near-exact text
-    scores highly) - correct for exercising the ingestion/retrieval
-    plumbing in tests and dev, never a substitute for judging real
-    retrieval quality.
+  - `mock` - deterministic, zero-cost, zero-network **hashed bag-of-words**
+    ("feature hashing") embedding: text is tokenized (lowercased,
+    stopwords stripped), each token hashed into one of `dimension`
+    buckets with a hashed sign bit, then L2-normalized - two texts that
+    share real vocabulary land closer together in cosine distance, two
+    that don't, don't. Fixed from an earlier whole-string-hash
+    implementation via a live UI bug report ("Search Knowledge" returned
+    "No relevant content found" for real, answerable questions against
+    real documents) - that version seeded an RNG from a hash of the
+    ENTIRE input string, so changing even one character produced a
+    totally uncorrelated vector; cosine similarity between any two
+    DIFFERENT strings was pure noise regardless of true relevance,
+    confirmed live via an exact-text query scoring 1.0 through the real
+    API (proving pgvector/threshold/tenant-filter code was correct all
+    along) while natural paraphrases scored ~0.02-0.03. Still not real
+    semantic understanding (a synonym/paraphrase with zero shared words
+    won't match - that needs `gemini`), but no longer blind to a query
+    and a document plainly sharing the same words. See
+    `MockEmbeddingProvider`'s own docstring (`embeddings.py`) for the
+    full root-cause trace.
   - `gemini` - real embeddings via the already-installed `google-genai`
     SDK and already-configured `GEMINI_API_KEY` (no new credential
     needed). Live-verified (one real, minimal diagnostic call) that
@@ -549,7 +651,14 @@ Customer/owner message
   raw vector-store row. `business_id` filtering is applied before
   anything else in the query; live-verified with a deliberately
   near-identical-content second-tenant fixture that cross-tenant
-  retrieval never crosses, even at worst-case similarity.
+  retrieval never crosses, even at worst-case similarity. `threshold`
+  defaults to `None`, which defers to the ACTIVE `EmbeddingProvider`'s own
+  `relevance_threshold` (`RELEVANCE_THRESHOLD`=0.55 for `gemini`,
+  `MOCK_RELEVANCE_THRESHOLD`=0.3 for `mock`, empirically measured against
+  real query/document score distributions - see `config.py`) rather than
+  one global cutoff, since a sparse hashed bag-of-words vector and a
+  dense neural embedding have fundamentally different cosine-similarity
+  scales for a genuine match.
 - **Workforce integration** - every employee (`sales_agent.py`,
   `support_agent.py`, `receptionist_agent.py`, `analytics_agent.py`,
   `marketing_agent.py`, `finance_agent.py`, and `manager_agent.py`)

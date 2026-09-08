@@ -48,6 +48,37 @@ class TestMockEmbeddingProvider:
     def test_empty_list_returns_empty_list(self):
         assert MockEmbeddingProvider().embed([]) == []
 
+    def test_shared_vocabulary_scores_higher_than_no_shared_vocabulary(self):
+        """Regression for the live bug this replaced an algorithm over:
+        the ORIGINAL MockEmbeddingProvider hashed the whole string, so
+        cosine similarity between any two different strings was noise
+        regardless of shared words. The fixed version must make a query
+        and a document that share real vocabulary score meaningfully
+        higher than a query and a document that share none."""
+        provider = MockEmbeddingProvider()
+
+        def cosine(a, b):
+            return sum(x * y for x, y in zip(a, b))
+
+        query = provider.embed(["What is the price of mutton biryani?"])[0]
+        related = provider.embed(["Mutton Biryani — ₹320"])[0]
+        unrelated = provider.embed(["We provide delivery within 8 km of the restaurant."])[0]
+
+        assert cosine(query, related) > cosine(query, unrelated)
+        assert cosine(query, related) > 0.3  # clears MOCK_RELEVANCE_THRESHOLD
+
+    def test_stopwords_are_excluded_from_tokenization(self):
+        provider = MockEmbeddingProvider()
+        assert provider._tokenize("What is the price of it?") == ["price"]
+
+    def test_currency_symbols_and_punctuation_are_normalized_away(self):
+        provider = MockEmbeddingProvider()
+        assert provider._tokenize("Orders below ₹500 have a ₹50 charge.") == ["orders", "below", "500", "50", "charge"]
+
+    def test_relevance_threshold_is_the_mock_specific_calibrated_value(self):
+        from app.services.knowledge.config import MOCK_RELEVANCE_THRESHOLD
+        assert MockEmbeddingProvider().relevance_threshold == MOCK_RELEVANCE_THRESHOLD
+
 
 class TestGeminiEmbeddingProvider:
     def test_real_sdk_call_is_never_made_here(self):
@@ -102,3 +133,14 @@ class TestFactory:
         settings = MagicMock(embedding_provider="not-a-real-provider")
         with pytest.raises(EmbeddingError):
             create_embedding_provider(settings)
+
+    def test_mock_and_gemini_have_different_relevance_thresholds(self):
+        """A sparse hashed bag-of-words vector (mock) and a dense neural
+        embedding (Gemini) have fundamentally different cosine-similarity
+        scales for a genuine match - one global threshold can't correctly
+        serve both, so each provider must carry its own."""
+        with patch("google.genai.Client"):
+            gemini = create_embedding_provider(MagicMock(embedding_provider="gemini", gemini_api_key="fake-key"))
+        mock = create_embedding_provider(MagicMock(embedding_provider="mock"))
+        assert mock.relevance_threshold != gemini.relevance_threshold
+        assert mock.relevance_threshold < gemini.relevance_threshold

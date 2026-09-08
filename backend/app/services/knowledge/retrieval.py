@@ -3,7 +3,7 @@ Retrieval: business_id-scoped similarity search over KnowledgeChunk,
 returning a small, clean KnowledgeResult interface - callers (Manager,
 the employee agents, KnowledgeTool) never see a raw pgvector row or SQL
 result, only this dataclass. See config.py for DEFAULT_TOP_K,
-RELEVANCE_THRESHOLD, MAX_CONTEXT_CHARS.
+RELEVANCE_THRESHOLD/MOCK_RELEVANCE_THRESHOLD, MAX_CONTEXT_CHARS.
 
 Tenant isolation is enforced in exactly one place - the WHERE clause
 below - and is not optional or caller-configurable: every call is scoped
@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.config import Settings, get_settings
 from app.logging_config import get_logger
-from app.services.knowledge.config import DEFAULT_TOP_K, MAX_CONTEXT_CHARS, RELEVANCE_THRESHOLD
+from app.services.knowledge.config import DEFAULT_TOP_K, MAX_CONTEXT_CHARS
 from app.services.knowledge.embeddings import EmbeddingError, create_embedding_provider
 
 logger = get_logger(__name__)
@@ -41,7 +41,7 @@ def retrieve(
     business_id: str,
     query: str,
     top_k: int = DEFAULT_TOP_K,
-    threshold: float = RELEVANCE_THRESHOLD,
+    threshold: float | None = None,
     settings: Settings | None = None,
 ) -> list[KnowledgeResult]:
     """Real vector similarity search via pgvector's cosine_distance() -
@@ -50,7 +50,15 @@ def retrieve(
     query. That empty-but-successful outcome is what lets the LLM
     honestly say "I don't have that information" (see llm_reply.py's
     knowledge-grounding instruction) instead of ever being handed
-    something to fabricate an answer from."""
+    something to fabricate an answer from.
+
+    `threshold=None` (the default - every real production call site omits
+    it) defers to the ACTIVE embedding provider's own
+    `relevance_threshold`, since a sparse hashed bag-of-words vector
+    (mock) and a dense neural embedding (Gemini) have fundamentally
+    different cosine-similarity scales for a genuine match - one global
+    cutoff can't correctly serve both. Pass an explicit float to override
+    (tests do this to probe specific cutoffs regardless of provider)."""
     query = (query or "").strip()
     if not query or not business_id:
         return []
@@ -64,6 +72,8 @@ def retrieve(
             "event": "knowledge.retrieval_embedding_failed", "business_id": business_id,
         }})
         return []
+
+    effective_threshold = threshold if threshold is not None else provider.relevance_threshold
 
     distance = models.KnowledgeChunk.embedding.cosine_distance(query_vector)
     rows = (
@@ -83,7 +93,7 @@ def retrieve(
     budget = MAX_CONTEXT_CHARS
     for chunk, dist, doc_title in rows:
         score = 1.0 - float(dist)  # pgvector's cosine_distance = 1 - cosine_similarity
-        if score < threshold:
+        if score < effective_threshold:
             continue
         content = chunk.content
         if len(content) > budget:
