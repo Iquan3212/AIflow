@@ -68,7 +68,18 @@ CAPABILITY_DENIAL_PHRASES = (
 
 
 def denies_capability(text: str) -> bool:
-    lowered = (text or "").lower()
+    # Confirmed live: real model output typesets "don't"/"can't" with a
+    # typographic/curly apostrophe (U+2019, "'") far more often than a
+    # straight ASCII one (U+0027, used in CAPABILITY_DENIAL_PHRASES above,
+    # since that's what a Python source literal naturally contains) - this
+    # silently defeated every single use of this check (the synthesis
+    # backstop below, history replay, and manager_agent.py's merge
+    # stripping all never actually matched a real denial once it used a
+    # curly apostrophe, which is the model's default style). Normalizing
+    # to a straight apostrophe before matching, rather than adding curly
+    # variants to the phrase list, since the SAME real-text risk applies
+    # to any future phrase added here too.
+    lowered = (text or "").replace("’", "'").lower()
     return any(phrase in lowered for phrase in CAPABILITY_DENIAL_PHRASES)
 
 
