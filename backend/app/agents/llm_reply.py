@@ -24,6 +24,26 @@ logger = get_logger(__name__)
 # disagree about what's still in scope.
 MAX_HISTORY_MESSAGES = 20
 
+# This module is only ever the FINAL natural-language synthesis step for an
+# employee's turn - real tool execution already happened earlier, through
+# ToolRouter, and its outcome (if any) arrives here as `tool_result`. No
+# `tools` are ever passed to chat_completion() below, so this call has no
+# function-calling ability by request shape alone; some tool-trained models
+# (observed: Groq's openai/gpt-oss-20b) can still emit a tool-call-shaped
+# generation anyway - especially once the prompt contains data that reads
+# like a completed tool's output - which the provider then rejects outright
+# since no tools were declared. This reminder is provider- and tool-agnostic
+# (never names a specific tool) and is appended to every synthesis call, not
+# just Gmail's, since the failure mode isn't Gmail-specific.
+NO_TOOL_CALL_INSTRUCTION = (
+    "This is a final natural-language reply to the customer, not a tool-use "
+    "step. Respond with plain conversational text only. Do not call, invoke, "
+    "or emit a function/tool call in any form - no JSON, no code block, no "
+    "structured call syntax - even if one seems relevant; instead describe "
+    "the outcome in your own words using only the information already given "
+    "to you above."
+)
+
 
 def _message_role_content(item: Any) -> tuple[Optional[str], Optional[str]]:
     if isinstance(item, dict):
@@ -127,13 +147,17 @@ def generate_employee_reply(
     if detect_injection_signals(message):
         messages.append({"role": "system", "content": INJECTION_REINFORCEMENT})
 
+    # Always last: the strongest position for an instruction with this kind
+    # of model (recency-weighted attention), and it must survive being
+    # appended after the tool result / injection reminder above, not be
+    # overridden by them.
+    messages.append({"role": "system", "content": NO_TOOL_CALL_INSTRUCTION})
+
     reply = ""
     last_provider_error: LLMProviderError | None = None
     for attempt in range(2):  # some models occasionally emit a spurious tool-call
         try:                  # even with no tools offered; one retry clears it.
             completion = chat_completion(messages)
-            reply = (completion.content or "").strip()
-            break
         except LLMProviderError as exc:
             # A provider-level rejection (rate limit, auth, provider outage)
             # won't be fixed by an immediate retry - keep the loop (a
@@ -146,6 +170,21 @@ def generate_employee_reply(
                 "event": "llm.retry", "employee": employee_name, "attempt": attempt,
                 "error_reason": exc.reason,
             }}, exc_info=True)
+            continue
+
+        reply = (completion.content or "").strip()
+        if reply:
+            break
+        # A response that came back with no exception but also no usable
+        # text - e.g. tool_calls only, no content - used to be treated as a
+        # final (empty) success and returned as-is, skipping the second
+        # attempt entirely even though the loop exists exactly to absorb
+        # this. Falling through here instead lets attempt 2 actually run.
+        if completion.tool_calls:
+            logger.warning("llm_reply.unexpected_tool_call_in_synthesis", extra={"ctx": {
+                "event": "llm_reply.unexpected_tool_call_in_synthesis",
+                "employee": employee_name, "attempt": attempt,
+            }})
 
     if not reply:
         reply = last_provider_error.user_message if last_provider_error else (
