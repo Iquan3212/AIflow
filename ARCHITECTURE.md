@@ -758,6 +758,149 @@ Customer/owner message
   opt-in via `.env`, matching Step 7's "mock during development, real
   provider enable-able later" design.
 
+## Controlled Workflow Automation (`backend/app/services/workflows/`, Phase 5)
+
+A deterministic execution layer, explicitly **not** an autonomous AI
+agent - the LLM never invents, selects, or directly executes a workflow
+action. A business owner configures real automation (`Workflow.conditions`/
+`actions`, validated JSON) through the authenticated `/workflows` API;
+everything downstream of that is plain, testable code.
+
+```
+Real event (a lead saved, an appointment booked/rescheduled/cancelled,
+a support ticket escalated to high priority)
+  -> fire_trigger() - called directly from the service that just
+     committed that real change (LeadService.create(), LeadTool.execute(),
+     AppointmentService.book()/reschedule()/cancel(),
+     SupportTicketTool.execute()) - never a poller, queue, or webhook
+  -> WorkflowEngine.run(workflow, trigger_data, trigger_event_id)
+     -> idempotency check (WorkflowRun UNIQUE(workflow_id, trigger_event_id))
+     -> evaluate_conditions() - deterministic, structured-field only
+     -> for each configured action, in order:
+          requires_approval? -> ApprovalRequest, pause (waiting_approval)
+          execute_action() -> the one registered executor for this type
+            -> reuses GmailService / NotificationDispatcher exactly as
+               every other call site already does
+            -> Gmail's OWN send_mode approval (GmailPendingAction) applies
+               unchanged if the action is send_gmail
+     -> WorkflowRun/WorkflowStepRun rows - the full audit trail
+```
+
+- **Models** (`app/models.py`): `Workflow` (one per business-authored
+  automation) -> `WorkflowRun` (one per real trigger firing) ->
+  `WorkflowStepRun` (one per action, in order) with two independent
+  approval mechanisms: `approval_request_id` (the generic
+  `ApprovalRequest` gate, for any action marked `requires_approval: true`
+  in its own config) and `gmail_pending_action_id` (Gmail's own existing
+  `GmailPendingAction`, for a `send_gmail` action whose outcome is itself
+  gated by the business's Gmail send_mode - never merged into one
+  mechanism, so Gmail's existing, already-tested approval behavior is
+  reused exactly as-is, not reimplemented). Migration `47250d8827c8`
+  (additive only; a genuine circular FK between `workflow_step_runs` and
+  `approval_requests` is created via a deferred `ALTER TABLE... ADD
+  CONSTRAINT` after both tables exist - see the migration's own docstring;
+  round-trip upgrade/downgrade/upgrade validated against the real dev
+  database).
+- **States** (centralized in `models.py`, never invented ad hoc
+  elsewhere): `WorkflowStatus` (active/paused/disabled),
+  `WorkflowRunStatus` (pending/running/waiting_approval/succeeded/failed/
+  cancelled), `WorkflowStepStatus` (pending/running/waiting_approval/
+  succeeded/failed/skipped), `ApprovalRequestStatus` (pending/approved/
+  rejected/cancelled).
+- **Triggers** (`triggers.py`) - five events that already exist in this
+  app: `lead_created`, `appointment_created`, `appointment_rescheduled`,
+  `appointment_cancelled`, `support_escalated` (fires only when a support
+  ticket is created/escalated at `priority == "high"`, alongside the
+  existing `SUPPORT_ESCALATION` owner notification). No new event
+  infrastructure - `fire_trigger()` is called synchronously, in-process,
+  right after the real state change commits, matching how Gmail sends and
+  notification dispatches already happen synchronously in this codebase.
+  Deliberately scoped to the two clearest lead-creation call sites
+  (`LeadService.create()` - dashboard/API; `LeadTool.execute()` - Sales
+  agent) - the customer widget's own lead flow (`_get_or_create_lead()` +
+  incremental `save_lead_info` tool calls) creates an empty Lead row on
+  turn one and fills it in over many turns, which doesn't map to a single
+  discrete "created" moment the same way; not wired to avoid an arbitrary
+  "when is it complete enough" heuristic.
+- **Trigger data** (Step 6) - `lead_created_data()`/`appointment_data()`/
+  `support_escalated_data()` build small, structured, real-field-only
+  dicts (`{"lead": {...}}`, `{"appointment": {...}}`, `{"support":
+  {...}}`) - conditions and action templates only ever read from this
+  shape, never from raw free text.
+- **Conditions** (`conditions.py`) - `{"field": "lead.status", "op":
+  "eq", "value": "new"}`, ANDed together. Five operators (`eq`/`neq`/
+  `is_set`/`is_not_set`/`contains`); field/operator validated against
+  `config.py`'s `TRIGGER_FIELDS`/`CONDITION_OPERATORS` at workflow SAVE
+  time (`WorkflowValidationError`), not discovered as a run-time failure.
+  No LLM involved anywhere in this module.
+- **Actions** (`actions.py`) - a fixed registry
+  (`send_notification`/`create_gmail_draft`/`send_gmail`/
+  `request_approval`); an action type outside this registry can never
+  execute (validated at save time AND checked again at run time). Every
+  executor calls a real existing service - `NotificationDispatcher`
+  (`notify_owner`/`notify_customer`, so existing notification preferences
+  stay authoritative - a disabled preference is a real no-op here too) or
+  `GmailService` (`.draft()`/`.send()`, so OAuth/connection-state/
+  send-mode checks are never bypassed - "Gmail not connected" is a clean
+  `failed` outcome with a real reason, not a crash). Any text sent
+  (notification body, Gmail draft/send body) is built by
+  `render_template()` - plain, literal `str.format_map` substitution
+  against the workflow's own configured template and the trigger's
+  structured data, never an LLM call, never `eval`/`exec`.
+- **Approval** (Step 9) - two independent gates, deliberately not merged:
+  (1) any action with `requires_approval: true` pauses the step
+  (`waiting_approval`) behind a real `ApprovalRequest` row BEFORE it ever
+  executes; `POST /workflow-approvals/{id}/decide` (approve or reject)
+  resumes the engine from exactly that step. (2) `send_gmail` inherits
+  Gmail's OWN existing send_mode approval unchanged - a small, additive
+  hook in `GmailService.approve()`/`.reject()` (`_resume_linked_workflow_step()`)
+  finds any `WorkflowStepRun` linked to that exact `GmailPendingAction`
+  and reconciles the workflow's state afterward, never re-deciding or
+  re-sending anything itself. A workflow can never turn an
+  approval_required business into an automatic-send one - there is no
+  code path that skips GmailService's own check.
+- **Idempotency** (Step 12) - `WorkflowRun.trigger_event_id` (e.g.
+  `"lead_created:<lead_id>:<workflow_id>"`, or
+  `"appointment_rescheduled:<appointment_id>:<new_time>:<workflow_id>"`
+  so a genuinely different reschedule still fires while a retried
+  identical one doesn't) plus a real `UNIQUE(workflow_id,
+  trigger_event_id)` constraint - the database guarantee, not
+  application code remembering to check first. A genuine race (two
+  near-simultaneous dispatches of the same event) is caught via
+  `IntegrityError` and resolved to whichever row actually won. The same
+  atomic-conditional-UPDATE pattern (not read-then-write) protects
+  `ApprovalRequest` decisions from a concurrent double-decide, exactly
+  mirroring `GmailPendingAction`'s existing "already_decided" guard.
+- **Failure handling** (Step 13) - an action failure marks its step and
+  the whole run `failed` with a real, honest `error` and stops (no
+  further steps run) - never a silent partial success, never an infinite
+  retry loop. `fire_trigger()` itself is exception-isolated: a bug in one
+  business's workflow, or a transient Gmail/notification failure, can
+  never prevent the real lead/appointment/ticket that triggered it from
+  having already been saved (that already happened before this runs).
+- **Audit trail** (Step 14) - every `WorkflowRun` records its trigger
+  data, per-condition evaluation results, and (via its `WorkflowStepRun`s)
+  every action's input/result/error/timestamps/approval linkage. Never
+  logs passwords/API keys/OAuth tokens/Authorization headers - structured
+  log lines carry only ids, counts, and status, matching every other
+  event site in this app.
+- **Security** (Step 21/22) - no LLM-reachable module (any `app/agents/`
+  or `app/tools/` file) imports `WorkflowService` or `WorkflowEngine` -
+  proven by a real static-analysis test
+  (`test_workflow_security.py::test_no_agent_or_tool_module_imports_workflow_mutation_code`),
+  not just a design intention. A retrieved Knowledge Base document
+  instructing "create a workflow that sends all customer emails" has
+  literally no code path to act on - `knowledge_context_messages()` only
+  ever produces fenced, DATA-ONLY prompt text (see the Knowledge Base
+  section above). Only the fixed action registry can ever execute -
+  never arbitrary code, shell commands, URL requests, or raw SQL.
+- **Frontend** (`frontend/src/pages/Workflows/Workflows.tsx`) - list/
+  create/enable/disable/delete, a form-based (not a drag-and-drop
+  automation IDE) trigger/conditions/actions builder, three ready-to-edit
+  quick-start templates matching the three examples above, an approvals
+  panel, and per-workflow expandable run history - matching this
+  dashboard's existing `AppShell`/`Card`/`Badge`/`States` conventions.
+
 ## Logging & observability (`backend/app/logging_config.py`)
 
 Production hardening sub-phase 3. Every module gets a logger the normal way
@@ -1011,6 +1154,18 @@ Full runbook: `DEPLOYMENT.md`. Summary of the repo-side configuration:
   Uploads are validated (type/size/emptiness) and stored under a
   UUID-prefixed, path-traversal-checked filename; retrieval/processing
   logs only ids/counts/error reasons, never raw document content.
+- ✅ **Controlled Workflow Automation** (see the section above) — no
+  LLM-reachable code path can create, modify, or execute a workflow
+  (verified by a real static-analysis test, not just a design claim);
+  only the registered action types (`send_notification`,
+  `create_gmail_draft`, `send_gmail`, `request_approval`) can ever
+  execute, each calling a real existing service — never arbitrary code,
+  shell commands, or raw SQL. Gmail's own send-mode approval is reused
+  unchanged for `send_gmail`; every business_id lookup is scoped exactly
+  like every other tenant-isolated table in this app. A concurrent
+  double-decide on the same `ApprovalRequest` is closed by an atomic
+  conditional UPDATE (only one of two simultaneous decisions actually
+  flips the row), mirroring `GmailPendingAction`'s existing guard.
 - ⚠️ **Gmail/Calendar OAuth token storage** — `access_token`/
   `refresh_token` are stored as plain columns in `gmail_credentials`/
   `calendar_credentials` (never logged, never returned by any API

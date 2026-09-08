@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 
 from app import models, schemas
 
-from app.services.lead_ai_service import extract_lead_information   
+from app.services.lead_ai_service import extract_lead_information
+from app.services.workflows.triggers import fire_trigger, lead_created_data
 
 
 class LeadService:
@@ -42,6 +43,11 @@ class LeadService:
         self.db.add(lead)
         self.db.commit()
         self.db.refresh(lead)
+
+        fire_trigger(
+            self.db, business_id, models.WorkflowTriggerType.lead_created,
+            lead_created_data(lead), event_id=str(lead.id),
+        )
 
         return lead
 

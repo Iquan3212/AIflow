@@ -1,8 +1,10 @@
 from sqlalchemy.orm import Session
 
+from app import models
 from app.services.support_ticket_service import SupportTicketService
 from app.services.notifications.dispatcher import NotificationDispatcher
 from app.services.notifications import preferences as notif_prefs
+from app.services.workflows.triggers import fire_trigger, support_escalated_data
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -51,5 +53,10 @@ class SupportTicketTool:
                 logger.exception("notification.support_escalation_failed", extra={"ctx": {
                     "event": "notification.support_escalation_failed", "business_id": business.id, "ticket_id": ticket.id,
                 }})
+
+            fire_trigger(
+                db, business.id, models.WorkflowTriggerType.support_escalated,
+                support_escalated_data(ticket), event_id=str(ticket.id),
+            )
 
         return {"ok": True, "ticket_id": ticket.id, "priority": ticket.priority, "status": ticket.status}

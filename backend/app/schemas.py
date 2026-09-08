@@ -551,3 +551,97 @@ class KnowledgeSearchResultOut(BaseModel):
     chunk_id: UUID
     content: str
     score: float
+
+
+# =====================================================
+# CONTROLLED WORKFLOW AUTOMATION (Phase 5)
+# =====================================================
+
+class WorkflowConditionIn(BaseModel):
+    field: str
+    op: str
+    value: Any = None
+
+
+class WorkflowActionIn(BaseModel):
+    type: str
+    config: dict = Field(default_factory=dict)
+    requires_approval: bool = False
+
+
+class WorkflowCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    trigger_type: str
+    conditions: list[WorkflowConditionIn] = Field(default_factory=list)
+    actions: list[WorkflowActionIn]
+
+
+class WorkflowUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    conditions: list[WorkflowConditionIn] | None = None
+    actions: list[WorkflowActionIn] | None = None
+
+
+class WorkflowOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    business_id: UUID
+    name: str
+    description: str | None
+    status: str
+    trigger_type: str
+    conditions: list[dict]
+    actions: list[dict]
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowStepRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    step_index: int
+    action_type: str
+    status: str
+    input: dict | None
+    result: dict | None
+    error: str | None
+    approval_request_id: UUID | None
+    gmail_pending_action_id: UUID | None
+    started_at: datetime | None
+    completed_at: datetime | None
+
+
+class WorkflowRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    workflow_id: UUID
+    business_id: UUID
+    status: str
+    trigger_event_id: str
+    trigger_data: dict
+    started_at: datetime | None
+    completed_at: datetime | None
+    error: str | None
+    steps: list[WorkflowStepRunOut] = Field(default_factory=list)
+
+
+class ApprovalRequestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    business_id: UUID
+    workflow_step_run_id: UUID
+    action_type: str
+    summary: str
+    status: str
+    created_at: datetime
+    decided_at: datetime | None
+
+
+class ApprovalDecisionRequest(BaseModel):
+    approve: bool

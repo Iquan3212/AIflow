@@ -682,3 +682,198 @@ class KnowledgeChunk(Base):
         UniqueConstraint("document_id", "chunk_index", name="uq_knowledge_chunk_document_index"),
     )
 
+
+# =====================================================================
+# CONTROLLED WORKFLOW AUTOMATION (Phase 5)
+# =====================================================================
+#
+# A deterministic execution layer, NOT a second AI brain: a workflow is
+# real, business-authored configuration (trigger + conditions + actions)
+# that fires when a real event already happening elsewhere in this app
+# (a lead created, an appointment booked, a support ticket escalated)
+# occurs - see app/services/workflows/. The LLM is never given the
+# ability to invent or silently mutate a workflow's configuration
+# (Step 21) - only an authenticated owner, through the API, can create or
+# change one. Conditions are evaluated deterministically against
+# structured trigger data (never by asking an LLM "should this run?").
+# Actions call the SAME existing services every other part of this app
+# already uses (GmailService, NotificationDispatcher) - never a second
+# implementation of Gmail or notification logic - and an action's own
+# approval requirements (Gmail's send_mode, or a workflow-level
+# `requires_approval` flag) are never bypassed.
+
+class WorkflowStatus(str, enum.Enum):
+    active = "active"
+    paused = "paused"
+    disabled = "disabled"
+
+
+class WorkflowTriggerType(str, enum.Enum):
+    lead_created = "lead_created"
+    appointment_created = "appointment_created"
+    appointment_rescheduled = "appointment_rescheduled"
+    appointment_cancelled = "appointment_cancelled"
+    support_escalated = "support_escalated"
+
+
+class WorkflowRunStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    waiting_approval = "waiting_approval"
+    succeeded = "succeeded"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class WorkflowStepStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    waiting_approval = "waiting_approval"
+    succeeded = "succeeded"
+    failed = "failed"
+    skipped = "skipped"
+
+
+class ApprovalRequestStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+    cancelled = "cancelled"
+
+
+class Workflow(Base):
+    """One row per business-authored automation. `conditions` and
+    `actions` are small, validated JSON lists (see
+    app/services/workflows/config.py for the exact shapes) - never
+    arbitrary code, never an LLM prompt, never a free-text script. Only
+    ever created/edited through the authenticated `/workflows` API - see
+    Step 21's prompt-injection concern: nothing a customer says, and
+    nothing a retrieved Knowledge Base document says, can create or
+    change a row here."""
+
+    __tablename__ = "workflows"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(SAEnum(WorkflowStatus, name="workflow_status"), nullable=False, default=WorkflowStatus.active)
+    trigger_type = Column(SAEnum(WorkflowTriggerType, name="workflow_trigger_type"), nullable=False, index=True)
+
+    # [{"field": "lead.service_interested", "op": "is_set"}, ...] - see
+    # app/services/workflows/conditions.py. ALL conditions must pass (AND).
+    conditions = Column(JSON, nullable=False, default=list)
+    # [{"type": "send_notification", "config": {...}}, ...] - see
+    # app/services/workflows/actions.py for the registered action types;
+    # an unrecognized type is a validation error at save time, never a
+    # silent no-op or an arbitrary code path at run time.
+    actions = Column(JSON, nullable=False, default=list)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    business = relationship("Business")
+    runs = relationship("WorkflowRun", back_populates="workflow", cascade="all, delete-orphan")
+
+
+class WorkflowRun(Base):
+    """One row per time a workflow's trigger actually fired. `trigger_event_id`
+    is the idempotency key (see app/services/workflows/engine.py) - a
+    UNIQUE constraint on (workflow_id, trigger_event_id) makes a duplicate
+    dispatch of the same real event (a retried request, a redelivered
+    webhook) a guaranteed no-op at the database level, not something that
+    depends on application code remembering to check first."""
+
+    __tablename__ = "workflow_runs"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    workflow_id = Column(UUID(as_uuid=False), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True)
+    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    status = Column(SAEnum(WorkflowRunStatus, name="workflow_run_status"), nullable=False, default=WorkflowRunStatus.pending)
+    trigger_event_id = Column(String(255), nullable=False)  # e.g. "lead_created:<lead_id>" - see engine.py
+    trigger_data = Column(JSON, nullable=False, default=dict)  # structured snapshot at trigger time - never raw secrets
+
+    started_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+
+    business = relationship("Business")
+    workflow = relationship("Workflow", back_populates="runs")
+    steps = relationship("WorkflowStepRun", back_populates="run", cascade="all, delete-orphan", order_by="WorkflowStepRun.step_index")
+
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "trigger_event_id", name="uq_workflow_run_idempotency"),
+    )
+
+
+class WorkflowStepRun(Base):
+    """One row per action within a WorkflowRun, in order (`step_index`).
+    `approval_request_id` links to a generic ApprovalRequest when a
+    workflow-level `requires_approval` gate applies; `gmail_pending_action_id`
+    links to Gmail's OWN existing GmailPendingAction when a `send_gmail`
+    action's outcome is itself gated by the business's Gmail send_mode -
+    two distinct approval mechanisms, never merged into one, so Gmail's
+    existing approval behavior is reused exactly as it already works
+    everywhere else in this app, not reimplemented."""
+
+    __tablename__ = "workflow_step_runs"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    workflow_run_id = Column(UUID(as_uuid=False), ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    step_index = Column(Integer, nullable=False)
+    action_type = Column(String(64), nullable=False)
+    status = Column(SAEnum(WorkflowStepStatus, name="workflow_step_status"), nullable=False, default=WorkflowStepStatus.pending)
+
+    input = Column(JSON, nullable=True)  # the resolved action config for this run - never raw secrets/tokens
+    result = Column(JSON, nullable=True)  # a small, honest summary of what actually happened - never fabricated
+    error = Column(Text, nullable=True)
+
+    approval_request_id = Column(UUID(as_uuid=False), ForeignKey("approval_requests.id", ondelete="SET NULL"), nullable=True)
+    gmail_pending_action_id = Column(UUID(as_uuid=False), ForeignKey("gmail_pending_actions.id", ondelete="SET NULL"), nullable=True)
+
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    run = relationship("WorkflowRun", back_populates="steps")
+    approval_request = relationship("ApprovalRequest", foreign_keys=[approval_request_id])
+    gmail_pending_action = relationship("GmailPendingAction")
+
+    __table_args__ = (
+        UniqueConstraint("workflow_run_id", "step_index", name="uq_workflow_step_run_index"),
+    )
+
+
+class ApprovalRequest(Base):
+    """Generic, action-type-agnostic approval gate for any workflow action
+    configured with `requires_approval: true` - deliberately separate
+    from GmailPendingAction (which stays exactly as it already was, for
+    Gmail's own send_mode gating). Real, minimal audit fields only - never
+    stores the underlying action's secrets/tokens, only enough to display
+    "what is being asked" and record who decided it."""
+
+    __tablename__ = "approval_requests"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    workflow_step_run_id = Column(UUID(as_uuid=False), ForeignKey("workflow_step_runs.id", ondelete="CASCADE"), nullable=False, unique=True)
+
+    action_type = Column(String(64), nullable=False)
+    summary = Column(Text, nullable=False)  # a short, human-readable description of the pending action
+
+    status = Column(SAEnum(ApprovalRequestStatus, name="approval_request_status"), nullable=False, default=ApprovalRequestStatus.pending)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    decided_at = Column(DateTime, nullable=True)
+    decided_by_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    business = relationship("Business")
+    decided_by = relationship("User")
+    # Two FK paths connect these two tables (this row's own
+    # workflow_step_run_id, and WorkflowStepRun.approval_request_id
+    # pointing back) - foreign_keys disambiguates which one each
+    # relationship() below actually follows.
+    workflow_step_run = relationship("WorkflowStepRun", foreign_keys=[workflow_step_run_id])
+

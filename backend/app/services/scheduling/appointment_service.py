@@ -19,6 +19,7 @@ from app.services.calendar.factory import get_calendar_for
 from app.services.calendar.base import CalendarEvent
 from app.services.notifications.dispatcher import NotificationDispatcher
 from app.services.notifications import preferences as notif_prefs
+from app.services.workflows.triggers import appointment_data, fire_trigger
 
 logger = get_logger(__name__)
 
@@ -193,6 +194,10 @@ class AppointmentService:
 
         self._sync_calendar_create(business, appt)
         self._send_confirmation(business, appt)
+        fire_trigger(
+            self.db, business.id, models.WorkflowTriggerType.appointment_created,
+            appointment_data(appt), event_id=str(appt.id),
+        )
         return BookingOutcome(True, appointment=appt,
                               message=f"Booked for {humanize(start_utc, tz)}.")
 
@@ -231,6 +236,13 @@ class AppointmentService:
 
         self._sync_calendar_update(business, appt)
         self._send_reschedule(business, appt)
+        # Idempotency key includes the new time, not just the appointment
+        # id: retrying the identical reschedule request is a real no-op,
+        # but a genuinely different subsequent reschedule is a new event.
+        fire_trigger(
+            self.db, business.id, models.WorkflowTriggerType.appointment_rescheduled,
+            appointment_data(appt), event_id=f"{appt.id}:{appt.scheduled_at.isoformat()}",
+        )
         return BookingOutcome(True, appointment=appt,
                               message=f"Moved to {humanize(start_utc, tz)}.")
 
@@ -246,6 +258,10 @@ class AppointmentService:
         appt = self.repo.save(appt)
         self._sync_calendar_delete(business, appt)
         self._send_cancellation(business, appt)
+        fire_trigger(
+            self.db, business.id, models.WorkflowTriggerType.appointment_cancelled,
+            appointment_data(appt), event_id=str(appt.id),
+        )
         return BookingOutcome(True, appointment=appt,
                               message=f"Cancelled your appointment on {humanize(appt.scheduled_at, tz)}.")
 

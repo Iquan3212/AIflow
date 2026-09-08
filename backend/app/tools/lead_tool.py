@@ -4,6 +4,7 @@ from app import models
 from app.services.lead_ai_service import extract_lead_information
 from app.services.notifications.dispatcher import NotificationDispatcher
 from app.services.notifications import preferences as notif_prefs
+from app.services.workflows.triggers import fire_trigger, lead_created_data
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -88,6 +89,11 @@ class LeadTool:
                 logger.exception("notification.new_lead_failed", extra={"ctx": {
                     "event": "notification.new_lead_failed", "business_id": business.id, "lead_id": target.id,
                 }})
+
+            fire_trigger(
+                db, business.id, models.WorkflowTriggerType.lead_created,
+                lead_created_data(target), event_id=str(target.id),
+            )
 
         return {
             "ok": True,

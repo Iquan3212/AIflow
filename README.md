@@ -33,6 +33,14 @@ Analytics), runs real tools against real data, and synthesizes one reply.
   Retrieval runs on pgvector, is always tenant-isolated, and never lets a
   document's own content be treated as an instruction — see
   `ARCHITECTURE.md`'s "Knowledge Base / RAG" section.
+- **Controlled Workflow Automation** — configure real automation ("when a
+  new lead comes in with a service specified, draft a follow-up email for
+  my approval") that fires on real events (a lead created, an appointment
+  booked, a support ticket escalated). A deterministic engine, not an
+  autonomous AI agent — conditions and actions are validated, permission-
+  aware, and idempotent; Gmail's existing approval flow is reused
+  unchanged. See `ARCHITECTURE.md`'s "Controlled Workflow Automation"
+  section.
 
 ## Quick start
 

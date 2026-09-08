@@ -10,6 +10,7 @@ import {
     FileText,
     LifeBuoy,
     BookOpen,
+    Workflow,
     Settings,
     X,
 } from "lucide-react";
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
     { to: "/leads", label: "Leads", icon: Users },
     { to: "/appointments", label: "Appointments", icon: CalendarClock },
     { to: "/knowledge", label: "Knowledge Base", icon: BookOpen },
+    { to: "/workflows", label: "Workflows", icon: Workflow },
     { to: "/drafts", label: "Drafts", icon: FileText },
     { to: "/support", label: "Support", icon: LifeBuoy },
     { to: "/analytics", label: "Analytics", icon: BarChart3 },

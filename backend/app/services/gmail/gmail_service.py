@@ -182,6 +182,7 @@ class GmailService:
             logger.info("gmail.pending_action_approved_and_sent", extra={"ctx": {
                 "event": "gmail.pending_action_approved_and_sent", "business_id": business.id, "pending_action_id": row.id,
             }})
+            self._resume_linked_workflow_step(row.id)
             return {"ok": True, "status": row.status, "gmail_message_id": row.gmail_message_id}
         except Exception as exc:
             row.status = "failed"
@@ -190,6 +191,7 @@ class GmailService:
             logger.exception("gmail.pending_action_send_failed", extra={"ctx": {
                 "event": "gmail.pending_action_send_failed", "business_id": business.id, "pending_action_id": row.id,
             }})
+            self._resume_linked_workflow_step(row.id)
             return {"ok": False, "error": "send_failed", "message": str(exc)}
 
     def reject(self, business, pending_id: str, decided_by_user_id: str | None) -> dict:
@@ -206,4 +208,30 @@ class GmailService:
         logger.info("gmail.pending_action_rejected", extra={"ctx": {
             "event": "gmail.pending_action_rejected", "business_id": business.id, "pending_action_id": row.id,
         }})
+        self._resume_linked_workflow_step(row.id)
         return {"ok": True, "status": row.status}
+
+    def _resume_linked_workflow_step(self, pending_action_id: str) -> None:
+        """Phase 5 integration hook: a `send_gmail` workflow action that
+        got queued for approval links its WorkflowStepRun to this exact
+        GmailPendingAction (see services/workflows/actions.py). This is
+        Gmail's OWN existing approval flow, completely unchanged above -
+        this only reconciles the workflow's step/run state afterward and
+        continues the chain if there is one, never re-deciding or
+        re-sending anything itself. Local import to avoid a circular
+        import (workflows.engine -> workflows.actions -> this module)."""
+        from app.services.workflows.engine import WorkflowEngine
+
+        step = (
+            self.db.query(models.WorkflowStepRun)
+            .filter(models.WorkflowStepRun.gmail_pending_action_id == pending_action_id)
+            .first()
+        )
+        if step is None:
+            return
+        try:
+            WorkflowEngine(self.db).resume_after_gmail_decision(step)
+        except Exception:
+            logger.exception("workflow.resume_after_gmail_decision_failed", extra={"ctx": {
+                "event": "workflow.resume_after_gmail_decision_failed", "step_id": step.id,
+            }})
