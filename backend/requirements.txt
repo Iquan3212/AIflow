@@ -27,6 +27,15 @@ google-genai>=1.75.0,<2.0.0
 google-api-python-client>=2.130.0
 google-auth>=2.30.0
 
+# Explicit CA bundle for the stdlib-urllib OAuth token exchange in
+# app/services/calendar/google_oauth.py and app/services/gmail/
+# gmail_oauth.py - a fresh python.org macOS install has no certificates
+# wired into the interpreter's default SSL context, causing
+# CERTIFICATE_VERIFY_FAILED on every https call otherwise. Already an
+# installed transitive dependency; declared directly since both OAuth
+# modules import it themselves now.
+certifi>=2024.0.0
+
 # --- Phase 3 optional integrations (enable when you wire the provider) ---
 # SMS reminders:
 # twilio>=9.0.0

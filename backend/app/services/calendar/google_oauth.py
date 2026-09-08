@@ -14,10 +14,12 @@ verify it on the callback.
 from __future__ import annotations
 
 import json
+import ssl
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
+import certifi
 from jose import jwt
 
 from app.config import get_settings
@@ -70,6 +72,17 @@ def build_consent_url(business_id: str) -> str:
     return f"{AUTH_URI}?{urllib.parse.urlencode(params)}"
 
 
+# Explicit CA bundle (certifi's, not the OS default) - see
+# app/services/gmail/gmail_oauth.py's identical constant for why: a
+# fresh python.org macOS install has no certificates wired into the
+# interpreter's default SSL context, so a bare urlopen() over https
+# fails with CERTIFICATE_VERIFY_FAILED on such a machine (found and
+# fixed while debugging Gmail's OAuth callback - this Calendar flow has
+# the exact same bug, unexercised until now since no Calendar OAuth had
+# been completed yet either).
+_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+
+
 def _post_token(data: dict) -> dict:
     body = urllib.parse.urlencode(data).encode()
     req = urllib.request.Request(
@@ -77,7 +90,7 @@ def _post_token(data: dict) -> dict:
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
+    with urllib.request.urlopen(req, timeout=20, context=_SSL_CONTEXT) as resp:
         return json.loads(resp.read().decode())
 
 

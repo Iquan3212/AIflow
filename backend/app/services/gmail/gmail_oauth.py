@@ -26,8 +26,11 @@ Scopes - minimum practical set for search + read + draft + send:
 from __future__ import annotations
 
 import json
+import ssl
 import urllib.parse
 import urllib.request
+
+import certifi
 from datetime import datetime, timedelta, timezone
 
 from jose import jwt
@@ -89,6 +92,20 @@ def build_consent_url(business_id: str) -> str:
     return f"{AUTH_URI}?{urllib.parse.urlencode(params)}"
 
 
+# Explicit CA bundle (certifi's, not the OS default) for every HTTPS call
+# in this module. Root-caused: a fresh python.org macOS install has no
+# certificates wired into the interpreter's default SSL context at all
+# (the fix Python itself ships is a one-time, per-machine "Install
+# Certificates.command" - not something a checked-in fix can rely on
+# every developer/host having run), so a bare urlopen() over https fails
+# with CERTIFICATE_VERIFY_FAILED / "unable to get local issuer
+# certificate" on such a machine - reproduced live, confirmed via the
+# exact same exception in the server log. certifi is already an
+# installed dependency (transitively, via other packages); this makes
+# the dependency direct instead of implicit.
+_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+
+
 def _post_token(data: dict) -> dict:
     body = urllib.parse.urlencode(data).encode()
     req = urllib.request.Request(
@@ -96,7 +113,7 @@ def _post_token(data: dict) -> dict:
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
+    with urllib.request.urlopen(req, timeout=20, context=_SSL_CONTEXT) as resp:
         return json.loads(resp.read().decode())
 
 
@@ -130,7 +147,7 @@ def fetch_connected_email(access_token: str) -> str | None:
         req = urllib.request.Request(
             USERINFO_URI, headers={"Authorization": f"Bearer {access_token}"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=_SSL_CONTEXT) as resp:
             data = json.loads(resp.read().decode())
         return data.get("email")
     except Exception:

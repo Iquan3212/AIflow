@@ -22,6 +22,12 @@ class FakeBusiness:
 
 def _build_orchestrator():
     db = MagicMock()
+    # A bare MagicMock's .query(...).filter(...).first() returns another
+    # MagicMock (truthy) by default, which would make GmailAdapter.
+    # is_configured() look connected for a business that was never
+    # actually given a real GmailCredential row - explicit None here
+    # matches the real "no such row" case queries actually return.
+    db.query.return_value.filter.return_value.first.return_value = None
     return AIOrchestrator(db=db, business=FakeBusiness(), conversation=None, lead=None)
 
 
