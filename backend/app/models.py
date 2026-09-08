@@ -16,7 +16,10 @@ from sqlalchemy import Enum as SAEnum
 from sqlalchemy import Integer, Time
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+from pgvector.sqlalchemy import Vector
+
 from app.database import Base
+from app.services.knowledge.config import EMBEDDING_DIMENSION
 
 
 def gen_uuid() -> str:
@@ -595,4 +598,87 @@ class GmailPendingAction(Base):
     conversation = relationship("Conversation")
     decided_by = relationship("User")
 
+
+# =====================================================================
+# BUSINESS KNOWLEDGE BASE / RAG (Phase 4)
+# =====================================================================
+#
+# Knowledge is a DATA/RETRIEVAL layer, not a second AI brain: Manager and
+# every specialist employee still run through the same Planner/ToolRouter
+# pipeline as always (see app/tools/knowledge_tool.py) - this only adds
+# what a business's own uploaded documents actually say as one more real,
+# tenant-scoped, read-only tool result, exactly like AppointmentTool or
+# LeadTool already are. See app/services/knowledge/ for the ingestion/
+# retrieval pipeline and ARCHITECTURE.md's "Knowledge Base / RAG" section.
+
+class KnowledgeDocumentStatus(str, enum.Enum):
+    queued = "queued"
+    processing = "processing"
+    ready = "ready"
+    failed = "failed"
+
+
+class KnowledgeDocument(Base):
+    """One row per uploaded business document (PDF/DOCX/TXT). The raw file
+    is stored on disk under a per-business directory (storage_path) -
+    never trusted by name alone; see app/services/knowledge/storage.py for
+    the sanitization this relies on. `status` is the only thing the
+    frontend/Manager should ever trust to know whether this document's
+    chunks are actually searchable yet - never assume "uploaded" means
+    "ready"."""
+
+    __tablename__ = "knowledge_documents"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    title = Column(String(255), nullable=False)  # user-facing name - defaults to the original filename
+    filename = Column(String(255), nullable=False)  # original filename as uploaded, display-only
+    file_type = Column(String(16), nullable=False)  # pdf | docx | txt
+    size_bytes = Column(Integer, nullable=False)
+    storage_path = Column(Text, nullable=False)  # sanitized on-disk path - never derived from user input directly
+
+    status = Column(SAEnum(KnowledgeDocumentStatus, name="knowledge_document_status"), nullable=False, default=KnowledgeDocumentStatus.queued)
+    error = Column(Text, nullable=True)  # set only when status == failed - a real, honest diagnostic, never fabricated
+    chunk_count = Column(Integer, nullable=False, default=0)
+
+    doc_metadata = Column(JSON, nullable=True)  # small, optional extras (e.g. page count) - never large blobs
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    business = relationship("Business")
+    chunks = relationship("KnowledgeChunk", back_populates="document", cascade="all, delete-orphan")
+
+
+class KnowledgeChunk(Base):
+    """One row per chunk of an extracted document, with its embedding.
+    business_id is denormalized from the parent document (not just
+    reachable via a join) specifically so every retrieval query can filter
+    `WHERE business_id = :business_id` directly on this table - the one
+    thing that must never be gotten wrong for a multi-tenant vector store
+    (see app/services/knowledge/retrieval.py). Deleting the parent
+    KnowledgeDocument cascades here automatically (see the relationship
+    above), so a deleted document can never be retrieved from again."""
+
+    __tablename__ = "knowledge_chunks"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    document_id = Column(UUID(as_uuid=False), ForeignKey("knowledge_documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    chunk_index = Column(Integer, nullable=False)  # 0-based position within the document - preserves reading order
+    content = Column(Text, nullable=False)
+    embedding = Column(Vector(EMBEDDING_DIMENSION), nullable=True)  # null until embedding succeeds
+
+    chunk_metadata = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    document = relationship("KnowledgeDocument", back_populates="chunks")
+    business = relationship("Business")
+
+    __table_args__ = (
+        UniqueConstraint("document_id", "chunk_index", name="uq_knowledge_chunk_document_index"),
+    )
 

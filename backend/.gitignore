@@ -2,3 +2,7 @@
 venv/
 __pycache__/
 *.pyc
+
+# Uploaded Knowledge Base documents' raw bytes - real business content,
+# never committed. See app/services/knowledge/storage.py.
+data/knowledge/

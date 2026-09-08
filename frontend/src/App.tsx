@@ -11,6 +11,7 @@ import Analytics from "./pages/Analytics/Analytics";
 import Settings from "./pages/Settings/Settings";
 import Drafts from "./pages/Drafts/Drafts";
 import Support from "./pages/Support/Support";
+import Knowledge from "./pages/Knowledge/Knowledge";
 
 import ProtectedLayout from "./layouts/ProtectedLayout";
 import PublicOnlyLayout from "./layouts/PublicOnlyLayout";
@@ -39,6 +40,7 @@ export default function App() {
                     <Route path="/workforce" element={<WorkforceUI />} />
                     <Route path="/drafts" element={<Drafts />} />
                     <Route path="/support" element={<Support />} />
+                    <Route path="/knowledge" element={<Knowledge />} />
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/settings" element={<Settings />} />
                 </Route>

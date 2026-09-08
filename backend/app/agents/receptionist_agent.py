@@ -1,4 +1,4 @@
-from app.agents.llm_reply import facts_context, generate_employee_reply
+from app.agents.llm_reply import facts_context, generate_employee_reply, retrieve_knowledge_context
 from app.agents.memory import ConversationMemory
 
 
@@ -144,6 +144,7 @@ Always remain professional.
         reply = generate_employee_reply(
             "receptionist", self.system_prompt, message, history,
             tool_result=tool_result, extra_context=facts_context(analysis),
+            knowledge_context=retrieve_knowledge_context(tool_router, "receptionist", message),
         )
         analysis["reply"] = reply
         analysis["tool_result"] = tool_result

@@ -9,6 +9,7 @@ import {
     BarChart3,
     FileText,
     LifeBuoy,
+    BookOpen,
     Settings,
     X,
 } from "lucide-react";
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
     { to: "/conversations", label: "Conversations", icon: MessageSquare },
     { to: "/leads", label: "Leads", icon: Users },
     { to: "/appointments", label: "Appointments", icon: CalendarClock },
+    { to: "/knowledge", label: "Knowledge Base", icon: BookOpen },
     { to: "/drafts", label: "Drafts", icon: FileText },
     { to: "/support", label: "Support", icon: LifeBuoy },
     { to: "/analytics", label: "Analytics", icon: BarChart3 },

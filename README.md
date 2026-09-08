@@ -27,6 +27,12 @@ Analytics), runs real tools against real data, and synthesizes one reply.
   placeholder/demo data anywhere in the product.
 - **Google Calendar sync** (OAuth) for appointments, once you configure your
   own Google Cloud OAuth client.
+- **Knowledge Base / RAG** — upload real business documents (PDF/DOCX/TXT:
+  menus, policies, FAQs) and every AI Workforce employee answers customer
+  questions grounded in them, with source attribution and no fabrication.
+  Retrieval runs on pgvector, is always tenant-isolated, and never lets a
+  document's own content be treated as an instruction — see
+  `ARCHITECTURE.md`'s "Knowledge Base / RAG" section.
 
 ## Quick start
 
@@ -89,6 +95,20 @@ retry once on a transient failure (rate limit/timeout/unavailable) of the
 primary; leave it blank to disable (the default). `GET /manager/status`
 reports which provider/model is currently active, for operators — never a
 credential.
+
+#### Knowledge Base embeddings
+
+Separate from the `LLM_PROVIDER` chat layer above — set via
+`EMBEDDING_PROVIDER` in `.env`:
+
+| `EMBEDDING_PROVIDER` | Credentials needed | Notes |
+|---|---|---|
+| `mock` (default) | none | Deterministic, zero-cost, zero-network. Fine for development and the test suite; **not semantically meaningful** — only exact/near-exact text scores as a real match, so it's not useful for judging real answer quality. |
+| `gemini` | `GEMINI_API_KEY` (same key as the `gemini` `LLM_PROVIDER` option above — no separate credential needed) | Real semantic embeddings (`gemini-embedding-001`, truncated to 768 dimensions). Use this for anything beyond exercising the ingestion/retrieval plumbing. |
+
+`KNOWLEDGE_STORAGE_DIR` (default `./data/knowledge`) sets where uploaded
+document files are stored on disk (per-business subdirectories,
+git-ignored). No cloud object storage is required.
 
 ### 2. Frontend
 

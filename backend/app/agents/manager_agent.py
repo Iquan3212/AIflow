@@ -3,7 +3,7 @@ import time
 from email.utils import parseaddr
 from typing import Any, Dict, List, Optional
 
-from app.agents.llm_reply import facts_context, generate_employee_reply
+from app.agents.llm_reply import facts_context, generate_employee_reply, retrieve_knowledge_context
 from app.agents.memory import ConversationMemory
 from app.agents.planner import GMAIL_KEYWORDS
 from app.agents.registry import Registry
@@ -169,6 +169,7 @@ specialist employees."""
         reply = generate_employee_reply(
             "manager", self.system_prompt, message, history,
             tool_result=tool_result, extra_context=facts_context(analysis),
+            knowledge_context=retrieve_knowledge_context(router, "manager", message),
         )
         return {"employee": "manager", "intent": "general", "reply": reply, "tool_result": tool_result}
 

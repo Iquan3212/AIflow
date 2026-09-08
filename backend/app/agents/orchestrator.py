@@ -20,6 +20,7 @@ from app.tools.campaign_tool import CampaignTool
 from app.tools.analytics_tool import AnalyticsTool
 from app.tools.support_ticket_tool import SupportTicketTool
 from app.tools.gmail_tool import GmailStatusTool, GmailSearchTool, GmailReadTool, GmailDraftTool, GmailSendTool
+from app.tools.knowledge_tool import KnowledgeSearchTool
 
 
 class AIOrchestrator:
@@ -62,18 +63,26 @@ class AIOrchestrator:
         self.registry.register_tool("gmail_read", GmailReadTool())
         self.registry.register_tool("gmail_draft", GmailDraftTool())
         self.registry.register_tool("gmail_send", GmailSendTool())
+        # Knowledge Base retrieval: read-only, side-effect-free, so unlike
+        # Gmail it's granted to every specialist employee (not just
+        # Manager) - a business's own uploaded documents are relevant
+        # context for all of them, not an owner-only capability. Still a
+        # DATA/RETRIEVAL layer feeding the same Planner/ToolRouter
+        # pipeline, never a second AI brain - see
+        # app/tools/knowledge_tool.py and ARCHITECTURE.md.
+        self.registry.register_tool("knowledge_search", KnowledgeSearchTool())
 
         # Employee agents
-        self.registry.register_employee("sales", SalesAgent(self.business, self.lead), tools=["lead"])
+        self.registry.register_employee("sales", SalesAgent(self.business, self.lead), tools=["lead", "knowledge_search"])
         self.registry.register_employee(
-            "support", SupportAgent(self.business, self.lead), tools=["support_ticket"]
+            "support", SupportAgent(self.business, self.lead), tools=["support_ticket", "knowledge_search"]
         )
         self.registry.register_employee(
-            "receptionist", ReceptionistAgent(self.business, self.lead), tools=["appointment"]
+            "receptionist", ReceptionistAgent(self.business, self.lead), tools=["appointment", "knowledge_search"]
         )
-        self.registry.register_employee("analytics", AnalyticsAgent(self.business, self.lead), tools=["dashboard"])
-        self.registry.register_employee("marketing", MarketingAgent(self.business, self.lead), tools=["campaign"])
-        self.registry.register_employee("finance", FinanceAgent(self.business, self.lead), tools=["quotation"])
+        self.registry.register_employee("analytics", AnalyticsAgent(self.business, self.lead), tools=["dashboard", "knowledge_search"])
+        self.registry.register_employee("marketing", MarketingAgent(self.business, self.lead), tools=["campaign", "knowledge_search"])
+        self.registry.register_employee("finance", FinanceAgent(self.business, self.lead), tools=["quotation", "knowledge_search"])
 
         # Manager gets access to all registered tools and orchestrates employees
         self.router = ToolRouter(

@@ -182,6 +182,25 @@ class Settings(BaseSettings):
     instagram_webhook_verify_token: str = ""
 
     # =====================================================
+    # KNOWLEDGE BASE / RAG (Phase 4)
+    #
+    # EMBEDDING_PROVIDER selects which app/services/knowledge/embeddings.py
+    # implementation turns chunk text into vectors:
+    #   - "mock" (default): deterministic, hash-seeded vectors - zero cost,
+    #     zero network calls. Correct for every test and for development;
+    #     NOT semantically meaningful, so real retrieval quality can only
+    #     be judged with a real provider.
+    #   - "gemini": real embeddings via the already-configured
+    #     GEMINI_API_KEY (no new credential needed) - see embeddings.py.
+    # KNOWLEDGE_STORAGE_DIR: where uploaded documents' raw bytes are
+    # written (see storage.py) - one subdirectory per business_id.
+    # =====================================================
+
+    embedding_provider: str = "mock"
+
+    knowledge_storage_dir: str = "./data/knowledge"
+
+    # =====================================================
     # CORS
     # =====================================================
 

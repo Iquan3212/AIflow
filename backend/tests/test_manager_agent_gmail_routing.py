@@ -113,7 +113,10 @@ class TestManagerAgentGmailRouting:
             result = manager.respond("Search my Gmail for the latest email.", [], tool_router=router)
 
         calls = {c.kwargs["tool_name"]: c.kwargs for c in router.execute.call_args_list}
-        assert set(calls) == {"gmail_status", "gmail_search"}
+        # respond() also always attempts a Knowledge Base lookup now (see
+        # retrieve_knowledge_context() in llm_reply.py) - a third,
+        # independent call alongside the two Gmail ones, not a replacement.
+        assert set(calls) == {"gmail_status", "gmail_search", "knowledge_search"}
         assert calls["gmail_search"]["message"] == "Search my Gmail for the latest email."
 
         assert result["tool_result"]["gmail_action_result"] == {"ok": True, "results": [{"id": "abc"}]}
@@ -155,14 +158,21 @@ class TestManagerAgentGmailRouting:
         assert result["tool_result"]["gmail_action_result"]["ok"] is False
         assert result["tool_result"]["gmail_action_result"]["error"] == "forbidden"
 
-    def test_non_gmail_message_never_touches_the_tool_router(self):
+    def test_non_gmail_message_never_touches_any_gmail_tool(self):
+        """A non-Gmail message must never invoke a gmail_* tool - it still
+        always attempts a Knowledge Base lookup (see
+        retrieve_knowledge_context() in llm_reply.py), which is a separate,
+        read-only, side-effect-free capability every employee (Manager
+        included) always tries regardless of message phrasing."""
         manager = self._build_manager()
         router = MagicMock()
 
         with patch("app.agents.manager_agent.generate_employee_reply", return_value="Hi there!"):
             result = manager.respond("hello, how are you?", [], tool_router=router)
 
-        router.execute.assert_not_called()
+        router.execute.assert_called_once_with(
+            employee="manager", tool_name="knowledge_search", message="hello, how are you?"
+        )
         assert result["tool_result"] is None
 
     def test_gmail_tool_is_never_invoked_twice_even_when_synthesis_retries(self):
@@ -190,7 +200,10 @@ class TestManagerAgentGmailRouting:
             result = manager.respond("Find emails containing invoice.", [], tool_router=router)
 
         assert mock_chat.call_count == 2          # synthesis retried once
-        assert router.execute.call_count == 2     # gmail_status once + gmail_search once - never repeated
+        # gmail_status once + gmail_search once + knowledge_search once
+        # (always attempted, see retrieve_knowledge_context) - never
+        # repeated even though synthesis itself retried.
+        assert router.execute.call_count == 3
         assert result["reply"] == "Found 1 email matching 'invoice': Invoice #1."
         assert "don't have access" not in result["reply"].lower()
 
@@ -261,4 +274,4 @@ class TestManagerAgentGmailRouting:
         with patch("app.agents.manager_agent.generate_employee_reply", return_value="No new mail."):
             manager.respond("what's in my gmail", [])
 
-        assert router.execute.call_count == 2  # gmail_status + gmail_search
+        assert router.execute.call_count == 3  # gmail_status + gmail_search + knowledge_search

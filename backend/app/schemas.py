@@ -518,3 +518,36 @@ class GmailPendingActionOut(BaseModel):
     error: str | None = None
     created_at: datetime
     decided_at: datetime | None = None
+
+
+# =====================================================
+# KNOWLEDGE BASE / RAG (Phase 4)
+# =====================================================
+
+class KnowledgeDocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    business_id: UUID
+    title: str
+    filename: str
+    file_type: str
+    size_bytes: int
+    status: str
+    error: str | None = None
+    chunk_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class KnowledgeSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=1000)
+    top_k: int = Field(default=4, ge=1, le=10)
+
+
+class KnowledgeSearchResultOut(BaseModel):
+    document_id: UUID
+    document_name: str
+    chunk_id: UUID
+    content: str
+    score: float
