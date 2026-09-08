@@ -62,12 +62,24 @@ def _reconcile_cross_employee_capability_denials(employee_results: Dict[str, Dic
     that denial would sit right next to a SIBLING employee's real,
     successful answer to the exact same part of the request.
 
-    This does NOT remove Finance from the plan, and does NOT discard a
-    Finance reply that has genuine, relevant content - it only strips the
-    specific denial sentence(s) from an employee whose OWN tool result
-    did not succeed, and only when some OTHER employee in this same turn
-    DID succeed (nothing to reconcile against otherwise - an
-    uncontradicted "I can't do that" may be an honest, correct answer)."""
+    Confirmed live: an earlier version of this function skipped an
+    employee whose OWN tool result happened to succeed, on the assumption
+    that meant its reply was "legitimate" and shouldn't be touched - but
+    Finance's own `quotation` tool succeeded (drafted SOME text) on the
+    exact real request that triggered this bug, while Finance's actual
+    reply still denied Gmail access anyway (a capability with nothing to
+    do with quotations) - the denial survived untouched. Whether an
+    employee's own tool happened to succeed says nothing about whether a
+    denial IN ITS TEXT is about that same capability, so it's not a safe
+    signal to gate on. This strips a denial sentence from ANY employee's
+    reply whenever ANY employee in the same turn succeeded at something -
+    a real, current success elsewhere in the same answer always
+    contradicts a blanket "can't do that" claim, regardless of which
+    employee said it or why. Sentence-level, not whole-reply: genuine,
+    relevant content (e.g. "Your invoice total is $50.") always survives
+    alongside a stripped denial. Only skipped entirely when NOTHING
+    succeeded this turn (nothing to reconcile against - an uncontradicted
+    "I can't do that" may be an honest, correct answer)."""
     any_success = any(
         isinstance(res.get("tool_result"), dict) and res["tool_result"].get("ok") is True
         for res in employee_results.values()
@@ -76,10 +88,6 @@ def _reconcile_cross_employee_capability_denials(employee_results: Dict[str, Dic
         return
 
     for name, res in employee_results.items():
-        own_tool_result = res.get("tool_result")
-        own_succeeded = isinstance(own_tool_result, dict) and own_tool_result.get("ok") is True
-        if own_succeeded:
-            continue
         original = res.get("reply") or ""
         if not denies_capability(original):
             continue

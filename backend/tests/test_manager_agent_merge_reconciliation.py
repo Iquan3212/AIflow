@@ -139,9 +139,14 @@ class TestReconciliationFunctionDirectly:
 
         assert employee_results["finance"]["reply"] == "I don't have access to your Gmail."
 
-    def test_an_employee_whose_own_tool_succeeded_is_never_stripped_even_if_it_denies_something_else(self):
-        """own_succeeded short-circuits per-employee - only a NON-
-        contributing employee's denial is ever touched."""
+    def test_an_employees_own_tool_succeeding_does_not_protect_an_unrelated_denial_in_its_reply(self):
+        """Regression for the exact real live failure: Finance's OWN
+        `quotation` tool succeeded (drafted SOME text) on the real request
+        that triggered this bug, while Finance's actual reply still denied
+        Gmail access anyway - a capability that has nothing to do with
+        quotations. Whether an employee's own tool succeeded says nothing
+        about whether a denial in its text is about THAT capability, so it
+        must not be used to protect the denial from stripping."""
         employee_results = {
             "finance": {
                 "reply": "Your quotation is ready. I don't have access to appointment scheduling though.",
@@ -155,9 +160,8 @@ class TestReconciliationFunctionDirectly:
 
         _reconcile_cross_employee_capability_denials(employee_results)
 
-        assert employee_results["finance"]["reply"] == (
-            "Your quotation is ready. I don't have access to appointment scheduling though."
-        )
+        assert "Your quotation is ready." in employee_results["finance"]["reply"]
+        assert "don't have access" not in employee_results["finance"]["reply"].lower()
 
 
 class TestDelegateEndToEndReconciliation:
