@@ -32,7 +32,15 @@ def tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "save_lead_info",
-                "description": "Save any customer contact/interest details learned in conversation. Call whenever you learn a name, phone, email, service of interest, or budget.",
+                "description": (
+                    "Save any customer contact/interest details learned in conversation. "
+                    "Call this on EVERY message where the customer states even one new detail - "
+                    "a name alone, a budget alone, a property type alone, a locality alone - not "
+                    "only once at the start of the conversation. Call it again later for each new "
+                    "detail even if you already called it earlier in this same conversation; that "
+                    "is expected and correct, never a duplicate. Only include the field(s) that are "
+                    "new or changed - never guess or repeat values you're not actually updating."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {

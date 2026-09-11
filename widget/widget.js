@@ -128,7 +128,13 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          business_slug: businessSlug,
+          // Wire field name only - matches ChatRequest.agency_slug in
+          // app/routers/conversation.py. Every request from this widget
+          // 422'd until this matched the backend's post-rename schema
+          // (business_slug -> agency_slug); the data-business-id script
+          // attribute and the businessSlug variable name above are the
+          // widget's own public embed API and are unrelated/unchanged.
+          agency_slug: businessSlug,
           visitor_id: getVisitorId(),
           message: text,
           conversation_id: localStorage.getItem(CONVO_KEY) || null,
