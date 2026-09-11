@@ -16,27 +16,27 @@ logger = get_logger(__name__)
 
 
 class QuotationTool:
-    """Drafts a quotation grounded in the business's configured services.
+    """Drafts a quotation grounded in the agency's configured services.
 
     The project has no dedicated pricing/quotation model yet, so this tool
     never invents numbers - it composes a quote-style reply using only the
-    service list configured for the business (and the customer's stated
+    service list configured for the agency (and the customer's stated
     budget/service, if any), matching the Finance employee's own rule of
     never inventing prices."""
 
     def __init__(self, db: Session):
         self.db = db
 
-    def execute(self, message: str, db=None, business=None, conversation=None, lead=None, **kwargs) -> dict:
+    def execute(self, message: str, db=None, agency=None, conversation=None, lead=None, **kwargs) -> dict:
         db = db or self.db
-        if business is None:
-            return {"ok": False, "error": "missing_business"}
+        if agency is None:
+            return {"ok": False, "error": "missing_agency"}
 
-        config = getattr(business, "chatbot_config", None)
+        config = getattr(agency, "chatbot_config", None)
         services = config.services if config and config.services else []
-        services_text = "\n".join(f"- {s}" for s in services) if services else "No services configured for this business yet."
+        services_text = "\n".join(f"- {s}" for s in services) if services else "No services configured for this agency yet."
 
-        system_prompt = harden_system_prompt(f"""You are drafting a quotation summary for {business.name}.
+        system_prompt = harden_system_prompt(f"""You are drafting a quotation summary for {agency.name}.
 Only reference the services listed in the fenced data below - never invent
 prices, discounts, or services that aren't there.
 
@@ -67,7 +67,7 @@ plainly that it isn't offered instead of guessing a price or availability.""")
         draft_id = None
         if draft:
             saved = DraftService(db).create(
-                business_id=business.id,
+                agency_id=agency.id,
                 kind="quotation",
                 content=draft,
                 title=message[:80],

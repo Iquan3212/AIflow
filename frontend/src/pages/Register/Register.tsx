@@ -11,7 +11,7 @@ import { register as registerRequest } from "../../services/auth";
 import { getErrorMessage } from "../../services/api";
 
 type RegisterForm = {
-    business_name: string;
+    agency_name: string;
     industry: string;
     owner_email: string;
     password: string;
@@ -40,7 +40,7 @@ export default function Register() {
 
         try {
             const tokens = await registerRequest({
-                business_name: data.business_name,
+                agency_name: data.agency_name,
                 industry: data.industry,
                 owner_email: data.owner_email,
                 password: data.password,
@@ -56,7 +56,7 @@ export default function Register() {
     }
 
     return (
-        <AuthLayout title="Start free" subtitle="Set up your business and meet your AI Workforce.">
+        <AuthLayout title="Start free" subtitle="Set up your agency and meet your AI Workforce.">
             <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
                 {error && (
                     <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3.5 text-sm" role="alert">
@@ -65,15 +65,15 @@ export default function Register() {
                 )}
 
                 <div>
-                    <Label htmlFor="business_name">Business name</Label>
+                    <Label htmlFor="agency_name">Agency name</Label>
                     <Input
-                        id="business_name"
+                        id="agency_name"
                         autoComplete="organization"
-                        invalid={!!errors.business_name}
-                        aria-invalid={!!errors.business_name}
-                        {...register("business_name", { required: "Business name is required" })}
+                        invalid={!!errors.agency_name}
+                        aria-invalid={!!errors.agency_name}
+                        {...register("agency_name", { required: "Agency name is required" })}
                     />
-                    <FieldError>{errors.business_name?.message}</FieldError>
+                    <FieldError>{errors.agency_name?.message}</FieldError>
                 </div>
 
                 <div>

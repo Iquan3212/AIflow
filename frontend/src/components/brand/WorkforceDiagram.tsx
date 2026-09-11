@@ -18,7 +18,7 @@ export const WORKFORCE_ROLES: WorkforceRole[] = [
     { id: "support", name: "Support AI", description: "Handles customer issues and logs support tickets for your team.", icon: LifeBuoy },
     { id: "finance", name: "Finance AI", description: "Drafts quotations grounded in your real services and pricing.", icon: Wallet },
     { id: "analytics", name: "Analytics AI", description: "Answers questions about your leads, conversations, and activity.", icon: BarChart3 },
-    { id: "marketing", name: "Marketing AI", description: "Drafts campaign copy based on your business and audience.", icon: Megaphone },
+    { id: "marketing", name: "Marketing AI", description: "Drafts campaign copy based on your agency and audience.", icon: Megaphone },
 ];
 
 /** The Manager → Workforce hierarchy diagram. Pure, reusable, and used on

@@ -12,12 +12,12 @@ class AnalyticsTool:
     def __init__(self, db):
         self.db = db
 
-    def execute(self, message: str, db=None, business=None, conversation=None, lead=None, **kwargs) -> dict:
+    def execute(self, message: str, db=None, agency=None, conversation=None, lead=None, **kwargs) -> dict:
         db = db or self.db
-        if business is None:
-            return {"ok": False, "error": "missing_business"}
+        if agency is None:
+            return {"ok": False, "error": "missing_agency"}
 
-        dispatcher = DashboardToolDispatcher(db, business)
+        dispatcher = DashboardToolDispatcher(db, agency)
         text = (message or "").lower()
 
         result = {"summary": json.loads(dispatcher.run("get_dashboard_summary", {}))}

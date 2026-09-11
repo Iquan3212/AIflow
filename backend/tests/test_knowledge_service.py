@@ -1,12 +1,12 @@
 """
 KnowledgeService - the CRUD layer app/routers/knowledge.py's endpoints
-actually call. Against the REAL dev database, real throwaway Business
+actually call. Against the REAL dev database, real throwaway Agency
 rows (same convention as test_gmail_service.py). Zero LLM tokens.
 
 Covers Step 19 (tenant-scoped API data access), Step 21/22 (retry moves a
 failed document back to queued without touching other fields; delete is
 real and cascades), and cross-tenant access denial at the service layer
-(a business can never get/delete another business's document by id).
+(an agency can never get/delete another agency's document by id).
 
 Run: python3 -m pytest tests/test_knowledge_service.py -q   (from backend/)
 """
@@ -21,12 +21,12 @@ from app.services.knowledge.service import KnowledgeService
 
 
 @pytest.fixture
-def two_businesses():
+def two_agencies():
     db = SessionLocal()
-    biz_a = models.Business(
+    biz_a = models.Agency(
         name="Service Test A", slug=f"svc-test-a-{uuid.uuid4().hex[:10]}", contact_email="a@servicetest.example",
     )
-    biz_b = models.Business(
+    biz_b = models.Agency(
         name="Service Test B", slug=f"svc-test-b-{uuid.uuid4().hex[:10]}", contact_email="b@servicetest.example",
     )
     db.add_all([biz_a, biz_b])
@@ -37,30 +37,30 @@ def two_businesses():
         yield db, biz_a, biz_b
     finally:
         for biz in (biz_a, biz_b):
-            db.query(models.KnowledgeChunk).filter(models.KnowledgeChunk.business_id == biz.id).delete()
-            db.query(models.KnowledgeDocument).filter(models.KnowledgeDocument.business_id == biz.id).delete()
-            db.query(models.Business).filter(models.Business.id == biz.id).delete()
+            db.query(models.KnowledgeChunk).filter(models.KnowledgeChunk.agency_id == biz.id).delete()
+            db.query(models.KnowledgeDocument).filter(models.KnowledgeDocument.agency_id == biz.id).delete()
+            db.query(models.Agency).filter(models.Agency.id == biz.id).delete()
         db.commit()
         db.close()
 
 
-def _make(service, business_id, title="Menu.pdf"):
+def _make(service, agency_id, title="Menu.pdf"):
     return service.create(
-        business_id=business_id, title=title, filename=title, file_type="pdf",
+        agency_id=agency_id, title=title, filename=title, file_type="pdf",
         size_bytes=1234, storage_path=f"/tmp/{uuid.uuid4().hex}",
     )
 
 
 class TestCreateAndGetAll:
-    def test_created_document_starts_queued(self, two_businesses):
-        db, biz_a, _ = two_businesses
+    def test_created_document_starts_queued(self, two_agencies):
+        db, biz_a, _ = two_agencies
         service = KnowledgeService(db)
         doc = _make(service, biz_a.id)
         assert doc.status == models.KnowledgeDocumentStatus.queued
-        assert doc.business_id == biz_a.id
+        assert doc.agency_id == biz_a.id
 
-    def test_get_all_only_returns_this_businesss_documents(self, two_businesses):
-        db, biz_a, biz_b = two_businesses
+    def test_get_all_only_returns_this_agencys_documents(self, two_agencies):
+        db, biz_a, biz_b = two_agencies
         service = KnowledgeService(db)
         _make(service, biz_a.id, "A-doc.pdf")
         _make(service, biz_b.id, "B-doc.pdf")
@@ -73,39 +73,39 @@ class TestCreateAndGetAll:
 
 
 class TestTenantScopedGetAndDelete:
-    def test_get_with_wrong_business_id_returns_none(self, two_businesses):
-        db, biz_a, biz_b = two_businesses
+    def test_get_with_wrong_agency_id_returns_none(self, two_agencies):
+        db, biz_a, biz_b = two_agencies
         service = KnowledgeService(db)
         doc = _make(service, biz_a.id)
 
         assert service.get(doc.id, biz_b.id) is None
         assert service.get(doc.id, biz_a.id) is not None
 
-    def test_delete_with_wrong_business_id_does_nothing(self, two_businesses):
-        db, biz_a, biz_b = two_businesses
+    def test_delete_with_wrong_agency_id_does_nothing(self, two_agencies):
+        db, biz_a, biz_b = two_agencies
         service = KnowledgeService(db)
         doc = _make(service, biz_a.id)
 
         assert service.delete(doc.id, biz_b.id) is False
         assert service.get(doc.id, biz_a.id) is not None  # untouched
 
-    def test_delete_with_correct_business_id_removes_it(self, two_businesses):
-        db, biz_a, _ = two_businesses
+    def test_delete_with_correct_agency_id_removes_it(self, two_agencies):
+        db, biz_a, _ = two_agencies
         service = KnowledgeService(db)
         doc = _make(service, biz_a.id)
 
         assert service.delete(doc.id, biz_a.id) is True
         assert service.get(doc.id, biz_a.id) is None
 
-    def test_delete_nonexistent_document_returns_false(self, two_businesses):
-        db, biz_a, _ = two_businesses
+    def test_delete_nonexistent_document_returns_false(self, two_agencies):
+        db, biz_a, _ = two_agencies
         service = KnowledgeService(db)
         assert service.delete(str(uuid.uuid4()), biz_a.id) is False
 
 
 class TestRetry:
-    def test_retry_a_failed_document_moves_it_to_queued_and_clears_error(self, two_businesses):
-        db, biz_a, _ = two_businesses
+    def test_retry_a_failed_document_moves_it_to_queued_and_clears_error(self, two_agencies):
+        db, biz_a, _ = two_agencies
         service = KnowledgeService(db)
         doc = _make(service, biz_a.id)
         doc.status = models.KnowledgeDocumentStatus.failed
@@ -118,8 +118,8 @@ class TestRetry:
         assert retried.status == models.KnowledgeDocumentStatus.queued
         assert retried.error is None
 
-    def test_retry_with_wrong_business_id_returns_none_and_does_not_touch_it(self, two_businesses):
-        db, biz_a, biz_b = two_businesses
+    def test_retry_with_wrong_agency_id_returns_none_and_does_not_touch_it(self, two_agencies):
+        db, biz_a, biz_b = two_agencies
         service = KnowledgeService(db)
         doc = _make(service, biz_a.id)
         doc.status = models.KnowledgeDocumentStatus.failed
@@ -132,7 +132,7 @@ class TestRetry:
         assert doc.status == models.KnowledgeDocumentStatus.failed
         assert doc.error == "boom"
 
-    def test_retry_nonexistent_document_returns_none(self, two_businesses):
-        db, biz_a, _ = two_businesses
+    def test_retry_nonexistent_document_returns_none(self, two_agencies):
+        db, biz_a, _ = two_agencies
         service = KnowledgeService(db)
         assert service.mark_queued_for_retry(str(uuid.uuid4()), biz_a.id) is None

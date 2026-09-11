@@ -1,8 +1,8 @@
 """
 Regression tests for two root-caused AI-behavior bugs found via live
-reproduction against real businesses (Glow Salon Demo, Biryani House):
+reproduction against real agencies (Glow Salon Demo, Biryani House):
 
-1. leaks_system_prompt() false positive: a business owner's own
+1. leaks_system_prompt() false positive: an agency owner's own
    description/services/FAQ text (embedded in the system prompt via
    wrap_untrusted so the model can answer from it) was compared against
    the reply as if it were a developer secret - so a correct, honestly-
@@ -32,9 +32,9 @@ from app.services.llm.base import RATE_LIMIT_MESSAGE, UNAVAILABLE_MESSAGE
 
 
 def _biryani_like_system_prompt() -> str:
-    """Reconstructs the real shape build_system_prompt() produces: business
+    """Reconstructs the real shape build_system_prompt() produces: agency
     description/services (which, for real seed data, itself contains
-    AI-instruction-like language the business owner wrote) wrapped as
+    AI-instruction-like language the agency owner wrote) wrapped as
     untrusted data under a developer-authored persona/rules prompt."""
     description = (
         "The AI Workforce should provide helpful and professional assistance "
@@ -42,15 +42,15 @@ def _biryani_like_system_prompt() -> str:
         "never invent menu items, prices, discounts, delivery times, "
         "availability, or restaurant policies that have not been provided."
     )
-    business_data = wrap_untrusted(
+    agency_data = wrap_untrusted(
         "BUSINESS INFORMATION",
-        f"Business Name:\nBiryani House\n\nBusiness Description:\n{description}\n\nServices Offered:\nNo services available.",
+        f"Agency Name:\nBiryani House\n\nAgency Description:\n{description}\n\nServices Offered:\nNo services available.",
     )
-    return harden_system_prompt(f"You are the official AI assistant for Biryani House.\n\n{business_data}")
+    return harden_system_prompt(f"You are the official AI assistant for Biryani House.\n\n{agency_data}")
 
 
 class TestLeakDetectionFalsePositive:
-    def test_honest_reply_echoing_business_description_is_not_a_leak(self):
+    def test_honest_reply_echoing_agency_description_is_not_a_leak(self):
         system_prompt = _biryani_like_system_prompt()
         honest_reply = (
             "We don't currently have keratin treatment listed among our services, so I "
@@ -87,7 +87,7 @@ class TestFallbackReplyPollution:
         assert is_fallback_reply(UNAVAILABLE_MESSAGE) is True
         assert is_fallback_reply(SAFE_FALLBACK_REPLY) is True
 
-    def test_real_business_reply_is_never_flagged_as_fallback(self):
+    def test_real_agency_reply_is_never_flagged_as_fallback(self):
         assert is_fallback_reply("We serve chicken, mutton, and vegetarian biryani.") is False
         assert is_fallback_reply("") is False
         assert is_fallback_reply(None) is False

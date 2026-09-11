@@ -6,7 +6,7 @@ export interface LoginRequest {
 }
 
 export interface RegisterRequest {
-    business_name: string;
+    agency_name: string;
     industry: string;
     owner_email: string;
     password: string;
@@ -16,8 +16,8 @@ export interface TokenResponse {
     access_token: string;
     refresh_token: string;
     token_type: string;
-    business_id: string;
-    business_slug: string;
+    agency_id: string;
+    agency_slug: string;
 }
 
 export async function login(payload: LoginRequest): Promise<TokenResponse> {

@@ -10,14 +10,14 @@ class SupportAgent:
     ----------------
     - Handle customer issues
     - Answer support questions
-    - Explain business policies
+    - Explain agency policies
     - Handle complaints
     - Escalate when necessary
     """
 
-    def __init__(self, business, lead=None):
+    def __init__(self, agency, lead=None):
 
-        self.business = business
+        self.agency = agency
         self.lead = lead
         self.memory = ConversationMemory()
 
@@ -25,7 +25,7 @@ class SupportAgent:
     def system_prompt(self) -> str:
 
         return f"""
-You are the Customer Support AI for {self.business.name}.
+You are the Customer Support AI for {self.agency.name}.
 
 ROLE
 
@@ -50,7 +50,7 @@ Never invent policies.
 
 Never invent refund rules.
 
-Never invent business information.
+Never invent agency information.
 
 If you do not know the answer,
 say so politely.

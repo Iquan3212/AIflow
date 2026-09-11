@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 # AUTH
 # =====================================================
 
-class BusinessSignup(BaseModel):
-    business_name: str = Field(min_length=2, max_length=100)
+class AgencySignup(BaseModel):
+    agency_name: str = Field(min_length=2, max_length=100)
     industry: str = Field(min_length=2, max_length=100)
     owner_email: EmailStr
     password: str = Field(min_length=8)
@@ -19,6 +19,20 @@ class BusinessSignup(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class BuyerSignup(BaseModel):
+    name: str | None = Field(default=None, max_length=100)
+    email: EmailStr
+    password: str = Field(min_length=8)
+    phone: str | None = Field(default=None, max_length=32)
+
+
+class BuyerTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    buyer_id: UUID
 
 
 class AnalyticsSeriesPoint(BaseModel):
@@ -41,8 +55,8 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
-    business_id: UUID
-    business_slug: str
+    agency_id: UUID
+    agency_slug: str
 
 
 class RefreshRequest(BaseModel):
@@ -65,7 +79,7 @@ class UserResponse(BaseModel):
 # BUSINESS
 # =====================================================
 
-class BusinessOut(BaseModel):
+class AgencyOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -79,7 +93,7 @@ class BusinessOut(BaseModel):
     created_at: datetime
 
 
-class BusinessUpdate(BaseModel):
+class AgencyUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=100)
     industry: str | None = None
     timezone: str | None = None
@@ -121,7 +135,7 @@ class ChatbotConfigOut(ChatbotConfigBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    business_id: UUID
+    agency_id: UUID
     updated_at: datetime
 
 
@@ -156,7 +170,7 @@ class ConversationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    business_id: UUID
+    agency_id: UUID
     visitor_id: str
     channel: str
     status: str
@@ -207,7 +221,7 @@ class LeadOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    business_id: UUID
+    agency_id: UUID
     conversation_id: UUID | None = None
     name: str | None = None
     phone: str | None = None
@@ -223,7 +237,7 @@ class AIDraftOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    business_id: UUID
+    agency_id: UUID
     lead_id: UUID | None = None
     kind: str
     title: str | None = None
@@ -241,7 +255,7 @@ class SupportTicketOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    business_id: UUID
+    agency_id: UUID
     lead_id: UUID | None = None
     issue_summary: str
     priority: str
@@ -263,7 +277,7 @@ class AppointmentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    business_id: UUID
+    agency_id: UUID
     lead_id: UUID | None = None
     conversation_id: UUID | None = None
     customer_name: str | None = None
@@ -283,7 +297,7 @@ class AppointmentOut(BaseModel):
 
 class AppointmentCreate(BaseModel):
     """Manual booking from the dashboard. `start_local_iso` is local wall-clock
-    in the business timezone (e.g. '2026-08-04T16:00')."""
+    in the agency timezone (e.g. '2026-08-04T16:00')."""
     start_local_iso: str
     customer_name: str
     customer_phone: str | None = None
@@ -296,7 +310,7 @@ class AppointmentReschedule(BaseModel):
 
 
 class AvailabilityQuery(BaseModel):
-    date_local: str  # YYYY-MM-DD in the business timezone
+    date_local: str  # YYYY-MM-DD in the agency timezone
 
 
 class SlotOut(BaseModel):
@@ -310,7 +324,7 @@ class AvailabilityOut(BaseModel):
     slots: list[SlotOut]
 
 
-# ---- business hours / scheduling settings (dashboard config) ----
+# ---- agency hours / scheduling settings (dashboard config) ----
 
 class BusinessHoursItem(BaseModel):
     weekday: int          # 0=Mon .. 6=Sun
@@ -371,7 +385,7 @@ class EmailLogOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    business_id: UUID
+    agency_id: UUID
     lead_id: UUID
     email_type: str
     sent_at: datetime
@@ -494,7 +508,7 @@ class NotificationPreferencesUpdateRequest(BaseModel):
 
 class GmailStatus(BaseModel):
     available: bool          # is Gmail OAuth configured on the server at all
-    connected: bool          # does this business have a stored refresh token
+    connected: bool          # does this agency have a stored refresh token
     google_email: str | None = None
     send_mode: str
 
@@ -528,7 +542,7 @@ class KnowledgeDocumentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    business_id: UUID
+    agency_id: UUID
     title: str
     filename: str
     file_type: str
@@ -588,7 +602,7 @@ class WorkflowOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    business_id: UUID
+    agency_id: UUID
     name: str
     description: str | None
     status: str
@@ -620,7 +634,7 @@ class WorkflowRunOut(BaseModel):
 
     id: UUID
     workflow_id: UUID
-    business_id: UUID
+    agency_id: UUID
     status: str
     trigger_event_id: str
     trigger_data: dict
@@ -634,7 +648,7 @@ class ApprovalRequestOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    business_id: UUID
+    agency_id: UUID
     workflow_step_run_id: UUID
     action_type: str
     summary: str

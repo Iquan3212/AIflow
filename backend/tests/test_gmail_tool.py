@@ -17,14 +17,14 @@ from unittest.mock import MagicMock, patch
 from app.tools.gmail_tool import GmailStatusTool, GmailSearchTool, GmailReadTool, GmailDraftTool, GmailSendTool
 
 
-class FakeBusiness:
+class FakeAgency:
     id = "biz-tool-test"
 
 
 class TestGmailStatusTool:
-    def test_missing_business_returns_error(self):
-        assert GmailStatusTool().execute("do you have gmail access?", db=MagicMock(), business=None) == {
-            "ok": False, "error": "missing_business",
+    def test_missing_agency_returns_error(self):
+        assert GmailStatusTool().execute("do you have gmail access?", db=MagicMock(), agency=None) == {
+            "ok": False, "error": "missing_agency",
         }
 
     def test_never_calls_llm_extraction_or_the_real_gmail_api(self):
@@ -34,7 +34,7 @@ class TestGmailStatusTool:
         with patch("app.tools.gmail_tool.GmailService") as MockService, \
              patch("app.tools.gmail_tool.gmail_ai_service") as mock_ai_service:
             MockService.return_value.status.return_value = {"ok": True, "connected": True, "send_mode": "approval_required"}
-            result = GmailStatusTool().execute("do you have access to my gmail?", db=MagicMock(), business=FakeBusiness())
+            result = GmailStatusTool().execute("do you have access to my gmail?", db=MagicMock(), agency=FakeAgency())
 
         mock_ai_service.extract_search_request.assert_not_called()
         mock_ai_service.extract_send_request.assert_not_called()
@@ -46,7 +46,7 @@ class TestGmailSearchTool:
         with patch("app.tools.gmail_tool.GmailService") as MockService, \
              patch("app.tools.gmail_tool.gmail_ai_service.extract_search_request") as mock_extract:
             MockService.return_value.search.return_value = {"ok": True, "results": []}
-            result = GmailSearchTool().execute("anything", db=MagicMock(), business=FakeBusiness(), query="from:john")
+            result = GmailSearchTool().execute("anything", db=MagicMock(), agency=FakeAgency(), query="from:john")
         mock_extract.assert_not_called()
         args, kwargs = MockService.return_value.search.call_args
         assert args[1] == "from:john"
@@ -57,26 +57,26 @@ class TestGmailSearchTool:
         with patch("app.tools.gmail_tool.GmailService") as MockService, \
              patch("app.tools.gmail_tool.gmail_ai_service.extract_search_request", return_value={"query": "invoice"}) as mock_extract:
             MockService.return_value.search.return_value = {"ok": True, "results": []}
-            GmailSearchTool().execute("find the invoice email", db=MagicMock(), business=FakeBusiness())
+            GmailSearchTool().execute("find the invoice email", db=MagicMock(), agency=FakeAgency())
         mock_extract.assert_called_once_with("find the invoice email")
         args, kwargs = MockService.return_value.search.call_args
         assert args[1] == "invoice"
 
-    def test_missing_business_returns_error(self):
-        result = GmailSearchTool().execute("anything", db=MagicMock(), business=None)
-        assert result == {"ok": False, "error": "missing_business"}
+    def test_missing_agency_returns_error(self):
+        result = GmailSearchTool().execute("anything", db=MagicMock(), agency=None)
+        assert result == {"ok": False, "error": "missing_agency"}
 
 
 class TestGmailReadTool:
     def test_requires_message_id(self):
-        result = GmailReadTool().execute("read that email", db=MagicMock(), business=FakeBusiness())
+        result = GmailReadTool().execute("read that email", db=MagicMock(), agency=FakeAgency())
         assert result["ok"] is False
         assert result["error"] == "missing_message_id"
 
     def test_reads_with_explicit_message_id(self):
         with patch("app.tools.gmail_tool.GmailService") as MockService:
             MockService.return_value.read.return_value = {"ok": True, "message": {"id": "m1"}}
-            result = GmailReadTool().execute("read it", db=MagicMock(), business=FakeBusiness(), message_id="m1")
+            result = GmailReadTool().execute("read it", db=MagicMock(), agency=FakeAgency(), message_id="m1")
         args, _ = MockService.return_value.read.call_args
         assert args[1] == "m1"
         assert result == {"ok": True, "message": {"id": "m1"}}
@@ -88,7 +88,7 @@ class TestGmailDraftTool:
              patch("app.tools.gmail_tool.gmail_ai_service.extract_send_request") as mock_extract:
             MockService.return_value.draft.return_value = {"ok": True, "draft_id": "d1"}
             result = GmailDraftTool().execute(
-                "draft it", db=MagicMock(), business=FakeBusiness(),
+                "draft it", db=MagicMock(), agency=FakeAgency(),
                 to="customer@example.com", subject="Follow up", body="Thanks!",
             )
         mock_extract.assert_not_called()
@@ -99,12 +99,12 @@ class TestGmailDraftTool:
              patch("app.tools.gmail_tool.gmail_ai_service.extract_send_request",
                    return_value={"to": "customer@example.com", "subject": "Hi", "body": "Thanks for reaching out."}) as mock_extract:
             MockService.return_value.draft.return_value = {"ok": True}
-            GmailDraftTool().execute("draft a thank you to the customer", db=MagicMock(), business=FakeBusiness())
+            GmailDraftTool().execute("draft a thank you to the customer", db=MagicMock(), agency=FakeAgency())
         mock_extract.assert_called_once()
 
     def test_missing_fields_after_extraction_returns_error(self):
         with patch("app.tools.gmail_tool.gmail_ai_service.extract_send_request", return_value={"to": None, "subject": None, "body": None}):
-            result = GmailDraftTool().execute("draft something vague", db=MagicMock(), business=FakeBusiness())
+            result = GmailDraftTool().execute("draft something vague", db=MagicMock(), agency=FakeAgency())
         assert result["ok"] is False
         assert result["error"] == "missing_fields"
 
@@ -117,7 +117,7 @@ class TestGmailSendTool:
         with patch("app.tools.gmail_tool.GmailService") as MockService:
             MockService.return_value.send.return_value = {"ok": True, "queued_for_approval": True, "sent": False, "pending_action_id": "p1"}
             result = GmailSendTool().execute(
-                "send it", db=MagicMock(), business=FakeBusiness(),
+                "send it", db=MagicMock(), agency=FakeAgency(),
                 to="a@b.com", subject="s", body="b", employee="sales",
             )
         assert result["sent"] is False

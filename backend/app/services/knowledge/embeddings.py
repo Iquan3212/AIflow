@@ -3,7 +3,7 @@ Embedding provider abstraction - deliberately separate from
 app/services/llm/ (the chat-completion provider layer for
 Groq/Gemini/OpenRouter/Ollama). Embeddings and chat completions are
 different capabilities with different selection knobs (EMBEDDING_PROVIDER
-vs. LLM_PROVIDER) - a business can run its Manager AI on Groq while
+vs. LLM_PROVIDER) - an agency can run its Manager AI on Groq while
 Knowledge Base embeddings come from Gemini (or a deterministic mock
 during development/tests), with neither layer knowing about the other's
 provider choice.

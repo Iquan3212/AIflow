@@ -83,9 +83,9 @@ class TestSystemPromptCapabilityLanguage:
     from actual state (Step 4/6 of the capability-awareness bug report)."""
 
     def test_prompt_defers_to_gmail_connection_status(self):
-        business = MagicMock()
-        business.name = "Biryani House"
-        manager = ManagerAgent(registry=MagicMock(), memory=MagicMock(), business=business)
+        agency = MagicMock()
+        agency.name = "Biryani House"
+        manager = ManagerAgent(registry=MagicMock(), memory=MagicMock(), agency=agency)
 
         prompt = manager.system_prompt
         assert "gmail_connection" in prompt
@@ -98,9 +98,9 @@ class TestManagerAgentGmailRouting:
         registry = MagicMock()
         memory = MagicMock()
         memory.shared_context.return_value = {"facts": []}
-        business = MagicMock()
-        business.name = "Biryani House"
-        return ManagerAgent(registry=registry, memory=memory, business=business)
+        agency = MagicMock()
+        agency.name = "Biryani House"
+        return ManagerAgent(registry=registry, memory=memory, agency=agency)
 
     def test_gmail_message_calls_tool_router_with_correct_tool(self):
         manager = self._build_manager()
@@ -269,7 +269,7 @@ class TestManagerAgentGmailRouting:
         memory = MagicMock()
         memory.shared_context.return_value = {"facts": []}
         router = _router_returning(status_result={"ok": True, "connected": True, "send_mode": "approval_required"})
-        manager = ManagerAgent(registry=registry, memory=memory, business=MagicMock(), tool_router=router)
+        manager = ManagerAgent(registry=registry, memory=memory, agency=MagicMock(), tool_router=router)
 
         with patch("app.agents.manager_agent.generate_employee_reply", return_value="No new mail."):
             manager.respond("what's in my gmail", [])

@@ -2,7 +2,7 @@ import api from "./api";
 
 export interface Appointment {
     id: string;
-    business_id: string;
+    agency_id: string;
     lead_id: string | null;
     conversation_id: string | null;
     customer_name: string | null;
@@ -21,7 +21,7 @@ export interface Appointment {
 }
 
 export interface Slot {
-    start_local_iso: string; // "YYYY-MM-DDTHH:MM" in business timezone
+    start_local_iso: string; // "YYYY-MM-DDTHH:MM" in agency timezone
     label: string;           // humanized
 }
 

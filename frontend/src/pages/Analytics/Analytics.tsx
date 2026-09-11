@@ -91,7 +91,7 @@ export default function Analytics() {
 
     return (
         <AppShell>
-            <PageHeader title="Analytics" description="Real counts and trends from your business data, over the last 14 days." />
+            <PageHeader title="Analytics" description="Real counts and trends from your agency data, over the last 14 days." />
 
             {!data && !error && <LoadingState label="Loading analytics…" />}
             {error && <ErrorState message={error} onRetry={load} />}

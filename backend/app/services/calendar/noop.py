@@ -8,7 +8,7 @@ from .base import CalendarEvent
 
 class NoOpCalendar:
     provider = "none"
-    def is_configured(self, business) -> bool: return False
-    def create_event(self, business, event: CalendarEvent) -> str | None: return None
-    def update_event(self, business, event_id, event) -> None: return None
-    def delete_event(self, business, event_id) -> None: return None
+    def is_configured(self, agency) -> bool: return False
+    def create_event(self, agency, event: CalendarEvent) -> str | None: return None
+    def update_event(self, agency, event_id, event) -> None: return None
+    def delete_event(self, agency, event_id) -> None: return None

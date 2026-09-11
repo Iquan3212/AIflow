@@ -12,7 +12,7 @@ Security-focused workflow tests (Step 21/22/23/24-SECURITY):
 - Concurrent double-decide on the same ApprovalRequest: exactly one
   decision wins (the same atomic-UPDATE guarantee GmailPendingAction
   already has).
-- Cross-tenant access to another business's workflow/run/approval is
+- Cross-tenant access to another agency's workflow/run/approval is
   denied at every read/write path.
 
 Zero LLM tokens, zero real external API calls.
@@ -40,10 +40,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 @pytest.fixture
-def two_businesses():
+def two_agencies():
     db = SessionLocal()
-    biz_a = models.Business(name="Sec Test A", slug=f"sec-test-a-{uuid.uuid4().hex[:10]}", contact_email="a@sectest.example")
-    biz_b = models.Business(name="Sec Test B", slug=f"sec-test-b-{uuid.uuid4().hex[:10]}", contact_email="b@sectest.example")
+    biz_a = models.Agency(name="Sec Test A", slug=f"sec-test-a-{uuid.uuid4().hex[:10]}", contact_email="a@sectest.example")
+    biz_b = models.Agency(name="Sec Test B", slug=f"sec-test-b-{uuid.uuid4().hex[:10]}", contact_email="b@sectest.example")
     db.add_all([biz_a, biz_b])
     db.commit()
     db.refresh(biz_a)
@@ -52,7 +52,7 @@ def two_businesses():
         yield db, biz_a, biz_b
     finally:
         for biz in (biz_a, biz_b):
-            wf_ids = [w.id for w in db.query(models.Workflow).filter(models.Workflow.business_id == biz.id).all()]
+            wf_ids = [w.id for w in db.query(models.Workflow).filter(models.Workflow.agency_id == biz.id).all()]
             for wid in wf_ids:
                 run_ids = [r.id for r in db.query(models.WorkflowRun).filter(models.WorkflowRun.workflow_id == wid).all()]
                 for rid in run_ids:
@@ -62,8 +62,8 @@ def two_businesses():
                         )
                     ).delete(synchronize_session=False)
                 db.query(models.WorkflowRun).filter(models.WorkflowRun.workflow_id == wid).delete()
-            db.query(models.Workflow).filter(models.Workflow.business_id == biz.id).delete()
-            db.query(models.Business).filter(models.Business.id == biz.id).delete()
+            db.query(models.Workflow).filter(models.Workflow.agency_id == biz.id).delete()
+            db.query(models.Agency).filter(models.Agency.id == biz.id).delete()
         db.commit()
         db.close()
 
@@ -120,27 +120,27 @@ class TestNoLLMReachableCodePathCanTouchWorkflows:
 
 class TestUnregisteredActionNeverExecutes:
     def test_arbitrary_action_type_string_is_rejected_not_executed(self):
-        outcome = execute_action("os.system", db=None, business=None, trigger_data={}, config={"cmd": "rm -rf /"})
+        outcome = execute_action("os.system", db=None, agency=None, trigger_data={}, config={"cmd": "rm -rf /"})
         assert outcome.status == "failed"
         assert "unregistered" in outcome.error.lower()
 
-    def test_workflow_creation_rejects_an_unregistered_action_type(self, two_businesses):
-        db, biz_a, _ = two_businesses
+    def test_workflow_creation_rejects_an_unregistered_action_type(self, two_agencies):
+        db, biz_a, _ = two_agencies
         from app.services.workflows.service import WorkflowValidationError
         with pytest.raises(WorkflowValidationError):
             WorkflowService(db).create(
-                business_id=biz_a.id, name="Malicious", description=None,
+                agency_id=biz_a.id, name="Malicious", description=None,
                 trigger_type=models.WorkflowTriggerType.lead_created,
                 conditions=[], actions=[{"type": "run_shell_command", "config": {"cmd": "rm -rf /"}}],
             )
 
 
 class TestConcurrentDoubleDecideApproval:
-    def test_only_one_of_two_simultaneous_decisions_actually_wins(self, two_businesses):
-        db, biz_a, _ = two_businesses
+    def test_only_one_of_two_simultaneous_decisions_actually_wins(self, two_agencies):
+        db, biz_a, _ = two_agencies
         actions = [{"type": "send_notification", "config": VALID_ACTIONS[0]["config"], "requires_approval": True}]
         wf = WorkflowService(db).create(
-            business_id=biz_a.id, name="Approval race", description=None,
+            agency_id=biz_a.id, name="Approval race", description=None,
             trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=actions,
         )
         with patch("app.services.workflows.engine.execute_action"):
@@ -169,23 +169,23 @@ class TestConcurrentDoubleDecideApproval:
 
 
 class TestCrossTenantApprovalIsolation:
-    def test_business_b_cannot_see_or_decide_business_as_approval(self, two_businesses):
-        db, biz_a, biz_b = two_businesses
+    def test_agency_b_cannot_see_or_decide_agencys_approval(self, two_agencies):
+        db, biz_a, biz_b = two_agencies
         actions = [{"type": "send_notification", "config": VALID_ACTIONS[0]["config"], "requires_approval": True}]
         wf = WorkflowService(db).create(
-            business_id=biz_a.id, name="A's approval workflow", description=None,
+            agency_id=biz_a.id, name="A's approval workflow", description=None,
             trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=actions,
         )
         with patch("app.services.workflows.engine.execute_action"):
             run = WorkflowEngine(db).run(wf, {"lead": {}}, trigger_event_id="cross-tenant-approval")
         approval = db.query(models.ApprovalRequest).filter(models.ApprovalRequest.id == run.steps[0].approval_request_id).first()
 
-        # The real router scopes every query by business_id - simulate
+        # The real router scopes every query by agency_id - simulate
         # that same filter with biz_b's id and confirm it finds nothing.
         found_for_b = (
             db.query(models.ApprovalRequest)
-            .filter(models.ApprovalRequest.id == approval.id, models.ApprovalRequest.business_id == biz_b.id)
+            .filter(models.ApprovalRequest.id == approval.id, models.ApprovalRequest.agency_id == biz_b.id)
             .first()
         )
         assert found_for_b is None
-        assert approval.business_id == biz_a.id
+        assert approval.agency_id == biz_a.id

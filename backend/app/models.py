@@ -30,16 +30,16 @@ class PlanTier(str, enum.Enum):
     free = "free"
     starter = "starter"
     professional = "professional"
-    business = "business"
+    agency = "agency"
     enterprise = "enterprise"
 
 
-class Business(Base):
-    """One row per AIFlow customer (a business that signed up). Every other
-    table hangs off business_id — this is what makes it one deployment
+class Agency(Base):
+    """One row per AIFlow customer (an agency that signed up). Every other
+    table hangs off agency_id — this is what makes it one deployment
     serving every customer instead of one deployment per customer."""
 
-    __tablename__ = "businesses"
+    __tablename__ = "agencies"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     name = Column(String(255), nullable=False)
@@ -51,29 +51,29 @@ class Business(Base):
     brand_color = Column(String(16), default="#0E6E5C")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    users = relationship("User", back_populates="business", cascade="all, delete-orphan")
+    users = relationship("User", back_populates="agency", cascade="all, delete-orphan")
     chatbot_config = relationship(
-        "ChatbotConfig", back_populates="business", uselist=False, cascade="all, delete-orphan"
+        "ChatbotConfig", back_populates="agency", uselist=False, cascade="all, delete-orphan"
     )
-    conversations = relationship("Conversation", back_populates="business", cascade="all, delete-orphan")
-    leads = relationship("Lead", back_populates="business", cascade="all, delete-orphan")
-    appointments = relationship("Appointment", back_populates="business", cascade="all, delete-orphan")
-    business_hours = relationship("BusinessHours", back_populates="business", cascade="all, delete-orphan")
+    conversations = relationship("Conversation", back_populates="agency", cascade="all, delete-orphan")
+    leads = relationship("Lead", back_populates="agency", cascade="all, delete-orphan")
+    appointments = relationship("Appointment", back_populates="agency", cascade="all, delete-orphan")
+    business_hours = relationship("BusinessHours", back_populates="agency", cascade="all, delete-orphan")
     scheduling_settings = relationship(
-        "SchedulingSettings", back_populates="business", uselist=False, cascade="all, delete-orphan"
+        "SchedulingSettings", back_populates="agency", uselist=False, cascade="all, delete-orphan"
     )
 
 
 class User(Base):
-    """A dashboard login for a business (the owner, or later, staff)."""
+    """A dashboard login for an agency (the owner, or later, staff)."""
 
     __tablename__ = "users"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
 
-    business_id = Column(
+    agency_id = Column(
         UUID(as_uuid=False),
-        ForeignKey("businesses.id"),
+        ForeignKey("agencies.id"),
         nullable=False,
     )
 
@@ -90,8 +90,8 @@ class User(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    business = relationship(
-        "Business",
+    agency = relationship(
+        "Agency",
         back_populates="users",
     )
 
@@ -166,15 +166,70 @@ class UserSession(Base):
     )
 
 
+# =====================================================================
+# BUYER (marketplace, real estate pivot)
+# =====================================================================
+#
+# Deliberately a fully separate identity from Agency/User - a Buyer
+# belongs to the platform, not to one agency, and there is no shared
+# table between the two account types for a permission check to get
+# wrong. get_current_buyer() (app/deps.py) is the ONLY thing that can
+# resolve a buyer's token into a row, and it queries this table alone -
+# an agency's User row can never satisfy it, and vice versa.
+
+class Buyer(Base):
+    """A marketplace shopper account. Global, not agency-scoped - `email`
+    is unique within THIS table only, deliberately a separate uniqueness
+    scope from `User.email`: the same person can hold a Buyer account and
+    an Agency account with the same email address with no conflict,
+    since they are different tables entirely."""
+
+    __tablename__ = "buyers"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    name = Column(String(255), nullable=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    phone = Column(String(32), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    sessions = relationship(
+        "BuyerSession",
+        back_populates="buyer",
+        cascade="all, delete-orphan",
+    )
+
+
+class BuyerSession(Base):
+    """Mirrors UserSession exactly (refresh-token rotation, revocable,
+    device/IP tracking) - same auth pattern, separate table, separate
+    account population."""
+
+    __tablename__ = "buyer_sessions"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    buyer_id = Column(UUID(as_uuid=False), ForeignKey("buyers.id"), nullable=False, index=True)
+    refresh_token = Column(String(1024), unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_used_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    device_name = Column(String(255), nullable=True)
+    ip_address = Column(String(64), nullable=True)
+    user_agent = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+
+    buyer = relationship("Buyer", back_populates="sessions")
+
+
 class ChatbotConfig(Base):
-    """Everything that makes the chatbot sound like THIS business instead of
-    a generic assistant. One row per business, edited from the dashboard
+    """Everything that makes the chatbot sound like THIS agency instead of
+    a generic assistant. One row per agency, edited from the dashboard
     (M2) or directly via the API (usable today)."""
 
     __tablename__ = "chatbot_configs"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id"), unique=True, nullable=False)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id"), unique=True, nullable=False)
     welcome_message = Column(Text, default="Hi! How can I help you today?")
     persona_tone = Column(String(64), default="friendly and professional")
     business_description = Column(Text, default="")
@@ -183,7 +238,7 @@ class ChatbotConfig(Base):
     lead_questions = Column(JSON, default=lambda: ["name", "service_interested", "budget"])
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    business = relationship("Business", back_populates="chatbot_config")
+    agency = relationship("Agency", back_populates="chatbot_config")
 
 
 class Conversation(Base):
@@ -193,14 +248,14 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id"), nullable=False)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id"), nullable=False)
     channel = Column(String(32), default="website")  # website | whatsapp | instagram
     visitor_id = Column(String(255), nullable=False)
     status = Column(String(32), default="active")  # active | completed | handed_off
     started_at = Column(DateTime, default=datetime.utcnow)
     ended_at = Column(DateTime, nullable=True)
 
-    business = relationship("Business", back_populates="conversations")
+    agency = relationship("Agency", back_populates="conversations")
     messages = relationship(
         "Message", back_populates="conversation", cascade="all, delete-orphan", order_by="Message.created_at"
     )
@@ -226,7 +281,7 @@ class Lead(Base):
     __tablename__ = "leads"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id"), nullable=False)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id"), nullable=False)
     conversation_id = Column(UUID(as_uuid=False), ForeignKey("conversations.id"), unique=True, nullable=True)
     name = Column(String(255), nullable=True)
     phone = Column(String(32), nullable=True)
@@ -237,7 +292,7 @@ class Lead(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    business = relationship("Business", back_populates="leads")
+    agency = relationship("Agency", back_populates="leads")
     conversation = relationship("Conversation", back_populates="lead")
 
 
@@ -257,14 +312,14 @@ class AppointmentStatus(str, enum.Enum):
 
 class Appointment(Base):
     """A booked slot. `scheduled_at`/`end_at` are stored in UTC (timezone-aware);
-    all human-facing times are rendered in the business's timezone. Overlap
+    all human-facing times are rendered in the agency's timezone. Overlap
     detection and reminders query these UTC columns directly."""
 
     __tablename__ = "appointments"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(
-        UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True
+    agency_id = Column(
+        UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True
     )
     lead_id = Column(
         UUID(as_uuid=False), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True
@@ -297,38 +352,38 @@ class Appointment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    business = relationship("Business", back_populates="appointments")
+    agency = relationship("Agency", back_populates="appointments")
     lead = relationship("Lead")
     conversation = relationship("Conversation")
 
 
 class BusinessHours(Base):
-    """Opening hours per weekday, per business. Drives availability. One row
+    """Opening hours per weekday, per agency. Drives availability. One row
     per weekday (0=Monday .. 6=Sunday). Missing/closed weekdays => no slots."""
 
     __tablename__ = "business_hours"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(
-        UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True
+    agency_id = Column(
+        UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True
     )
     weekday = Column(Integer, nullable=False)  # 0=Mon .. 6=Sun
     is_open = Column(Boolean, default=True)
-    open_time = Column(Time, nullable=True)    # local (business timezone) wall-clock
+    open_time = Column(Time, nullable=True)    # local (agency timezone) wall-clock
     close_time = Column(Time, nullable=True)
 
-    business = relationship("Business", back_populates="business_hours")
+    agency = relationship("Agency", back_populates="business_hours")
 
 
 class SchedulingSettings(Base):
-    """Per-tenant booking rules. Sensible defaults so a business can book the
+    """Per-tenant booking rules. Sensible defaults so an agency can book the
     moment it signs up, tunable from the dashboard later."""
 
     __tablename__ = "scheduling_settings"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(
-        UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"),
+    agency_id = Column(
+        UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"),
         unique=True, nullable=False, index=True,
     )
     slot_duration_minutes = Column(Integer, default=30, nullable=False)
@@ -338,19 +393,19 @@ class SchedulingSettings(Base):
     reminder_offsets_hours = Column(JSON, default=lambda: [24, 2])    # send reminders 24h and 2h before
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    business = relationship("Business", back_populates="scheduling_settings")
+    agency = relationship("Agency", back_populates="scheduling_settings")
 
 
 class CalendarCredential(Base):
-    """Stored OAuth tokens for a business's connected calendar (Google today).
-    One row per business per provider. Written by the OAuth callback, read by
+    """Stored OAuth tokens for an agency's connected calendar (Google today).
+    One row per agency per provider. Written by the OAuth callback, read by
     the calendar sync adapter."""
 
     __tablename__ = "calendar_credentials"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(
-        UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"),
+    agency_id = Column(
+        UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
     provider = Column(String(32), default="google")  # google | outlook | apple
@@ -367,7 +422,7 @@ class EmailLog(Base):
     __tablename__ = "email_logs"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id"), nullable=False)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id"), nullable=False)
     lead_id = Column(UUID(as_uuid=False), ForeignKey("leads.id"), nullable=False)
     email_type = Column(String(32), nullable=False)  # welcome | quotation | follow_up | reminder
     sent_at = Column(DateTime, default=datetime.utcnow)
@@ -383,7 +438,7 @@ class AIDraft(Base):
     __tablename__ = "ai_drafts"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id"), nullable=False, index=True)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id"), nullable=False, index=True)
     lead_id = Column(UUID(as_uuid=False), ForeignKey("leads.id"), nullable=True)
 
     kind = Column(String(16), nullable=False)  # quotation | campaign
@@ -394,7 +449,7 @@ class AIDraft(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    business = relationship("Business")
+    agency = relationship("Agency")
     lead = relationship("Lead")
 
 
@@ -404,26 +459,26 @@ class AIDraft(Base):
 
 
 class ChannelCredential(Base):
-    """A business's connection to one messaging channel (WhatsApp or
+    """An agency's connection to one messaging channel (WhatsApp or
     Instagram), analogous to CalendarCredential for Google Calendar. One row
-    per business per channel.
+    per agency per channel.
 
     App-level Meta secrets (the app secret used to verify webhook
     signatures, the webhook verify token) live in environment variables -
     they belong to AIFlow's own Meta App, not to any one tenant. What's
-    tenant-specific and belongs here is the connection to one business's
+    tenant-specific and belongs here is the connection to one agency's
     WhatsApp number or Instagram account: which number/account it is
     (`external_account_id` - WhatsApp's `phone_number_id` or Instagram's
-    IG-scoped business account id) and the access token authorized to send
+    IG-scoped agency account id) and the access token authorized to send
     messages as it. `external_account_id` is what an inbound webhook uses
-    to resolve which business a message belongs to - see
+    to resolve which agency a message belongs to - see
     services/channels/credentials.py."""
 
     __tablename__ = "channel_credentials"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(
-        UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"),
+    agency_id = Column(
+        UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
     channel = Column(String(32), nullable=False)  # whatsapp | instagram
@@ -435,14 +490,14 @@ class ChannelCredential(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    business = relationship("Business")
+    agency = relationship("Agency")
 
     __table_args__ = (
-        UniqueConstraint("business_id", "channel", name="uq_channel_credentials_business_channel"),
+        UniqueConstraint("agency_id", "channel", name="uq_channel_credentials_business_channel"),
         # Tenant isolation, enforced at the database level rather than left
         # as an assumption: the same WhatsApp phone_number_id or Instagram
-        # account can never be claimed by two businesses at once, which
-        # would otherwise let get_business_for_external_account() resolve
+        # account can never be claimed by two agencies at once, which
+        # would otherwise let get_agency_for_external_account() resolve
         # a webhook to the wrong tenant. Postgres treats NULLs as distinct
         # from each other, so many disconnected rows (which clear this
         # field - see disconnect_credential()) can coexist safely.
@@ -464,7 +519,7 @@ class ChannelWebhookEvent(Base):
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     channel = Column(String(32), nullable=False)  # whatsapp | instagram
     external_message_id = Column(String(255), nullable=False)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=True)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=True)
     received_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
@@ -480,7 +535,7 @@ class SupportTicket(Base):
     __tablename__ = "support_tickets"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id"), nullable=False, index=True)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id"), nullable=False, index=True)
     lead_id = Column(UUID(as_uuid=False), ForeignKey("leads.id"), nullable=True)
 
     issue_summary = Column(Text, nullable=False)
@@ -490,14 +545,14 @@ class SupportTicket(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    business = relationship("Business")
+    agency = relationship("Agency")
     lead = relationship("Lead")
 
 
 class NotificationPreference(Base):
-    """Per-business, per-event, per-channel on/off toggle. A missing row
+    """Per-agency, per-event, per-channel on/off toggle. A missing row
     means "enabled" (see app/services/notifications/preferences.py's
-    is_enabled()) - this is an opt-OUT model, so a business that never
+    is_enabled()) - this is an opt-OUT model, so an agency that never
     visits this settings page keeps getting exactly the notifications
     that already fire today (appointment confirm/remind/cancel/
     reschedule to the customer, new-lead/support-escalation to the
@@ -507,7 +562,7 @@ class NotificationPreference(Base):
     __tablename__ = "notification_preferences"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # See app/services/notifications/preferences.py for the canonical event/
     # channel lists this must stay in sync with.
@@ -518,16 +573,16 @@ class NotificationPreference(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    business = relationship("Business")
+    agency = relationship("Agency")
 
     __table_args__ = (
-        UniqueConstraint("business_id", "event_type", "channel", name="uq_notification_pref_business_event_channel"),
+        UniqueConstraint("agency_id", "event_type", "channel", name="uq_notification_pref_business_event_channel"),
     )
 
 
 class GmailCredential(Base):
-    """Stored OAuth tokens for a business's connected Gmail account. One row
-    per business (unlike CalendarCredential, which is keyed by provider too
+    """Stored OAuth tokens for an agency's connected Gmail account. One row
+    per agency (unlike CalendarCredential, which is keyed by provider too
     since it anticipates Outlook/Apple - Gmail is Gmail). Written by the
     OAuth callback (app/routers/gmail.py), read by
     app/services/gmail/gmail_adapter.py. Same shape/refresh pattern as
@@ -547,8 +602,8 @@ class GmailCredential(Base):
     __tablename__ = "gmail_credentials"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(
-        UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"),
+    agency_id = Column(
+        UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"),
         nullable=False, unique=True, index=True,
     )
     google_email = Column(String(255), nullable=True)  # display only - which inbox is connected
@@ -562,7 +617,7 @@ class GmailCredential(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    business = relationship("Business")
+    agency = relationship("Agency")
 
 
 class GmailPendingAction(Base):
@@ -577,7 +632,7 @@ class GmailPendingAction(Base):
     __tablename__ = "gmail_pending_actions"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
     conversation_id = Column(UUID(as_uuid=False), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True)
 
     employee = Column(String(32), nullable=True)  # which AI Workforce employee proposed this
@@ -594,7 +649,7 @@ class GmailPendingAction(Base):
     decided_at = Column(DateTime, nullable=True)
     decided_by_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
-    business = relationship("Business")
+    agency = relationship("Agency")
     conversation = relationship("Conversation")
     decided_by = relationship("User")
 
@@ -606,7 +661,7 @@ class GmailPendingAction(Base):
 # Knowledge is a DATA/RETRIEVAL layer, not a second AI brain: Manager and
 # every specialist employee still run through the same Planner/ToolRouter
 # pipeline as always (see app/tools/knowledge_tool.py) - this only adds
-# what a business's own uploaded documents actually say as one more real,
+# what an agency's own uploaded documents actually say as one more real,
 # tenant-scoped, read-only tool result, exactly like AppointmentTool or
 # LeadTool already are. See app/services/knowledge/ for the ingestion/
 # retrieval pipeline and ARCHITECTURE.md's "Knowledge Base / RAG" section.
@@ -619,8 +674,8 @@ class KnowledgeDocumentStatus(str, enum.Enum):
 
 
 class KnowledgeDocument(Base):
-    """One row per uploaded business document (PDF/DOCX/TXT). The raw file
-    is stored on disk under a per-business directory (storage_path) -
+    """One row per uploaded agency document (PDF/DOCX/TXT). The raw file
+    is stored on disk under a per-agency directory (storage_path) -
     never trusted by name alone; see app/services/knowledge/storage.py for
     the sanitization this relies on. `status` is the only thing the
     frontend/Manager should ever trust to know whether this document's
@@ -630,7 +685,7 @@ class KnowledgeDocument(Base):
     __tablename__ = "knowledge_documents"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
 
     title = Column(String(255), nullable=False)  # user-facing name - defaults to the original filename
     filename = Column(String(255), nullable=False)  # original filename as uploaded, display-only
@@ -647,15 +702,15 @@ class KnowledgeDocument(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    business = relationship("Business")
+    agency = relationship("Agency")
     chunks = relationship("KnowledgeChunk", back_populates="document", cascade="all, delete-orphan")
 
 
 class KnowledgeChunk(Base):
     """One row per chunk of an extracted document, with its embedding.
-    business_id is denormalized from the parent document (not just
+    agency_id is denormalized from the parent document (not just
     reachable via a join) specifically so every retrieval query can filter
-    `WHERE business_id = :business_id` directly on this table - the one
+    `WHERE agency_id = :agency_id` directly on this table - the one
     thing that must never be gotten wrong for a multi-tenant vector store
     (see app/services/knowledge/retrieval.py). Deleting the parent
     KnowledgeDocument cascades here automatically (see the relationship
@@ -665,7 +720,7 @@ class KnowledgeChunk(Base):
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     document_id = Column(UUID(as_uuid=False), ForeignKey("knowledge_documents.id", ondelete="CASCADE"), nullable=False, index=True)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
 
     chunk_index = Column(Integer, nullable=False)  # 0-based position within the document - preserves reading order
     content = Column(Text, nullable=False)
@@ -676,7 +731,7 @@ class KnowledgeChunk(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     document = relationship("KnowledgeDocument", back_populates="chunks")
-    business = relationship("Business")
+    agency = relationship("Agency")
 
     __table_args__ = (
         UniqueConstraint("document_id", "chunk_index", name="uq_knowledge_chunk_document_index"),
@@ -688,7 +743,7 @@ class KnowledgeChunk(Base):
 # =====================================================================
 #
 # A deterministic execution layer, NOT a second AI brain: a workflow is
-# real, business-authored configuration (trigger + conditions + actions)
+# real, agency-authored configuration (trigger + conditions + actions)
 # that fires when a real event already happening elsewhere in this app
 # (a lead created, an appointment booked, a support ticket escalated)
 # occurs - see app/services/workflows/. The LLM is never given the
@@ -742,7 +797,7 @@ class ApprovalRequestStatus(str, enum.Enum):
 
 
 class Workflow(Base):
-    """One row per business-authored automation. `conditions` and
+    """One row per agency-authored automation. `conditions` and
     `actions` are small, validated JSON lists (see
     app/services/workflows/config.py for the exact shapes) - never
     arbitrary code, never an LLM prompt, never a free-text script. Only
@@ -754,7 +809,7 @@ class Workflow(Base):
     __tablename__ = "workflows"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
 
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
@@ -773,7 +828,7 @@ class Workflow(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    business = relationship("Business")
+    agency = relationship("Agency")
     runs = relationship("WorkflowRun", back_populates="workflow", cascade="all, delete-orphan")
 
 
@@ -789,7 +844,7 @@ class WorkflowRun(Base):
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     workflow_id = Column(UUID(as_uuid=False), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
 
     status = Column(SAEnum(WorkflowRunStatus, name="workflow_run_status"), nullable=False, default=WorkflowRunStatus.pending)
     trigger_event_id = Column(String(255), nullable=False)  # e.g. "lead_created:<lead_id>" - see engine.py
@@ -799,7 +854,7 @@ class WorkflowRun(Base):
     completed_at = Column(DateTime, nullable=True)
     error = Column(Text, nullable=True)
 
-    business = relationship("Business")
+    agency = relationship("Agency")
     workflow = relationship("Workflow", back_populates="runs")
     steps = relationship("WorkflowStepRun", back_populates="run", cascade="all, delete-orphan", order_by="WorkflowStepRun.step_index")
 
@@ -813,7 +868,7 @@ class WorkflowStepRun(Base):
     `approval_request_id` links to a generic ApprovalRequest when a
     workflow-level `requires_approval` gate applies; `gmail_pending_action_id`
     links to Gmail's OWN existing GmailPendingAction when a `send_gmail`
-    action's outcome is itself gated by the business's Gmail send_mode -
+    action's outcome is itself gated by the agency's Gmail send_mode -
     two distinct approval mechanisms, never merged into one, so Gmail's
     existing approval behavior is reused exactly as it already works
     everywhere else in this app, not reimplemented."""
@@ -857,7 +912,7 @@ class ApprovalRequest(Base):
     __tablename__ = "approval_requests"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
-    business_id = Column(UUID(as_uuid=False), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
     workflow_step_run_id = Column(UUID(as_uuid=False), ForeignKey("workflow_step_runs.id", ondelete="CASCADE"), nullable=False, unique=True)
 
     action_type = Column(String(64), nullable=False)
@@ -869,7 +924,7 @@ class ApprovalRequest(Base):
     decided_at = Column(DateTime, nullable=True)
     decided_by_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
-    business = relationship("Business")
+    agency = relationship("Agency")
     decided_by = relationship("User")
     # Two FK paths connect these two tables (this row's own
     # workflow_step_run_id, and WorkflowStepRun.approval_request_id

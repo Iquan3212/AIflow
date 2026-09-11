@@ -1,8 +1,8 @@
 """Tool definitions and handlers for the authenticated AI Employee.
 
 These tools are deliberately separate from the public receptionist tools. The
-dashboard assistant works for the business owner, so it can inspect the
-tenant's CRM and calendar, while every query is still scoped to one business.
+dashboard assistant works for the agency owner, so it can inspect the
+tenant's CRM and calendar, while every query is still scoped to one agency.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ def dashboard_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "get_dashboard_summary",
-                "description": "Get current, tenant-scoped counts for chats, leads, and appointments. Use for questions about business performance or workload.",
+                "description": "Get current, tenant-scoped counts for chats, leads, and appointments. Use for questions about agency performance or workload.",
                 "parameters": {"type": "object", "properties": {}},
             },
         },
@@ -35,7 +35,7 @@ def dashboard_tool_definitions() -> list[dict]:
             "type": "function",
             "function": {
                 "name": "find_leads",
-                "description": "Find leads for this business by name, email, phone, service, or status. Use before claiming CRM facts.",
+                "description": "Find leads for this agency by name, email, phone, service, or status. Use before claiming CRM facts.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -108,9 +108,9 @@ def dashboard_tool_definitions() -> list[dict]:
 
 
 class DashboardToolDispatcher:
-    def __init__(self, db: Session, business: models.Business):
+    def __init__(self, db: Session, agency: models.Agency):
         self.db = db
-        self.business = business
+        self.agency = agency
         self.appointments = AppointmentService(db)
 
     def run(self, name: str, args: dict) -> str:
@@ -128,29 +128,29 @@ class DashboardToolDispatcher:
         now = datetime.now(timezone.utc)
         today_start = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
         upcoming = self.db.query(models.Appointment).filter(
-            models.Appointment.business_id == self.business.id,
+            models.Appointment.agency_id == self.agency.id,
             models.Appointment.status != models.AppointmentStatus.cancelled,
             models.Appointment.scheduled_at >= now,
         ).count()
         return {
             "ok": True,
             "today_chats": self.db.query(models.Conversation).filter(
-                models.Conversation.business_id == self.business.id,
+                models.Conversation.agency_id == self.agency.id,
                 models.Conversation.channel != "employee",
                 models.Conversation.started_at >= today_start,
             ).count(),
             "new_leads_today": self.db.query(models.Lead).filter(
-                models.Lead.business_id == self.business.id,
+                models.Lead.agency_id == self.agency.id,
                 models.Lead.created_at >= today_start,
             ).count(),
             "total_leads": self.db.query(models.Lead).filter(
-                models.Lead.business_id == self.business.id,
+                models.Lead.agency_id == self.agency.id,
             ).count(),
             "upcoming_appointments": upcoming,
         }
 
     def _find_leads(self, args: dict) -> dict:
-        query = self.db.query(models.Lead).filter(models.Lead.business_id == self.business.id)
+        query = self.db.query(models.Lead).filter(models.Lead.agency_id == self.agency.id)
         status = (args.get("status") or "").strip()
         if status:
             query = query.filter(models.Lead.status == status)
@@ -188,7 +188,7 @@ class DashboardToolDispatcher:
         )}
         if not any(fields.values()):
             return {"ok": False, "error": "missing_lead_details"}
-        lead = models.Lead(business_id=self.business.id, **fields)
+        lead = models.Lead(agency_id=self.agency.id, **fields)
         self.db.add(lead)
         self.db.commit()
         self.db.refresh(lead)
@@ -198,7 +198,7 @@ class DashboardToolDispatcher:
         target_date = self._parse_date(args.get("date_local"))
         now = datetime.now(timezone.utc)
         rows = self.db.query(models.Appointment).filter(
-            models.Appointment.business_id == self.business.id,
+            models.Appointment.agency_id == self.agency.id,
             models.Appointment.status != models.AppointmentStatus.cancelled,
         ).order_by(models.Appointment.scheduled_at.asc()).all()
         # scheduled_at is stored UTC-aware, but some DB backends (e.g. SQLite)
@@ -209,7 +209,7 @@ class DashboardToolDispatcher:
             for row in rows
         }
         if target_date:
-            rows = [row for row in rows if to_local(scheduled_utc[row.id], self.business.timezone).date() == target_date]
+            rows = [row for row in rows if to_local(scheduled_utc[row.id], self.agency.timezone).date() == target_date]
         else:
             horizon = now + timedelta(days=7)
             rows = [row for row in rows if now <= scheduled_utc[row.id] <= horizon]
@@ -220,7 +220,7 @@ class DashboardToolDispatcher:
                     "id": row.id,
                     "customer_name": row.customer_name,
                     "service": row.service,
-                    "when": humanize(scheduled_utc[row.id], self.business.timezone),
+                    "when": humanize(scheduled_utc[row.id], self.agency.timezone),
                     "status": row.status.value if hasattr(row.status, "value") else str(row.status),
                 }
                 for row in rows[:20]
@@ -231,14 +231,14 @@ class DashboardToolDispatcher:
         target_date = self._parse_date(args.get("date_local"))
         if not target_date:
             return {"ok": False, "error": "bad_date", "message": "Use YYYY-MM-DD."}
-        slots = self.appointments.list_slots(self.business, target_date)
+        slots = self.appointments.list_slots(self.agency, target_date)
         return {
             "ok": True,
             "date": target_date.isoformat(),
             "slots": [
                 {
-                    "start_local_iso": to_local(slot, self.business.timezone).strftime("%Y-%m-%dT%H:%M"),
-                    "label": humanize(slot, self.business.timezone),
+                    "start_local_iso": to_local(slot, self.agency.timezone).strftime("%Y-%m-%dT%H:%M"),
+                    "label": humanize(slot, self.agency.timezone),
                 }
                 for slot in slots[:20]
             ],
@@ -248,7 +248,7 @@ class DashboardToolDispatcher:
         if not args.get("customer_phone") and not args.get("customer_email"):
             return {"ok": False, "error": "missing_contact"}
         outcome = self.appointments.book(
-            self.business,
+            self.agency,
             start_local_iso=args.get("start_local_iso", ""),
             customer_name=args.get("customer_name"),
             customer_phone=args.get("customer_phone"),

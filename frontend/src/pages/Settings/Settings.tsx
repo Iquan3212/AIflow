@@ -9,7 +9,7 @@ import Button from "../../components/ui/Button";
 import Badge from "../../components/ui/Badge";
 import { ErrorState, LoadingState, EmptyState } from "../../components/ui/States";
 import { getErrorMessage, baseURL } from "../../services/api";
-import { getCurrentBusiness, updateCurrentBusiness } from "../../services/business";
+import { getCurrentAgency, updateCurrentAgency } from "../../services/agency";
 import { getChatbotConfig, updateChatbotConfig } from "../../services/chatbot";
 import { listSessions, revokeSession, type Session } from "../../services/sessions";
 import { getGoogleStatus, type GoogleStatus } from "../../services/appointments";
@@ -20,7 +20,7 @@ import {
     type ChannelCredential,
     type ChannelName,
 } from "../../services/channels";
-import type { Business } from "../../services/business";
+import type { Agency } from "../../services/agency";
 import type { ChatbotConfig } from "../../types/chatbot";
 import {
     getNotificationPreferences,
@@ -40,7 +40,7 @@ import {
     type GmailPendingAction,
 } from "../../services/gmail";
 
-const TABS = ["Business", "AI", "Integrations", "Notifications", "Security"] as const;
+const TABS = ["Agency", "AI", "Integrations", "Notifications", "Security"] as const;
 type Tab = (typeof TABS)[number];
 
 function SavedBadge({ show }: { show: boolean }) {
@@ -52,8 +52,8 @@ function SavedBadge({ show }: { show: boolean }) {
     );
 }
 
-function BusinessTab() {
-    const [business, setBusiness] = useState<Business | null>(null);
+function AgencyTab() {
+    const [agency, setAgency] = useState<Agency | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [form, setForm] = useState({ name: "", industry: "", timezone: "" });
     const [saving, setSaving] = useState(false);
@@ -62,8 +62,8 @@ function BusinessTab() {
     async function load() {
         setError(null);
         try {
-            const data = await getCurrentBusiness();
-            setBusiness(data);
+            const data = await getCurrentAgency();
+            setAgency(data);
             setForm({ name: data.name, industry: data.industry ?? "", timezone: data.timezone });
         } catch (err) {
             setError(getErrorMessage(err));
@@ -79,8 +79,8 @@ function BusinessTab() {
         setSaved(false);
         setError(null);
         try {
-            const updated = await updateCurrentBusiness(form);
-            setBusiness(updated);
+            const updated = await updateCurrentAgency(form);
+            setAgency(updated);
             setSaved(true);
         } catch (err) {
             setError(getErrorMessage(err));
@@ -89,14 +89,14 @@ function BusinessTab() {
         }
     }
 
-    if (!business && !error) return <LoadingState label="Loading business profile…" />;
-    if (error && !business) return <ErrorState message={error} onRetry={load} />;
+    if (!agency && !error) return <LoadingState label="Loading agency profile…" />;
+    if (error && !agency) return <ErrorState message={error} onRetry={load} />;
 
     return (
         <Card className="p-5 max-w-lg space-y-4">
             {error && <p className="text-sm text-red-600">{error}</p>}
             <div>
-                <label className="text-sm font-medium text-slate-700" htmlFor="biz-name">Business name</label>
+                <label className="text-sm font-medium text-slate-700" htmlFor="biz-name">Agency name</label>
                 <input
                     id="biz-name"
                     value={form.name}
@@ -126,11 +126,11 @@ function BusinessTab() {
             <div className="grid grid-cols-2 gap-4 pt-2 text-sm text-slate-500">
                 <div>
                     <p className="text-xs text-slate-400">Plan</p>
-                    <p className="font-medium text-slate-700">{business?.plan?.toUpperCase()}</p>
+                    <p className="font-medium text-slate-700">{agency?.plan?.toUpperCase()}</p>
                 </div>
                 <div>
                     <p className="text-xs text-slate-400">Contact email</p>
-                    <p className="font-medium text-slate-700">{business?.contact_email}</p>
+                    <p className="font-medium text-slate-700">{agency?.contact_email}</p>
                 </div>
             </div>
             <div className="flex items-center gap-3 pt-2">
@@ -192,10 +192,10 @@ function AiTab() {
         <Card className="p-5 max-w-xl space-y-4">
             {error && <p className="text-sm text-red-600">{error}</p>}
             <p className="text-sm text-slate-500">
-                This grounds every AI Workforce reply - what it knows about your business, and its tone.
+                This grounds every AI Workforce reply - what it knows about your agency, and its tone.
             </p>
             <div>
-                <label className="text-sm font-medium text-slate-700" htmlFor="ai-desc">Business description</label>
+                <label className="text-sm font-medium text-slate-700" htmlFor="ai-desc">Agency description</label>
                 <textarea
                     id="ai-desc"
                     rows={3}
@@ -626,7 +626,7 @@ function ChannelCard({
                         <input
                             value={form.display_name}
                             onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))}
-                            placeholder={channel === "whatsapp" ? "e.g. +1 555-000-1111" : "e.g. @yourbusiness"}
+                            placeholder={channel === "whatsapp" ? "e.g. +1 555-000-1111" : "e.g. @youragency"}
                             className="w-full mt-1 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-brand-500"
                         />
                     </div>
@@ -645,7 +645,7 @@ function ChannelCard({
                             </code>{" "}
                             on the server
                         </p>
-                        <p>Requires Meta Business verification before real traffic can reach it - see DEPLOYMENT.md.</p>
+                        <p>Requires Meta Agency verification before real traffic can reach it - see DEPLOYMENT.md.</p>
                     </div>
                 </div>
             )}
@@ -861,11 +861,11 @@ function SecurityTab() {
 }
 
 export default function Settings() {
-    const [tab, setTab] = useState<Tab>("Business");
+    const [tab, setTab] = useState<Tab>("Agency");
 
     return (
         <AppShell>
-            <PageHeader title="Settings" description="Configure your business profile, AI behavior, and account security." />
+            <PageHeader title="Settings" description="Configure your agency profile, AI behavior, and account security." />
 
             <div className="flex gap-1 border-b border-slate-200 mb-6 overflow-x-auto" role="tablist">
                 {TABS.map((t) => (
@@ -883,7 +883,7 @@ export default function Settings() {
                 ))}
             </div>
 
-            {tab === "Business" && <BusinessTab />}
+            {tab === "Agency" && <AgencyTab />}
             {tab === "AI" && <AiTab />}
             {tab === "Integrations" && <IntegrationsTab />}
             {tab === "Notifications" && <NotificationsTab />}

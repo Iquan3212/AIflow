@@ -12,14 +12,14 @@ class DraftService:
 
     def create(
         self,
-        business_id: str,
+        agency_id: str,
         kind: str,
         content: str,
         title: str | None = None,
         lead_id: str | None = None,
     ) -> models.AIDraft:
         draft = models.AIDraft(
-            business_id=business_id,
+            agency_id=agency_id,
             kind=kind,
             content=content,
             title=title,
@@ -30,21 +30,21 @@ class DraftService:
         self.db.refresh(draft)
         return draft
 
-    def get_all(self, business_id: str, kind: str | None = None) -> list[models.AIDraft]:
-        query = self.db.query(models.AIDraft).filter(models.AIDraft.business_id == business_id)
+    def get_all(self, agency_id: str, kind: str | None = None) -> list[models.AIDraft]:
+        query = self.db.query(models.AIDraft).filter(models.AIDraft.agency_id == agency_id)
         if kind:
             query = query.filter(models.AIDraft.kind == kind)
         return query.order_by(models.AIDraft.created_at.desc()).all()
 
-    def get(self, draft_id: str, business_id: str) -> models.AIDraft | None:
+    def get(self, draft_id: str, agency_id: str) -> models.AIDraft | None:
         return (
             self.db.query(models.AIDraft)
-            .filter(models.AIDraft.id == draft_id, models.AIDraft.business_id == business_id)
+            .filter(models.AIDraft.id == draft_id, models.AIDraft.agency_id == agency_id)
             .first()
         )
 
-    def update_status(self, draft_id: str, business_id: str, status: str) -> models.AIDraft | None:
-        draft = self.get(draft_id, business_id)
+    def update_status(self, draft_id: str, agency_id: str, status: str) -> models.AIDraft | None:
+        draft = self.get(draft_id, agency_id)
         if draft is None:
             return None
         draft.status = status
@@ -52,8 +52,8 @@ class DraftService:
         self.db.refresh(draft)
         return draft
 
-    def delete(self, draft_id: str, business_id: str) -> bool:
-        draft = self.get(draft_id, business_id)
+    def delete(self, draft_id: str, agency_id: str) -> bool:
+        draft = self.get(draft_id, agency_id)
         if draft is None:
             return False
         self.db.delete(draft)

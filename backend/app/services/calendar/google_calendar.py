@@ -1,7 +1,7 @@
 """
 Google Calendar sync. Reads the OAuth tokens stored by the connect flow
 (services/calendar/google_oauth.py + routers/integrations.py) and mirrors
-appointments into the business's primary Google Calendar.
+appointments into the agency's primary Google Calendar.
 
 is_configured() only touches the DB, so answering "is calendar connected?" is
 cheap and needs no Google library. The actual API calls lazily import
@@ -29,29 +29,29 @@ class GoogleCalendarSync:
 
     # ---- credential access --------------------------------------------------
 
-    def _row(self, business) -> "models.CalendarCredential | None":
+    def _row(self, agency) -> "models.CalendarCredential | None":
         if self.db is None:
             return None
         return (
             self.db.query(models.CalendarCredential)
             .filter(
-                models.CalendarCredential.business_id == business.id,
+                models.CalendarCredential.agency_id == agency.id,
                 models.CalendarCredential.provider == "google",
             )
             .first()
         )
 
-    def is_configured(self, business) -> bool:
+    def is_configured(self, agency) -> bool:
         if not google_oauth.is_google_configured():
             return False
-        row = self._row(business)
+        row = self._row(agency)
         return bool(row and row.refresh_token)
 
-    def _credentials(self, business):
+    def _credentials(self, agency):
         """Build a google Credentials object, refreshing the access token if it
         has expired. Returns None if creds are missing or google-auth isn't
         installed."""
-        row = self._row(business)
+        row = self._row(agency)
         if not row or not row.refresh_token:
             return None
         try:
@@ -72,7 +72,7 @@ class GoogleCalendarSync:
                 self.db.commit()
             except Exception:
                 logger.exception("integration.google_calendar.refresh_failed", extra={"ctx": {
-                    "event": "integration.google_calendar.refresh_failed", "business_id": business.id,
+                    "event": "integration.google_calendar.refresh_failed", "agency_id": agency.id,
                 }})
                 return None
 
@@ -85,9 +85,9 @@ class GoogleCalendarSync:
             scopes=(row.scopes or google_oauth.SCOPES).split(),
         )
 
-    def _service(self, business):
+    def _service(self, agency):
         from googleapiclient.discovery import build  # optional dep
-        creds = self._credentials(business)
+        creds = self._credentials(agency)
         if creds is None:
             return None
         return build("calendar", "v3", credentials=creds, cache_discovery=False)
@@ -105,32 +105,32 @@ class GoogleCalendarSync:
             body["attendees"] = [{"email": event.attendee_email}]
         return body
 
-    def create_event(self, business, event: CalendarEvent) -> str | None:
-        if not self.is_configured(business):
+    def create_event(self, agency, event: CalendarEvent) -> str | None:
+        if not self.is_configured(agency):
             return None
-        service = self._service(business)
+        service = self._service(agency)
         if service is None:
             return None
         created = service.events().insert(calendarId="primary", body=self._body(event)).execute()
         return created.get("id")
 
-    def update_event(self, business, event_id: str, event: CalendarEvent) -> None:
-        if not self.is_configured(business):
+    def update_event(self, agency, event_id: str, event: CalendarEvent) -> None:
+        if not self.is_configured(agency):
             return
-        service = self._service(business)
+        service = self._service(agency)
         if service is None:
             return
         service.events().update(calendarId="primary", eventId=event_id, body=self._body(event)).execute()
 
-    def delete_event(self, business, event_id: str) -> None:
-        if not self.is_configured(business):
+    def delete_event(self, agency, event_id: str) -> None:
+        if not self.is_configured(agency):
             return
-        service = self._service(business)
+        service = self._service(agency)
         if service is None:
             return
         try:
             service.events().delete(calendarId="primary", eventId=event_id).execute()
         except Exception:
             logger.exception("integration.google_calendar.delete_failed", extra={"ctx": {
-                "event": "integration.google_calendar.delete_failed", "business_id": business.id,
+                "event": "integration.google_calendar.delete_failed", "agency_id": agency.id,
             }})

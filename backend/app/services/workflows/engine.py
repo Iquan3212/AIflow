@@ -7,7 +7,7 @@ an LLM choose what to do next - conditions are evaluated by
 conditions.py, actions are dispatched by actions.py's fixed registry, and
 approval gates are real database rows, not a model's opinion. A failure
 inside one workflow's execution is always caught and recorded, never
-allowed to propagate up and break the real business operation (a lead
+allowed to propagate up and break the real agency operation (a lead
 being saved, an appointment being booked) that triggered it.
 
 Idempotency (Step 12): `WorkflowRun` has a UNIQUE(workflow_id,
@@ -57,7 +57,7 @@ class WorkflowEngine:
             return existing
 
         run = models.WorkflowRun(
-            workflow_id=workflow.id, business_id=workflow.business_id,
+            workflow_id=workflow.id, agency_id=workflow.agency_id,
             status=models.WorkflowRunStatus.running, trigger_event_id=trigger_event_id,
             trigger_data=trigger_data, started_at=datetime.utcnow(),
         )
@@ -109,7 +109,7 @@ class WorkflowEngine:
     # Step execution
     # ------------------------------------------------------------------
     def _execute_from(self, run: models.WorkflowRun, workflow: models.Workflow, start_index: int) -> None:
-        business = self.db.query(models.Business).filter(models.Business.id == run.business_id).first()
+        agency = self.db.query(models.Agency).filter(models.Agency.id == run.agency_id).first()
         actions = workflow.actions or []
 
         for index in range(start_index, len(actions)):
@@ -128,7 +128,7 @@ class WorkflowEngine:
                 self._pause_for_generic_approval(run, step, action_type, action_config)
                 return
 
-            outcome = execute_action(action_type, self.db, business, run.trigger_data, action_config.get("config", {}))
+            outcome = execute_action(action_type, self.db, agency, run.trigger_data, action_config.get("config", {}))
             self._apply_outcome(run, step, outcome)
 
             if step.status == models.WorkflowStepStatus.waiting_approval:
@@ -188,7 +188,7 @@ class WorkflowEngine:
     def _pause_for_generic_approval(self, run, step, action_type, action_config) -> None:
         summary = action_config.get("config", {}).get("summary") or f"Approve action: {action_type}"
         approval = models.ApprovalRequest(
-            business_id=run.business_id, workflow_step_run_id=step.id,
+            agency_id=run.agency_id, workflow_step_run_id=step.id,
             action_type=action_type, summary=summary,
         )
         self.db.add(approval)
@@ -224,9 +224,9 @@ class WorkflowEngine:
             return run
 
         # Approved: actually execute the gated action now.
-        business = self.db.query(models.Business).filter(models.Business.id == run.business_id).first()
+        agency = self.db.query(models.Agency).filter(models.Agency.id == run.agency_id).first()
         action_config = step.input or {}
-        outcome = execute_action(action_config.get("type"), self.db, business, run.trigger_data, action_config.get("config", {}))
+        outcome = execute_action(action_config.get("type"), self.db, agency, run.trigger_data, action_config.get("config", {}))
         step.status = models.WorkflowStepStatus.running
         self._apply_outcome(run, step, outcome)
 

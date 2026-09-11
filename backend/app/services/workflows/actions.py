@@ -78,7 +78,7 @@ class ActionOutcome:
     gmail_pending_action_id: str | None = None
 
 
-def _action_send_notification(db: Session, business: models.Business, trigger_data: dict, config: dict) -> ActionOutcome:
+def _action_send_notification(db: Session, agency: models.Agency, trigger_data: dict, config: dict) -> ActionOutcome:
     """Reuses NotificationDispatcher exactly as every other trigger site
     in this app already does (Step 20: existing notification preferences
     remain authoritative - is_enabled() is checked INSIDE the dispatcher,
@@ -95,7 +95,7 @@ def _action_send_notification(db: Session, business: models.Business, trigger_da
     dispatcher = NotificationDispatcher()
 
     if audience == "owner":
-        results = dispatcher.notify_owner(db=db, business=business, event_type=event_type, subject=subject, body=body)
+        results = dispatcher.notify_owner(db=db, agency=agency, event_type=event_type, subject=subject, body=body)
     elif audience == "customer":
         name = resolve_field(trigger_data, config.get("name_field", ""))
         email = resolve_field(trigger_data, config.get("email_field", ""))
@@ -103,7 +103,7 @@ def _action_send_notification(db: Session, business: models.Business, trigger_da
         if not (email or phone):
             return ActionOutcome(status="failed", error="No customer email or phone available in trigger data.")
         results = dispatcher.notify_customer(
-            db=db, business_id=business.id, event_type=event_type,
+            db=db, agency_id=agency.id, event_type=event_type,
             name=name, email=email, phone=phone, subject=subject, body=body,
         )
     else:
@@ -121,7 +121,7 @@ def _resolve_gmail_target(trigger_data: dict, config: dict) -> tuple[str | None,
     return to, subject
 
 
-def _action_create_gmail_draft(db: Session, business: models.Business, trigger_data: dict, config: dict) -> ActionOutcome:
+def _action_create_gmail_draft(db: Session, agency: models.Agency, trigger_data: dict, config: dict) -> ActionOutcome:
     """Reuses GmailService.draft() exactly - a draft is always safe/
     immediate under this app's existing Gmail design (Step 18: never
     bypass Gmail OAuth/connection checks/send mode/approval; draft never
@@ -131,18 +131,18 @@ def _action_create_gmail_draft(db: Session, business: models.Business, trigger_d
         return ActionOutcome(status="failed", error="No recipient email address available for this action.")
     body = render_template(config.get("body_template", ""), trigger_data)
 
-    result = GmailService(db).draft(business, to=to, subject=subject, body=body, employee="workflow")
+    result = GmailService(db).draft(agency, to=to, subject=subject, body=body, employee="workflow")
     if not result.get("ok"):
         return ActionOutcome(status="failed", error=result.get("message") or result.get("error") or "Gmail draft failed.")
     return ActionOutcome(status="succeeded", result={"to": to, "subject": subject})
 
 
-def _action_send_gmail(db: Session, business: models.Business, trigger_data: dict, config: dict) -> ActionOutcome:
-    """Reuses GmailService.send() exactly - the business's OWN existing
+def _action_send_gmail(db: Session, agency: models.Agency, trigger_data: dict, config: dict) -> ActionOutcome:
+    """Reuses GmailService.send() exactly - the agency's OWN existing
     send_mode (read_only/approval_required/automated) is the ONLY thing
     that decides whether this sends immediately, queues a real
     GmailPendingAction for approval, or is refused outright. A workflow
-    can NEVER turn an approval_required business into an automatic-send
+    can NEVER turn an approval_required agency into an automatic-send
     one (Step 9/18) - this function has no code path that skips that
     check; it is the exact same GmailService every chat-driven Gmail
     action already goes through."""
@@ -151,7 +151,7 @@ def _action_send_gmail(db: Session, business: models.Business, trigger_data: dic
         return ActionOutcome(status="failed", error="No recipient email address available for this action.")
     body = render_template(config.get("body_template", ""), trigger_data)
 
-    result = GmailService(db).send(business, to=to, subject=subject, body=body, employee="workflow")
+    result = GmailService(db).send(agency, to=to, subject=subject, body=body, employee="workflow")
     if not result.get("ok"):
         return ActionOutcome(status="failed", error=result.get("message") or result.get("error") or "Gmail send failed.")
     if result.get("queued_for_approval"):
@@ -163,7 +163,7 @@ def _action_send_gmail(db: Session, business: models.Business, trigger_data: dic
     return ActionOutcome(status="succeeded", result={"to": to, "subject": subject, "sent": True})
 
 
-def _action_request_approval(db: Session, business: models.Business, trigger_data: dict, config: dict) -> ActionOutcome:
+def _action_request_approval(db: Session, agency: models.Agency, trigger_data: dict, config: dict) -> ActionOutcome:
     """A pure approval gate with no side effect of its own - useful
     standalone (e.g. "flag this lead for owner review") or as an explicit
     step before a later action. Approving it just marks the step
@@ -179,14 +179,14 @@ ACTION_EXECUTORS = {
 }
 
 
-def execute_action(action_type: str, db: Session, business: models.Business, trigger_data: dict, config: dict) -> ActionOutcome:
+def execute_action(action_type: str, db: Session, agency: models.Agency, trigger_data: dict, config: dict) -> ActionOutcome:
     executor = ACTION_EXECUTORS.get(action_type)
     if executor is None:
         return ActionOutcome(status="failed", error=f"Unregistered action type: {action_type!r}")
     try:
-        return executor(db, business, trigger_data, config)
+        return executor(db, agency, trigger_data, config)
     except Exception as exc:
         logger.exception("workflow.action_executor_error", extra={"ctx": {
-            "event": "workflow.action_executor_error", "action_type": action_type, "business_id": business.id,
+            "event": "workflow.action_executor_error", "action_type": action_type, "agency_id": agency.id,
         }})
         return ActionOutcome(status="failed", error=f"Unexpected error running {action_type}: {exc}")

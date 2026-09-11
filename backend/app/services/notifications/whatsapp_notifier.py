@@ -1,9 +1,9 @@
 """
 WhatsApp via Meta's Cloud API. Real seam: fill WHATSAPP_* in .env to activate.
 
-NOTE (compliance): business-initiated WhatsApp messages outside the 24h customer
+NOTE (compliance): agency-initiated WhatsApp messages outside the 24h customer
 service window must use a pre-approved *template*. Appointment reminders are
-business-initiated, so `template_name` should point at an approved utility
+agency-initiated, so `template_name` should point at an approved utility
 template. Free-form text only works inside an open 24h window. See ARCHITECTURE.md
 on Meta's restrictions before enabling this in production.
 """

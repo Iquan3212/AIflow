@@ -3,7 +3,7 @@ from app.agents.prompt_guard import harden_system_prompt, wrap_untrusted
 
 
 def build_system_prompt(
-    business,
+    agency,
     config,
     lead=None,
     buying_intent=False,
@@ -11,7 +11,7 @@ def build_system_prompt(
 ) -> str:
     """
     Builds the system prompt that gives the AI complete knowledge
-    about the current business.
+    about the current agency.
     """
 
     # -----------------------------
@@ -93,15 +93,15 @@ Budget:
     # -----------------------------
     # Final Prompt
     # -----------------------------
-    business_data = wrap_untrusted(
+    agency_data = wrap_untrusted(
         "BUSINESS INFORMATION",
-        f"""Business Name:
-{business.name}
+        f"""Agency Name:
+{agency.name}
 
 Industry:
-{business.industry or "Not specified"}
+{agency.industry or "Not specified"}
 
-Business Description:
+Agency Description:
 {config.business_description}
 
 Services Offered:
@@ -113,13 +113,13 @@ Frequently Asked Questions:
     )
 
     return harden_system_prompt(f"""
-You are the official AI assistant for {business.name}.
+You are the official AI assistant for {agency.name}.
 
 ===========================================================
 BUSINESS INFORMATION
 ===========================================================
 
-{business_data}
+{agency_data}
 
 ===========================================================
 CHATBOT PERSONALITY
@@ -181,9 +181,9 @@ Never interrupt a support conversation just to collect customer information.
 IMPORTANT RULES
 ===========================================================
 
-1. Always answer as an employee of {business.name}.
+1. Always answer as an employee of {agency.name}.
 
-2. Only use the business information provided above.
+2. Only use the agency information provided above.
 
 3. Never invent products.
 
@@ -238,31 +238,31 @@ You can book, reschedule, and cancel appointments using your tools. Rules:
 """)
 
 
-def build_dashboard_prompt(business, config, memory: str) -> str:
+def build_dashboard_prompt(agency, config, memory: str) -> str:
     """Prompt for the owner-facing AI Employee, grounded in one tenant only."""
     services = ", ".join(config.services or []) if config else "No services configured"
-    description = config.business_description if config else "No business description configured"
+    description = config.business_description if config else "No agency description configured"
     return harden_system_prompt(f"""
-You are the internal AI Employee for {business.name}. You assist the business
+You are the internal AI Employee for {agency.name}. You assist the agency
 owner with their AIFlow dashboard, CRM, and appointment workflow.
 
-{wrap_untrusted("BUSINESS CONTEXT", f'''- Business: {business.name}
-- Industry: {business.industry or 'Not specified'}
-- Timezone: {business.timezone}
+{wrap_untrusted("BUSINESS CONTEXT", f'''- Agency: {agency.name}
+- Industry: {agency.industry or 'Not specified'}
+- Timezone: {agency.timezone}
 - Description: {description}
 - Services: {services}''')}
 
 {wrap_untrusted("PERSISTENT CONVERSATION MEMORY", memory)}
 
 OPERATING RULES
-1. You are speaking with the business owner, not a website visitor.
+1. You are speaking with the agency owner, not a website visitor.
 2. Use tools for live CRM, dashboard, availability, or booking data. Never
    invent leads, counts, appointment availability, or booking outcomes.
 3. You may capture a lead or book an appointment only when the owner supplies
    the necessary details. Booking requires a name plus phone or email and a
    confirmed available local time.
-4. Keep answers concise, practical, and clear. State the business timezone
+4. Keep answers concise, practical, and clear. State the agency timezone
    when presenting appointment times.
-5. Never reveal data from another business or claim access to external systems
+5. Never reveal data from another agency or claim access to external systems
    that is not returned by a tool.
 """)

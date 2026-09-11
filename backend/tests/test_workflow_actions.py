@@ -14,7 +14,7 @@ from app.services.workflows.actions import execute_action, render_template
 from app.services.notifications.base import NotifyResult
 
 
-def _business(**kwargs):
+def _agency(**kwargs):
     return SimpleNamespace(id="biz-1", name="Test Co", contact_email="owner@test.example", **kwargs)
 
 
@@ -36,7 +36,7 @@ class TestSendNotificationAction:
         with patch("app.services.workflows.actions.NotificationDispatcher") as MockDispatcher:
             MockDispatcher.return_value.notify_owner.return_value = [NotifyResult(ok=True, channel="email")]
             outcome = execute_action(
-                "send_notification", db=MagicMock(), business=_business(),
+                "send_notification", db=MagicMock(), agency=_agency(),
                 trigger_data={"lead": {"name": "Priya"}},
                 config={"event_type": "new_lead", "audience": "owner", "subject": "New lead: {lead_name}", "body_template": "x"},
             )
@@ -45,14 +45,14 @@ class TestSendNotificationAction:
 
     def test_unknown_event_type_fails_cleanly(self):
         outcome = execute_action(
-            "send_notification", db=MagicMock(), business=_business(), trigger_data={},
+            "send_notification", db=MagicMock(), agency=_agency(), trigger_data={},
             config={"event_type": "not_a_real_event", "audience": "owner"},
         )
         assert outcome.status == "failed"
 
     def test_customer_notification_without_contact_info_fails_cleanly(self):
         outcome = execute_action(
-            "send_notification", db=MagicMock(), business=_business(), trigger_data={"lead": {}},
+            "send_notification", db=MagicMock(), agency=_agency(), trigger_data={"lead": {}},
             config={
                 "event_type": "appointment_confirmed", "audience": "customer",
                 "email_field": "lead.email", "phone_field": "lead.phone", "name_field": "lead.name",
@@ -66,7 +66,7 @@ class TestSendNotificationAction:
         with patch("app.services.workflows.actions.NotificationDispatcher") as MockDispatcher:
             MockDispatcher.return_value.notify_customer.return_value = [NotifyResult(ok=True, channel="email")]
             outcome = execute_action(
-                "send_notification", db=MagicMock(), business=_business(),
+                "send_notification", db=MagicMock(), agency=_agency(),
                 trigger_data={"lead": {"email": "customer@example.com", "name": "Priya"}},
                 config={
                     "event_type": "appointment_confirmed", "audience": "customer",
@@ -80,7 +80,7 @@ class TestSendNotificationAction:
 class TestGmailDraftAction:
     def test_no_recipient_fails_cleanly(self):
         outcome = execute_action(
-            "create_gmail_draft", db=MagicMock(), business=_business(), trigger_data={"lead": {}},
+            "create_gmail_draft", db=MagicMock(), agency=_agency(), trigger_data={"lead": {}},
             config={"to_field": "lead.email", "subject": "s", "body_template": "b"},
         )
         assert outcome.status == "failed"
@@ -88,9 +88,9 @@ class TestGmailDraftAction:
 
     def test_gmail_not_connected_fails_with_real_reason(self):
         with patch("app.services.workflows.actions.GmailService") as MockGmail:
-            MockGmail.return_value.draft.return_value = {"ok": False, "error": "not_connected", "message": "Gmail is not connected for this business."}
+            MockGmail.return_value.draft.return_value = {"ok": False, "error": "not_connected", "message": "Gmail is not connected for this agency."}
             outcome = execute_action(
-                "create_gmail_draft", db=MagicMock(), business=_business(),
+                "create_gmail_draft", db=MagicMock(), agency=_agency(),
                 trigger_data={"lead": {"email": "lead@example.com"}},
                 config={"to_field": "lead.email", "subject": "Follow up", "body_template": "Hi {lead_email}"},
             )
@@ -101,7 +101,7 @@ class TestGmailDraftAction:
         with patch("app.services.workflows.actions.GmailService") as MockGmail:
             MockGmail.return_value.draft.return_value = {"ok": True, "draft_id": "d1"}
             outcome = execute_action(
-                "create_gmail_draft", db=MagicMock(), business=_business(),
+                "create_gmail_draft", db=MagicMock(), agency=_agency(),
                 trigger_data={"lead": {"email": "lead@example.com"}},
                 config={"to_field": "lead.email", "subject": "Follow up", "body_template": "Hi there"},
             )
@@ -116,7 +116,7 @@ class TestSendGmailAction:
                 "ok": True, "queued_for_approval": True, "pending_action_id": "pending-123", "sent": False,
             }
             outcome = execute_action(
-                "send_gmail", db=MagicMock(), business=_business(),
+                "send_gmail", db=MagicMock(), agency=_agency(),
                 trigger_data={"lead": {"email": "lead@example.com"}},
                 config={"to_field": "lead.email", "subject": "s", "body_template": "b"},
             )
@@ -127,7 +127,7 @@ class TestSendGmailAction:
         with patch("app.services.workflows.actions.GmailService") as MockGmail:
             MockGmail.return_value.send.return_value = {"ok": True, "sent": True, "message_id": "m1"}
             outcome = execute_action(
-                "send_gmail", db=MagicMock(), business=_business(),
+                "send_gmail", db=MagicMock(), agency=_agency(),
                 trigger_data={"lead": {"email": "lead@example.com"}},
                 config={"to_field": "lead.email", "subject": "s", "body_template": "b"},
             )
@@ -138,7 +138,7 @@ class TestSendGmailAction:
         with patch("app.services.workflows.actions.GmailService") as MockGmail:
             MockGmail.return_value.send.return_value = {"ok": False, "error": "read_only_mode", "message": "Gmail is connected in read-only mode; sending is disabled."}
             outcome = execute_action(
-                "send_gmail", db=MagicMock(), business=_business(),
+                "send_gmail", db=MagicMock(), agency=_agency(),
                 trigger_data={"lead": {"email": "lead@example.com"}},
                 config={"to_field": "lead.email", "subject": "s", "body_template": "b"},
             )
@@ -147,13 +147,13 @@ class TestSendGmailAction:
 
 class TestRequestApprovalAction:
     def test_always_returns_waiting_approval(self):
-        outcome = execute_action("request_approval", db=MagicMock(), business=_business(), trigger_data={}, config={})
+        outcome = execute_action("request_approval", db=MagicMock(), agency=_agency(), trigger_data={}, config={})
         assert outcome.status == "waiting_approval"
 
 
 class TestUnregisteredAction:
     def test_unregistered_action_type_fails_cleanly_never_executes_anything(self):
-        outcome = execute_action("delete_all_data", db=MagicMock(), business=_business(), trigger_data={}, config={})
+        outcome = execute_action("delete_all_data", db=MagicMock(), agency=_agency(), trigger_data={}, config={})
         assert outcome.status == "failed"
         assert "unregistered" in outcome.error.lower()
 
@@ -163,7 +163,7 @@ class TestExecutorExceptionIsolation:
         with patch("app.services.workflows.actions.NotificationDispatcher") as MockDispatcher:
             MockDispatcher.return_value.notify_owner.side_effect = RuntimeError("boom")
             outcome = execute_action(
-                "send_notification", db=MagicMock(), business=_business(), trigger_data={},
+                "send_notification", db=MagicMock(), agency=_agency(), trigger_data={},
                 config={"event_type": "new_lead", "audience": "owner", "subject": "s", "body_template": "b"},
             )
         assert outcome.status == "failed"

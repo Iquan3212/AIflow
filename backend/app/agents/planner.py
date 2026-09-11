@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List
 
-# Single canonical keyword list for "this message is about the business's
+# Single canonical keyword list for "this message is about the agency's
 # connected Gmail inbox" - shared with manager_agent.py's own
 # _gmail_tool_for() gate (which decides WHICH gmail_* tool applies once
 # Planner has already routed here) so the two can never drift out of sync
@@ -105,7 +105,7 @@ class Planner:
                 "refund",
                 "pricing",
             ],
-            # Gmail is an owner-level capability (the business's own
+            # Gmail is an owner-level capability (the agency's own
             # connected inbox), not a specialist persona - routes to
             # "manager" below, same as "general". See
             # ManagerAgent.respond()'s own keyword sub-routing for which

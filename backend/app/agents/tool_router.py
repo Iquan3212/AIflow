@@ -15,10 +15,10 @@ class ToolRouter:
     Methods must accept keyword args; ToolRouter passes common context.
     """
 
-    def __init__(self, registry: Registry, db=None, business=None, conversation=None, lead=None):
+    def __init__(self, registry: Registry, db=None, agency=None, conversation=None, lead=None):
         self.registry = registry
         self.db = db
-        self.business = business
+        self.agency = agency
         self.conversation = conversation
         self.lead = lead
 
@@ -44,7 +44,7 @@ class ToolRouter:
             if callable(fn):
                 start = time.perf_counter()
                 try:
-                    result = fn(message=message, db=self.db, business=self.business, conversation=self.conversation, lead=self.lead, **kwargs)
+                    result = fn(message=message, db=self.db, agency=self.agency, conversation=self.conversation, lead=self.lead, **kwargs)
                     logger.info("tool.executed", extra={"ctx": {
                         "event": "tool.executed", "tool": tool_name, "employee": employee,
                         "duration_ms": round((time.perf_counter() - start) * 1000, 1),

@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 
 from app import schemas
 from app.database import get_db
-from app.deps import get_current_business
-from app.models import Business
+from app.deps import get_current_agency
+from app.models import Agency
 from app.services.lead_service import LeadService
 
 router = APIRouter(
@@ -18,11 +18,11 @@ router = APIRouter(
     response_model=list[schemas.LeadOut],
 )
 def list_leads(
-    business: Business = Depends(get_current_business),
+    agency: Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
     service = LeadService(db)
-    return service.get_all(business.id)
+    return service.get_all(agency.id)
 
 
 @router.post(
@@ -31,13 +31,13 @@ def list_leads(
 )
 def create_new_lead(
     payload: schemas.LeadCreate,
-    business: Business = Depends(get_current_business),
+    agency: Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
     service = LeadService(db)
 
     return service.create(
-        business.id,
+        agency.id,
         payload,
     )
 
@@ -49,14 +49,14 @@ def create_new_lead(
 def update_existing_lead(
     lead_id: str,
     payload: schemas.LeadUpdate,
-    business: Business = Depends(get_current_business),
+    agency: Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
     service = LeadService(db)
 
     lead = service.update(
         lead_id,
-        business.id,
+        agency.id,
         payload,
     )
 
@@ -74,14 +74,14 @@ def update_existing_lead(
 )
 def delete_existing_lead(
     lead_id: str,
-    business: Business = Depends(get_current_business),
+    agency: Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
     service = LeadService(db)
 
     success = service.delete(
         lead_id,
-        business.id,
+        agency.id,
     )
 
     if not success:

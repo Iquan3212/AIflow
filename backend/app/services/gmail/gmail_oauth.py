@@ -1,13 +1,13 @@
 """
-Google OAuth 2.0 dance for connecting a business's Gmail account. Deliberately
+Google OAuth 2.0 dance for connecting an agency's Gmail account. Deliberately
 mirrors app/services/calendar/google_oauth.py's shape (same stdlib-urllib
 consent-URL/code-exchange/refresh approach, same signed-state pattern) -
-Gmail and Calendar are two independent connections a business can make,
+Gmail and Calendar are two independent connections an agency can make,
 each with its own scope and its own callback route, but there is no reason
 for the OAuth mechanics themselves to differ.
 
 State handling: Google's redirect back to us is unauthenticated, so we sign
-the connecting business's id into the OAuth `state` param as a short-lived
+the connecting agency's id into the OAuth `state` param as a short-lived
 JWT and verify it on the callback - the `purpose` claim ("gmail_oauth")
 means a Calendar callback's state can never be replayed against the Gmail
 callback or vice versa, even though both use the same JWT secret.
@@ -57,9 +57,9 @@ def is_gmail_configured() -> bool:
     )
 
 
-def make_state(business_id: str) -> str:
+def make_state(agency_id: str) -> str:
     payload = {
-        "business_id": business_id,
+        "agency_id": agency_id,
         "purpose": _STATE_PURPOSE,
         "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
     }
@@ -72,13 +72,13 @@ def read_state(state: str) -> str | None:
         if payload.get("purpose") != _STATE_PURPOSE:
             logger.warning("integration.gmail_oauth.wrong_state_purpose", extra={"ctx": {"event": "integration.gmail_oauth.wrong_state_purpose"}})
             return None
-        return payload.get("business_id")
+        return payload.get("agency_id")
     except Exception:
         logger.warning("integration.gmail_oauth.invalid_state", extra={"ctx": {"event": "integration.gmail_oauth.invalid_state"}})
         return None
 
 
-def build_consent_url(business_id: str) -> str:
+def build_consent_url(agency_id: str) -> str:
     params = {
         "client_id": settings.google_client_id,
         "redirect_uri": settings.google_gmail_redirect_uri,
@@ -87,7 +87,7 @@ def build_consent_url(business_id: str) -> str:
         "access_type": "offline",     # so we get a refresh_token
         "prompt": "consent",
         "include_granted_scopes": "true",
-        "state": make_state(business_id),
+        "state": make_state(agency_id),
     }
     return f"{AUTH_URI}?{urllib.parse.urlencode(params)}"
 

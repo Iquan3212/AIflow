@@ -1,6 +1,6 @@
 """
 Picks channels for a notification and sends on each, gated by the
-business's own NotificationPreference rows (see ./preferences.py - a
+agency's own NotificationPreference rows (see ./preferences.py - a
 missing row defaults to enabled, so this is opt-out, not opt-in: existing
 behavior is unchanged until an owner actually disables something).
 
@@ -8,7 +8,7 @@ notify_customer(): appointment lifecycle events, to the customer's own
 contact info. Order of preference: WhatsApp -> SMS -> email, sending on
 whichever are both preference-enabled and provider-configured.
 
-notify_owner(): new-lead/support-escalation events, to the business
+notify_owner(): new-lead/support-escalation events, to the agency
 owner's on-file contact_email. Email only - see preferences.py's module
 docstring for why (no stored owner WhatsApp/Instagram contact exists).
 """
@@ -31,12 +31,12 @@ class NotificationDispatcher:
         self.whatsapp = WhatsAppNotifier()
 
     def notify_customer(
-        self, *, db: Session, business_id: str, event_type: str,
+        self, *, db: Session, agency_id: str, event_type: str,
         name: str | None, email: str | None, phone: str | None,
         subject: str, body: str,
     ) -> list[NotifyResult]:
         enabled = {
-            channel: preferences.is_enabled(db, business_id, event_type, channel)
+            channel: preferences.is_enabled(db, agency_id, event_type, channel)
             for channel in preferences.CUSTOMER_CHANNELS
         }
         results: list[NotifyResult] = []
@@ -53,11 +53,11 @@ class NotificationDispatcher:
         return results
 
     def notify_owner(
-        self, *, db: Session, business, event_type: str, subject: str, body: str,
+        self, *, db: Session, agency, event_type: str, subject: str, body: str,
     ) -> list[NotifyResult]:
-        if not preferences.is_enabled(db, business.id, event_type, "email"):
+        if not preferences.is_enabled(db, agency.id, event_type, "email"):
             return []
-        contact_email = getattr(business, "contact_email", None)
+        contact_email = getattr(agency, "contact_email", None)
         if not contact_email:
             return []
         return [self.email.send(Notification(contact_email, subject, body))]

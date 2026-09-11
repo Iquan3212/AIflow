@@ -18,9 +18,9 @@ class ReceptionistAgent:
     existing Appointment Tool / Tool Dispatcher.
     """
 
-    def __init__(self, business, lead=None):
+    def __init__(self, agency, lead=None):
 
-        self.business = business
+        self.agency = agency
         self.lead = lead
 
         self.memory = ConversationMemory()
@@ -29,7 +29,7 @@ class ReceptionistAgent:
     def system_prompt(self):
 
         return f"""
-You are the Receptionist AI for {self.business.name}.
+You are the Receptionist AI for {self.agency.name}.
 
 ROLE
 

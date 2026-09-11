@@ -21,13 +21,13 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.repositories.conversation_repository import (
-    get_business_by_slug,
+    get_agency_by_slug,
     get_conversation,
     find_conversation_by_visitor,
     create_conversation,
     save_message,
     load_history,
-    get_business_conversations as repo_get_business_conversations,
+    get_agency_conversations as repo_get_agency_conversations,
 )
 from app.services.llm_client import (
     chat_completion,
@@ -57,9 +57,9 @@ logger = get_logger(__name__)
 MAX_TOOL_ROUNDS = 4
 
 
-def get_business_conversations(db: Session, business_slug: str):
+def get_agency_conversations(db: Session, agency_slug: str):
     """Every real customer conversation, on any channel (website, WhatsApp,
-    Instagram). The business's own internal Manager AI conversation
+    Instagram). The agency's own internal Manager AI conversation
     (channel="employee", visitor_id="dashboard-owner" - see
     get_or_create_employee_conversation) has its own dedicated page (Manager
     AI) and must never show up here impersonating a customer - that was a
@@ -68,12 +68,12 @@ def get_business_conversations(db: Session, business_slug: str):
     excluding "employee" rather than only including "website" is what lets
     a newly connected channel show up here automatically, with no change
     needed here when one is added."""
-    business = get_business_by_slug(db, business_slug)
-    if business is None:
-        raise Exception("Business not found")
+    agency = get_agency_by_slug(db, agency_slug)
+    if agency is None:
+        raise Exception("Agency not found")
 
     conversations = [
-        c for c in repo_get_business_conversations(db, business.id)
+        c for c in repo_get_agency_conversations(db, agency.id)
         if c.channel != "employee"
     ]
     result = []
@@ -109,55 +109,55 @@ def get_business_conversations(db: Session, business_slug: str):
     return result
 
 
-def _get_or_create_lead(db: Session, business_id: str, conversation_id: str) -> models.Lead:
+def _get_or_create_lead(db: Session, agency_id: str, conversation_id: str) -> models.Lead:
     lead = (
         db.query(models.Lead)
-        .filter(models.Lead.business_id == business_id,
+        .filter(models.Lead.agency_id == agency_id,
                 models.Lead.conversation_id == conversation_id)
         .first()
     )
     if lead is None:
-        lead = models.Lead(business_id=business_id, conversation_id=conversation_id, status="new")
+        lead = models.Lead(agency_id=agency_id, conversation_id=conversation_id, status="new")
         db.add(lead)
         db.commit()
         db.refresh(lead)
     return lead
 
 
-def _scheduling_context(business) -> str:
-    local = to_local(now_utc(), business.timezone)
+def _scheduling_context(agency) -> str:
+    local = to_local(now_utc(), agency.timezone)
     return (
         f"CURRENT DATE AND TIME: {local.strftime('%A, %d %B %Y, %I:%M %p')} "
-        f"({business.timezone}).\n"
+        f"({agency.timezone}).\n"
         f"When booking, all times are in this timezone."
     )
 
 
 def process_message(
     db: Session,
-    business_slug: str,
+    agency_slug: str,
     visitor_id: str,
     conversation_id: str | None,
     message: str,
 ):
-    """The website widget's entrypoint: resolves the business by its public
+    """The website widget's entrypoint: resolves the agency by its public
     slug (the one identifier the widget's <script> tag actually knows), then
     hands off to the channel-agnostic core. Unchanged in behavior from
     before WhatsApp/Instagram existed - this is exactly the same function
     signature and logic that's always powered the widget."""
-    business = get_business_by_slug(db, business_slug)
-    if business is None:
-        raise Exception("Business not found")
+    agency = get_agency_by_slug(db, agency_slug)
+    if agency is None:
+        raise Exception("Agency not found")
 
-    return process_message_for_business(
-        db, business=business, visitor_id=visitor_id,
+    return process_message_for_agency(
+        db, agency=agency, visitor_id=visitor_id,
         conversation_id=conversation_id, message=message, channel="website",
     )
 
 
-def process_message_for_business(
+def process_message_for_agency(
     db: Session,
-    business,
+    agency,
     visitor_id: str,
     conversation_id: str | None,
     message: str,
@@ -166,9 +166,9 @@ def process_message_for_business(
     """Channel-agnostic core: one message in, one persisted reply out,
     regardless of whether it arrived via the website widget, a WhatsApp
     webhook, or an Instagram DM webhook. Takes an already-resolved
-    `business` because each channel identifies the business a different way
+    `agency` because each channel identifies the agency a different way
     (the widget by its public slug; a Meta webhook by which of the
-    business's connected phone numbers/IG accounts received the message -
+    agency's connected phone numbers/IG accounts received the message -
     see services/channels/). `visitor_id` is whatever identifies the same
     customer across their messages on this channel (a browser-generated
     UUID for the widget, a phone number for WhatsApp, an IG-scoped sender
@@ -178,7 +178,7 @@ def process_message_for_business(
     reaches the LLM - there is no separate WhatsApp/Instagram AI logic."""
     if conversation_id:
         conversation = get_conversation(
-            db, conversation_id, business_id=business.id, visitor_id=visitor_id, channel=channel,
+            db, conversation_id, agency_id=agency.id, visitor_id=visitor_id, channel=channel,
         )
     else:
         # No caller-remembered id (every webhook channel; a website
@@ -186,26 +186,26 @@ def process_message_for_business(
         # own existing conversation on this channel before starting a new
         # one, so a phone number/IG account texting again reuses its
         # thread instead of losing history on every message.
-        conversation = find_conversation_by_visitor(db, business.id, visitor_id, channel)
+        conversation = find_conversation_by_visitor(db, agency.id, visitor_id, channel)
 
     if conversation is None:
-        conversation = create_conversation(db=db, business_id=business.id, visitor_id=visitor_id, channel=channel)
+        conversation = create_conversation(db=db, agency_id=agency.id, visitor_id=visitor_id, channel=channel)
 
     save_message(db=db, conversation_id=conversation.id, role="user", content=message)
 
-    lead = _get_or_create_lead(db, business.id, conversation.id)
-    orchestrator = AIOrchestrator(db=db,business=business,conversation=conversation,lead=lead,)
+    lead = _get_or_create_lead(db, agency.id, conversation.id)
+    orchestrator = AIOrchestrator(db=db,agency=agency,conversation=conversation,lead=lead,)
 
     history = load_history(db, conversation.id)
     agent_context = orchestrator.before_llm(message, history, delegate=False)
 
-    config = business.chatbot_config
+    config = agency.chatbot_config
     system_prompt = build_system_prompt(
-        business=business,
+        agency=agency,
         config=config,
         lead=lead,
         buying_intent=True,  # tool-gated now; the model decides when to collect/book
-        scheduling_context=_scheduling_context(business),
+        scheduling_context=_scheduling_context(agency),
     )
     system_prompt += f"""
 
@@ -248,10 +248,10 @@ def process_message_for_business(
     # Manager AI would. Always attempted, same as every AI Workforce
     # employee - the relevance threshold and empty-vs-populated handling
     # do the actual work of deciding whether a result matters.
-    knowledge_context = retrieve_context(db, business.id, message)
+    knowledge_context = retrieve_context(db, agency.id, message)
     messages.extend(knowledge_context_messages(knowledge_context))
 
-    dispatcher = ToolDispatcher(db, business, conversation, lead)
+    dispatcher = ToolDispatcher(db, agency, conversation, lead)
     tools = tool_definitions()
 
     reply_text = _run_tool_loop(

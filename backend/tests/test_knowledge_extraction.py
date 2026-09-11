@@ -104,10 +104,10 @@ class TestPdfExtraction:
 
 class TestDocxExtraction:
     def test_real_docx_text_is_extracted(self):
-        docx_bytes = _make_docx_bytes(["Refund Policy", "Refunds are processed within 5-7 business days."])
+        docx_bytes = _make_docx_bytes(["Refund Policy", "Refunds are processed within 5-7 agency days."])
         text = extract_text(docx_bytes, "docx")
         assert "Refund Policy" in text
-        assert "5-7 business days" in text
+        assert "5-7 agency days" in text
 
     def test_corrupt_docx_raises_extraction_error(self):
         with pytest.raises(ExtractionError):

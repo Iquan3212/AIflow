@@ -1,10 +1,10 @@
 """
-Knowledge Base document endpoints - all authenticated, all business/
-tenant-scoped via get_current_business (see app/deps.py), matching every
+Knowledge Base document endpoints - all authenticated, all agency/
+tenant-scoped via get_current_agency (see app/deps.py), matching every
 other CRUD router in this app (drafts.py, support_tickets.py, gmail.py).
 
   POST   /knowledge/documents             upload a new document
-  GET    /knowledge/documents             list this business's documents
+  GET    /knowledge/documents             list this agency's documents
   GET    /knowledge/documents/{id}        one document's status/metadata
   DELETE /knowledge/documents/{id}        delete a document + its chunks
   POST   /knowledge/documents/{id}/retry  re-queue a failed document
@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
-from app.deps import get_current_business
+from app.deps import get_current_agency
 from app.services.knowledge import storage
 from app.services.knowledge.processing import process_document, validate_upload
 from app.services.knowledge.retrieval import retrieve
@@ -36,7 +36,7 @@ def _file_type_from_filename(filename: str) -> str:
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
     original_filename = file.filename or "document"
@@ -47,10 +47,10 @@ async def upload_document(
     if error:
         raise HTTPException(status_code=400, detail=error)
 
-    storage_path, safe_filename = storage.save_file(business.id, original_filename, content)
+    storage_path, safe_filename = storage.save_file(agency.id, original_filename, content)
 
     document = KnowledgeService(db).create(
-        business_id=business.id,
+        agency_id=agency.id,
         title=safe_filename,
         filename=safe_filename,
         file_type=file_type,
@@ -63,19 +63,19 @@ async def upload_document(
 
 @router.get("/documents", response_model=list[schemas.KnowledgeDocumentOut])
 def list_documents(
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    return KnowledgeService(db).get_all(business.id)
+    return KnowledgeService(db).get_all(agency.id)
 
 
 @router.get("/documents/{document_id}", response_model=schemas.KnowledgeDocumentOut)
 def get_document(
     document_id: str,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    document = KnowledgeService(db).get(document_id, business.id)
+    document = KnowledgeService(db).get(document_id, agency.id)
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
     return document
@@ -84,10 +84,10 @@ def get_document(
 @router.delete("/documents/{document_id}")
 def delete_document(
     document_id: str,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    success = KnowledgeService(db).delete(document_id, business.id)
+    success = KnowledgeService(db).delete(document_id, agency.id)
     if not success:
         raise HTTPException(status_code=404, detail="Document not found")
     return {"message": "Document deleted successfully"}
@@ -97,10 +97,10 @@ def delete_document(
 def retry_document(
     document_id: str,
     background_tasks: BackgroundTasks,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    document = KnowledgeService(db).mark_queued_for_retry(document_id, business.id)
+    document = KnowledgeService(db).mark_queued_for_retry(document_id, agency.id)
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
     background_tasks.add_task(process_document, document.id)
@@ -110,7 +110,7 @@ def retry_document(
 @router.post("/search", response_model=list[schemas.KnowledgeSearchResultOut])
 def search_knowledge(
     payload: schemas.KnowledgeSearchRequest,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
     """Retrieval preview - the same function Manager/employee agents call
@@ -118,7 +118,7 @@ def search_knowledge(
     Knowledge Base UI can show what a query would actually retrieve
     without going through a full chat turn (and without spending an LLM
     token - this endpoint never calls chat_completion)."""
-    results = retrieve(db, business.id, payload.query, top_k=payload.top_k)
+    results = retrieve(db, agency.id, payload.query, top_k=payload.top_k)
     return [
         {
             "document_id": r.document_id,

@@ -27,38 +27,38 @@ VALID_ACTIONS = [{"type": "send_notification", "config": {"event_type": "new_lea
 
 
 @pytest.fixture
-def business():
+def agency():
     db = SessionLocal()
-    biz = models.Business(name="Trigger Integration Co", slug=f"trigger-int-{uuid.uuid4().hex[:10]}", contact_email="owner@triggerint.example")
+    biz = models.Agency(name="Trigger Integration Co", slug=f"trigger-int-{uuid.uuid4().hex[:10]}", contact_email="owner@triggerint.example")
     db.add(biz)
     db.commit()
     db.refresh(biz)
     try:
         yield db, biz
     finally:
-        wf_ids = [w.id for w in db.query(models.Workflow).filter(models.Workflow.business_id == biz.id).all()]
+        wf_ids = [w.id for w in db.query(models.Workflow).filter(models.Workflow.agency_id == biz.id).all()]
         for wid in wf_ids:
             db.query(models.WorkflowRun).filter(models.WorkflowRun.workflow_id == wid).delete()
-        db.query(models.Workflow).filter(models.Workflow.business_id == biz.id).delete()
-        db.query(models.Appointment).filter(models.Appointment.business_id == biz.id).delete()
-        db.query(models.SupportTicket).filter(models.SupportTicket.business_id == biz.id).delete()
-        db.query(models.Lead).filter(models.Lead.business_id == biz.id).delete()
-        db.query(models.Business).filter(models.Business.id == biz.id).delete()
+        db.query(models.Workflow).filter(models.Workflow.agency_id == biz.id).delete()
+        db.query(models.Appointment).filter(models.Appointment.agency_id == biz.id).delete()
+        db.query(models.SupportTicket).filter(models.SupportTicket.agency_id == biz.id).delete()
+        db.query(models.Lead).filter(models.Lead.agency_id == biz.id).delete()
+        db.query(models.Agency).filter(models.Agency.id == biz.id).delete()
         db.commit()
         db.close()
 
 
 class TestLeadServiceFiresLeadCreated:
-    def test_lead_service_create_fires_the_workflow(self, business):
-        db, biz = business
+    def test_lead_service_create_fires_the_workflow(self, agency):
+        db, biz = agency
         WorkflowService(db).create(
-            business_id=biz.id, name="On lead", description=None,
+            agency_id=biz.id, name="On lead", description=None,
             trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=VALID_ACTIONS,
         )
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
             mock_exec.return_value = ActionOutcome(status="succeeded", result={})
             lead = LeadService(db).create(
-                business_id=biz.id,
+                agency_id=biz.id,
                 payload=schemas.LeadCreate(name="Priya", phone="9999999999", email=None, service_interested="Haircut", budget=None),
             )
         mock_exec.assert_called_once()
@@ -66,24 +66,24 @@ class TestLeadServiceFiresLeadCreated:
         assert len(runs) == 1
         assert runs[0].trigger_data["lead"]["name"] == "Priya"
 
-    def test_lead_service_update_does_not_refire(self, business):
-        db, biz = business
+    def test_lead_service_update_does_not_refire(self, agency):
+        db, biz = agency
         WorkflowService(db).create(
-            business_id=biz.id, name="On lead", description=None,
+            agency_id=biz.id, name="On lead", description=None,
             trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=VALID_ACTIONS,
         )
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
             mock_exec.return_value = ActionOutcome(status="succeeded", result={})
-            lead = LeadService(db).create(business_id=biz.id, payload=schemas.LeadCreate(name="Priya"))
+            lead = LeadService(db).create(agency_id=biz.id, payload=schemas.LeadCreate(name="Priya"))
             LeadService(db).update(lead.id, biz.id, payload=schemas.LeadUpdate(status="contacted"))
         assert mock_exec.call_count == 1  # update never fires lead_created again
 
 
 class TestLeadToolFiresLeadCreated:
-    def test_lead_tool_created_true_fires_the_workflow(self, business):
-        db, biz = business
+    def test_lead_tool_created_true_fires_the_workflow(self, agency):
+        db, biz = agency
         WorkflowService(db).create(
-            business_id=biz.id, name="On lead via tool", description=None,
+            agency_id=biz.id, name="On lead via tool", description=None,
             trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=VALID_ACTIONS,
         )
         with patch("app.services.lead_ai_service.chat_completion") as mock_chat, \
@@ -94,17 +94,17 @@ class TestLeadToolFiresLeadCreated:
                 "service_interested": "Consulting", "budget": None,
             })
             mock_exec.return_value = ActionOutcome(status="succeeded", result={})
-            result = LeadTool(db).execute(message="I'm interested in consulting", db=db, business=biz)
+            result = LeadTool(db).execute(message="I'm interested in consulting", db=db, agency=biz)
 
         assert result["ok"] is True
         mock_exec.assert_called_once()
 
 
 class TestAppointmentServiceFiresAppointmentEvents:
-    def test_book_fires_appointment_created(self, business):
-        db, biz = business
+    def test_book_fires_appointment_created(self, agency):
+        db, biz = agency
         WorkflowService(db).create(
-            business_id=biz.id, name="On booking", description=None,
+            agency_id=biz.id, name="On booking", description=None,
             trigger_type=models.WorkflowTriggerType.appointment_created, conditions=[], actions=VALID_ACTIONS,
         )
         svc = AppointmentService(db)
@@ -121,10 +121,10 @@ class TestAppointmentServiceFiresAppointmentEvents:
         assert outcome.ok is True
         mock_exec.assert_called_once()
 
-    def test_cancel_fires_appointment_cancelled_but_double_cancel_does_not_refire(self, business):
-        db, biz = business
+    def test_cancel_fires_appointment_cancelled_but_double_cancel_does_not_refire(self, agency):
+        db, biz = agency
         WorkflowService(db).create(
-            business_id=biz.id, name="On cancel", description=None,
+            agency_id=biz.id, name="On cancel", description=None,
             trigger_type=models.WorkflowTriggerType.appointment_cancelled, conditions=[], actions=VALID_ACTIONS,
         )
         svc = AppointmentService(db)
@@ -145,23 +145,23 @@ class TestAppointmentServiceFiresAppointmentEvents:
 
 
 class TestSupportTicketToolFiresOnlyForHighPriority:
-    def test_high_priority_ticket_fires_support_escalated(self, business):
-        db, biz = business
+    def test_high_priority_ticket_fires_support_escalated(self, agency):
+        db, biz = agency
         WorkflowService(db).create(
-            business_id=biz.id, name="On escalation", description=None,
+            agency_id=biz.id, name="On escalation", description=None,
             trigger_type=models.WorkflowTriggerType.support_escalated, conditions=[], actions=VALID_ACTIONS,
         )
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
             mock_exec.return_value = ActionOutcome(status="succeeded", result={})
-            SupportTicketTool(db).execute(message="Everything is broken", db=db, business=biz, priority="high")
+            SupportTicketTool(db).execute(message="Everything is broken", db=db, agency=biz, priority="high")
         mock_exec.assert_called_once()
 
-    def test_normal_priority_ticket_never_fires(self, business):
-        db, biz = business
+    def test_normal_priority_ticket_never_fires(self, agency):
+        db, biz = agency
         WorkflowService(db).create(
-            business_id=biz.id, name="On escalation", description=None,
+            agency_id=biz.id, name="On escalation", description=None,
             trigger_type=models.WorkflowTriggerType.support_escalated, conditions=[], actions=VALID_ACTIONS,
         )
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
-            SupportTicketTool(db).execute(message="Minor question", db=db, business=biz, priority="normal")
+            SupportTicketTool(db).execute(message="Minor question", db=db, agency=biz, priority="normal")
         mock_exec.assert_not_called()

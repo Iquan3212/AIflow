@@ -1,5 +1,5 @@
 """
-Retrieval: business_id-scoped similarity search over KnowledgeChunk,
+Retrieval: agency_id-scoped similarity search over KnowledgeChunk,
 returning a small, clean KnowledgeResult interface - callers (Manager,
 the employee agents, KnowledgeTool) never see a raw pgvector row or SQL
 result, only this dataclass. See config.py for DEFAULT_TOP_K,
@@ -7,7 +7,7 @@ RELEVANCE_THRESHOLD/MOCK_RELEVANCE_THRESHOLD, MAX_CONTEXT_CHARS.
 
 Tenant isolation is enforced in exactly one place - the WHERE clause
 below - and is not optional or caller-configurable: every call is scoped
-to `business_id`, full stop. This is deliberately the single choke point
+to `agency_id`, full stop. This is deliberately the single choke point
 so a mistake anywhere else in the codebase can't leak cross-tenant data
 through this service.
 """
@@ -38,7 +38,7 @@ class KnowledgeResult:
 
 def retrieve(
     db: Session,
-    business_id: str,
+    agency_id: str,
     query: str,
     top_k: int = DEFAULT_TOP_K,
     threshold: float | None = None,
@@ -60,7 +60,7 @@ def retrieve(
     cutoff can't correctly serve both. Pass an explicit float to override
     (tests do this to probe specific cutoffs regardless of provider)."""
     query = (query or "").strip()
-    if not query or not business_id:
+    if not query or not agency_id:
         return []
 
     settings = settings or get_settings()
@@ -69,7 +69,7 @@ def retrieve(
         query_vector = provider.embed([query])[0]
     except EmbeddingError:
         logger.exception("knowledge.retrieval_embedding_failed", extra={"ctx": {
-            "event": "knowledge.retrieval_embedding_failed", "business_id": business_id,
+            "event": "knowledge.retrieval_embedding_failed", "agency_id": agency_id,
         }})
         return []
 
@@ -80,7 +80,7 @@ def retrieve(
         db.query(models.KnowledgeChunk, distance.label("distance"), models.KnowledgeDocument.title)
         .join(models.KnowledgeDocument, models.KnowledgeChunk.document_id == models.KnowledgeDocument.id)
         .filter(
-            models.KnowledgeChunk.business_id == business_id,  # the one non-negotiable tenant-isolation filter
+            models.KnowledgeChunk.agency_id == agency_id,  # the one non-negotiable tenant-isolation filter
             models.KnowledgeChunk.embedding.isnot(None),
             models.KnowledgeDocument.status == models.KnowledgeDocumentStatus.ready,
         )
@@ -112,13 +112,13 @@ def retrieve(
             break
 
     logger.info("knowledge.retrieval", extra={"ctx": {
-        "event": "knowledge.retrieval", "business_id": business_id,
+        "event": "knowledge.retrieval", "agency_id": agency_id,
         "candidates": len(rows), "returned": len(results),
     }})
     return results
 
 
-def retrieve_context(db: Session, business_id: str, query: str, top_k: int = DEFAULT_TOP_K) -> list[dict]:
+def retrieve_context(db: Session, agency_id: str, query: str, top_k: int = DEFAULT_TOP_K) -> list[dict]:
     """Thin convenience wrapper for callers that want the plain-dict shape
     (`document_name`/`content`/`score`) app/agents/llm_reply.py's grounding
     logic already expects, WITHOUT going through the AI Workforce's
@@ -135,5 +135,5 @@ def retrieve_context(db: Session, business_id: str, query: str, top_k: int = DEF
     unconditionally (the same "always fetch, let relevance-filtering
     decide" pattern the AI Workforce side already uses), so there is no
     legitimate "didn't even try" case to represent here."""
-    results = retrieve(db, business_id, query, top_k=top_k)
+    results = retrieve(db, agency_id, query, top_k=top_k)
     return [{"document_name": r.document_name, "content": r.content, "score": r.score} for r in results]

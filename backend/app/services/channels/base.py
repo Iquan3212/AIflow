@@ -2,7 +2,7 @@
 so the webhook routers only ever deal with one normalized shape regardless
 of which channel it came from - the two adapters differ only in how they
 parse Meta's two different JSON payloads and how they call Meta's two
-slightly different send-message endpoints, not in any AI/business logic."""
+slightly different send-message endpoints, not in any AI/agency logic."""
 
 from __future__ import annotations
 
@@ -21,13 +21,13 @@ logger = get_logger(__name__)
 class NormalizedInboundMessage:
     """One inbound customer message, however it arrived."""
 
-    external_account_id: str  # WhatsApp phone_number_id / IG business account id that received it
+    external_account_id: str  # WhatsApp phone_number_id / IG agency account id that received it
     external_message_id: str  # Meta's own message id - the idempotency key
     sender_id: str  # customer's WhatsApp number / IG-scoped sender id - this channel's "visitor_id"
     text: str
 
 
-def claim_webhook_event(db: Session, channel: str, external_message_id: str, business_id: str | None) -> bool:
+def claim_webhook_event(db: Session, channel: str, external_message_id: str, agency_id: str | None) -> bool:
     """Records that this exact message is being processed now. Returns True
     the first time (caller should process it), False if it's a redelivery
     of a message already claimed (caller should skip processing and still
@@ -40,7 +40,7 @@ def claim_webhook_event(db: Session, channel: str, external_message_id: str, bus
     check-then-insert, so it's safe even if two deliveries of the same
     event are being handled concurrently."""
     event = models.ChannelWebhookEvent(
-        channel=channel, external_message_id=external_message_id, business_id=business_id,
+        channel=channel, external_message_id=external_message_id, agency_id=agency_id,
     )
     db.add(event)
     try:

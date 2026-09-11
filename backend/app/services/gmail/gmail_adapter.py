@@ -40,31 +40,31 @@ class GmailAdapter:
 
     # ---- credential access --------------------------------------------------
 
-    def _row(self, business) -> "models.GmailCredential | None":
+    def _row(self, agency) -> "models.GmailCredential | None":
         return (
             self.db.query(models.GmailCredential)
-            .filter(models.GmailCredential.business_id == business.id)
+            .filter(models.GmailCredential.agency_id == agency.id)
             .first()
         )
 
-    def is_configured(self, business) -> bool:
+    def is_configured(self, agency) -> bool:
         if not gmail_oauth.is_gmail_configured():
             return False
-        row = self._row(business)
+        row = self._row(agency)
         return bool(row and row.refresh_token)
 
-    def send_mode(self, business) -> str:
-        row = self._row(business)
+    def send_mode(self, agency) -> str:
+        row = self._row(agency)
         return row.send_mode if row else "approval_required"
 
-    def _credentials(self, business):
+    def _credentials(self, agency):
         """Build a google Credentials object, refreshing the access token if
         it has expired. Raises GmailNotAvailableError rather than returning
         None, so a caller can never mistake "not available" for "empty
         result" (e.g. an empty search)."""
-        row = self._row(business)
+        row = self._row(agency)
         if not row or not row.refresh_token:
-            raise GmailNotAvailableError("Gmail is not connected for this business.")
+            raise GmailNotAvailableError("Gmail is not connected for this agency.")
         try:
             from google.oauth2.credentials import Credentials  # optional dep
         except ImportError:
@@ -81,7 +81,7 @@ class GmailAdapter:
                 self.db.commit()
             except Exception:
                 logger.exception("integration.gmail.refresh_failed", extra={"ctx": {
-                    "event": "integration.gmail.refresh_failed", "business_id": business.id,
+                    "event": "integration.gmail.refresh_failed", "agency_id": agency.id,
                 }})
                 raise GmailNotAvailableError("Could not refresh the stored Gmail access token.")
 
@@ -94,13 +94,13 @@ class GmailAdapter:
             scopes=(row.scopes or gmail_oauth.SCOPES).split(),
         )
 
-    def _service(self, business):
+    def _service(self, agency):
         try:
             from googleapiclient.discovery import build  # optional dep
         except ImportError:
             logger.warning("integration.gmail.not_installed", extra={"ctx": {"event": "integration.gmail.not_installed"}})
             raise GmailNotAvailableError("google-api-python-client is not installed on the server.")
-        creds = self._credentials(business)
+        creds = self._credentials(agency)
         return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
     # ---- message parsing ------------------------------------------------
@@ -152,8 +152,8 @@ class GmailAdapter:
 
     # ---- actions ----------------------------------------------------------
 
-    def search(self, business, query: str, max_results: int = 10) -> list[dict]:
-        service = self._service(business)
+    def search(self, agency, query: str, max_results: int = 10) -> list[dict]:
+        service = self._service(agency)
         resp = service.users().messages().list(userId="me", q=query, maxResults=max_results).execute()
         results = []
         for ref in resp.get("messages", []):
@@ -162,15 +162,15 @@ class GmailAdapter:
             results.append(self._summarize_message(msg))
         return results
 
-    def read(self, business, message_id: str) -> dict:
-        service = self._service(business)
+    def read(self, agency, message_id: str) -> dict:
+        service = self._service(agency)
         msg = service.users().messages().get(userId="me", id=message_id, format="full").execute()
         summary = self._summarize_message(msg)
         summary["body"] = self._extract_body_text(msg.get("payload", {}))
         return summary
 
-    def create_draft(self, business, to: str, subject: str, body: str) -> dict:
-        service = self._service(business)
+    def create_draft(self, agency, to: str, subject: str, body: str) -> dict:
+        service = self._service(agency)
         mime = MIMEText(body)
         mime["to"] = to
         mime["subject"] = subject
@@ -178,8 +178,8 @@ class GmailAdapter:
         draft = service.users().drafts().create(userId="me", body={"message": {"raw": raw}}).execute()
         return {"draft_id": draft.get("id"), "message_id": draft.get("message", {}).get("id")}
 
-    def send(self, business, to: str, subject: str, body: str) -> dict:
-        service = self._service(business)
+    def send(self, agency, to: str, subject: str, body: str) -> dict:
+        service = self._service(agency)
         mime = MIMEText(body)
         mime["to"] = to
         mime["subject"] = subject

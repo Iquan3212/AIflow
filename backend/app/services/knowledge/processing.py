@@ -43,7 +43,7 @@ def process_document(document_id: str) -> None:
         document.error = None
         db.commit()
         logger.info("knowledge.processing_started", extra={"ctx": {
-            "event": "knowledge.processing_started", "document_id": document_id, "business_id": document.business_id,
+            "event": "knowledge.processing_started", "document_id": document_id, "agency_id": document.agency_id,
         }})
 
         try:
@@ -62,7 +62,7 @@ def process_document(document_id: str) -> None:
             for chunk, vector in zip(chunks, vectors):
                 db.add(models.KnowledgeChunk(
                     document_id=document.id,
-                    business_id=document.business_id,
+                    agency_id=document.agency_id,
                     chunk_index=chunk.index,
                     content=chunk.text,
                     embedding=vector,
@@ -74,7 +74,7 @@ def process_document(document_id: str) -> None:
             db.commit()
             logger.info("knowledge.processing_succeeded", extra={"ctx": {
                 "event": "knowledge.processing_succeeded", "document_id": document_id,
-                "business_id": document.business_id, "chunk_count": len(chunks),
+                "agency_id": document.agency_id, "chunk_count": len(chunks),
             }})
 
         except (ExtractionError, EmbeddingError) as exc:

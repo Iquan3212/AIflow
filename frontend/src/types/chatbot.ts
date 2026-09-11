@@ -2,7 +2,7 @@ export interface ChatbotConfig {
 
     id: string;
 
-    business_id: string;
+    agency_id: string;
 
     welcome_message: string;
 

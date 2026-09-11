@@ -108,7 +108,7 @@ class TestRetrieveKnowledgeContext:
 
 
 class TestManagerAndEmployeeBothReceiveKnowledge:
-    def test_manager_reply_is_grounded_in_retrieved_business_knowledge(self):
+    def test_manager_reply_is_grounded_in_retrieved_agency_knowledge(self):
         knowledge = [{"document_name": "Delivery Policy.pdf", "content": "Free delivery over Rs 200.", "score": 0.88}]
         with patch("app.agents.llm_reply.chat_completion") as mock_chat:
             mock_chat.return_value = ChatResult(content="According to the Delivery Policy, delivery is free over Rs 200.")
@@ -140,7 +140,7 @@ class TestNoFabricationWhenNothingFound:
                 knowledge_context=[],
             )
         sent = _system_contents(mock_chat.call_args[0][0])
-        assert any("Do not invent a business-specific fact" in s for s in sent)
+        assert any("Do not invent an agency-specific fact" in s for s in sent)
 
     def test_none_knowledge_context_adds_no_knowledge_system_message_at_all(self):
         with patch("app.agents.llm_reply.chat_completion") as mock_chat:
@@ -151,7 +151,7 @@ class TestNoFabricationWhenNothingFound:
             )
         sent = _system_contents(mock_chat.call_args[0][0])
         assert not any("BUSINESS KNOWLEDGE" in s for s in sent)
-        assert not any("Do not invent a business-specific fact" in s for s in sent)
+        assert not any("Do not invent an agency-specific fact" in s for s in sent)
 
 
 class TestPromptInjectionInDocumentContentIsNeverFollowed:
@@ -159,13 +159,13 @@ class TestPromptInjectionInDocumentContentIsNeverFollowed:
         for injected in INJECTION_STRINGS:
             knowledge = [{"document_name": "Suspicious Upload.pdf", "content": injected, "score": 0.99}]
             with patch("app.agents.llm_reply.chat_completion") as mock_chat:
-                mock_chat.return_value = ChatResult(content="I can only help with questions about the business.")
+                mock_chat.return_value = ChatResult(content="I can only help with questions about the agency.")
                 messages = None
 
                 def _capture(msgs, **kwargs):
                     nonlocal messages
                     messages = msgs
-                    return ChatResult(content="I can only help with questions about the business.")
+                    return ChatResult(content="I can only help with questions about the agency.")
 
                 mock_chat.side_effect = _capture
                 generate_employee_reply(
@@ -193,7 +193,7 @@ class TestPromptInjectionInDocumentContentIsNeverFollowed:
 
 
 class TestCrossTenantRetrievalDeniedAtToolLayer:
-    def test_knowledge_search_tool_requires_a_real_business_and_never_guesses_one(self):
+    def test_knowledge_search_tool_requires_a_real_agency_and_never_guesses_one(self):
         tool = KnowledgeSearchTool()
-        result = tool.execute(message="anything", db=MagicMock(), business=None)
-        assert result == {"ok": False, "error": "missing_business"}
+        result = tool.execute(message="anything", db=MagicMock(), agency=None)
+        assert result == {"ok": False, "error": "missing_agency"}

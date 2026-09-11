@@ -3,7 +3,7 @@ export type TicketStatus = "open" | "in_progress" | "resolved" | "closed";
 
 export interface SupportTicket {
     id: string;
-    business_id: string;
+    agency_id: string;
     lead_id: string | null;
     issue_summary: string;
     priority: TicketPriority;

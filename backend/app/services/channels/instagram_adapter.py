@@ -8,10 +8,10 @@ format used for Instagram Messaging):
 {
   "object": "instagram",
   "entry": [{
-    "id": "<IG business account id>",
+    "id": "<IG agency account id>",
     "messaging": [{
       "sender": {"id": "<IGSID of the customer>"},
-      "recipient": {"id": "<IG business account id>"},
+      "recipient": {"id": "<IG agency account id>"},
       "message": {"mid": "<message id>", "text": "..."}
     }]
   }]
@@ -48,7 +48,7 @@ def verify_signature(raw_body: bytes, signature_header: str | None, app_secret: 
 
 def parse_inbound(payload: dict) -> list[NormalizedInboundMessage]:
     """Extracts every real customer text DM from one webhook delivery.
-    Echoes of the business's own outbound messages, reactions, and
+    Echoes of the agency's own outbound messages, reactions, and
     non-text attachments arrive on the same webhook shape and are skipped
     here, not treated as errors."""
     results: list[NormalizedInboundMessage] = []

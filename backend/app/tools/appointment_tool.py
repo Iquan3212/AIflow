@@ -10,15 +10,15 @@ from app.services.scheduling.datetime_utils import now_utc, to_local
 logger = get_logger(__name__)
 
 
-def _extract_appointment_request(message: str, business, lead=None) -> dict:
+def _extract_appointment_request(message: str, agency, lead=None) -> dict:
     """LLM-based extraction of scheduling intent from free text, resolving
-    relative phrases ('tomorrow at 3pm') against the business's current local
+    relative phrases ('tomorrow at 3pm') against the agency's current local
     time - same style as extract_lead_information, kept local to this tool
-    since it needs the business's timezone context."""
-    local_now = to_local(now_utc(), business.timezone)
+    since it needs the agency's timezone context."""
+    local_now = to_local(now_utc(), agency.timezone)
     prompt = f"""You are an information extraction system for appointment scheduling.
 
-CURRENT DATE AND TIME: {local_now.strftime('%A, %d %B %Y, %I:%M %p')} ({business.timezone})
+CURRENT DATE AND TIME: {local_now.strftime('%A, %d %B %Y, %I:%M %p')} ({agency.timezone})
 
 Extract the scheduling request from the customer message below.
 Return ONLY valid JSON, no markdown, in exactly this format:
@@ -80,7 +80,7 @@ def _outcome_dict(outcome) -> dict:
 
 class AppointmentTool:
     """Real integration with AppointmentService: books, reschedules, cancels,
-    and checks availability, going through the same business-hours/buffer/
+    and checks availability, going through the same agency-hours/buffer/
     min-notice/max-advance/double-booking rules as the customer-facing
     scheduling tools."""
 
@@ -91,17 +91,17 @@ class AppointmentTool:
         self,
         message: str,
         db=None,
-        business=None,
+        agency=None,
         conversation=None,
         lead=None,
         **kwargs,
     ) -> dict:
         db = db or self.db
-        if business is None:
-            return {"ok": False, "error": "missing_business"}
+        if agency is None:
+            return {"ok": False, "error": "missing_agency"}
 
         service = AppointmentService(db)
-        info = _extract_appointment_request(message, business, lead)
+        info = _extract_appointment_request(message, agency, lead)
         action = kwargs.get("action") or info.get("action") or "book"
         conversation_id = getattr(conversation, "id", None)
         # The owner-facing dashboard chat has one conversation shared across
@@ -119,13 +119,13 @@ class AppointmentTool:
                 return {"ok": False, "error": "need_date"}
             try:
                 y, m, d = map(int, date_local.split("-"))
-                slots = service.list_slots(business, _date(y, m, d))
+                slots = service.list_slots(agency, _date(y, m, d))
             except Exception:
                 return {"ok": False, "error": "bad_date"}
             return {
                 "ok": True,
                 "date": date_local,
-                "open_slots": [to_local(s, business.timezone).strftime("%Y-%m-%dT%H:%M") for s in slots[:12]],
+                "open_slots": [to_local(s, agency.timezone).strftime("%Y-%m-%dT%H:%M") for s in slots[:12]],
             }
 
         if action in ("cancel", "reschedule"):
@@ -138,7 +138,7 @@ class AppointmentTool:
                     "message": "I need the customer's name and a phone or email to find their appointment.",
                 }
             appt = service.find_for_customer(
-                business,
+                agency,
                 phone=phone,
                 email=email,
                 conversation_id=lookup_conversation_id,
@@ -147,12 +147,12 @@ class AppointmentTool:
                 return {"ok": False, "error": "not_found", "message": "I couldn't find that appointment."}
 
             if action == "cancel":
-                return _outcome_dict(service.cancel(business, appt.id))
+                return _outcome_dict(service.cancel(agency, appt.id))
 
             start = kwargs.get("start_local_iso") or info.get("start_local_iso")
             if not start:
                 return {"ok": False, "error": "need_time"}
-            return _outcome_dict(service.reschedule(business, appt.id, start))
+            return _outcome_dict(service.reschedule(agency, appt.id, start))
 
         # default: book
         start = kwargs.get("start_local_iso") or info.get("start_local_iso")
@@ -171,7 +171,7 @@ class AppointmentTool:
             }
 
         outcome = service.book(
-            business,
+            agency,
             start_local_iso=start,
             customer_name=name,
             customer_phone=phone,

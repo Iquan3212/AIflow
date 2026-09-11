@@ -15,7 +15,7 @@ import { getDashboardStats, type DashboardStats } from "../../services/dashboard
 import { getAnalyticsOverview, type AnalyticsOverview } from "../../services/analytics";
 import { listLeads } from "../../services/leads";
 import type { Lead } from "../../types/lead";
-import { useBusiness } from "../../context/BusinessContext";
+import { useAgency } from "../../context/AgencyContext";
 
 function greeting(): string {
     const hour = new Date().getHours();
@@ -26,7 +26,7 @@ function greeting(): string {
 
 export default function Dashboard() {
     const navigate = useNavigate();
-    const { business } = useBusiness();
+    const { agency } = useAgency();
 
     const [stats, setStats] = useState<DashboardStats | null>(null);
     const [analytics, setAnalytics] = useState<AnalyticsOverview | null>(null);
@@ -56,7 +56,7 @@ export default function Dashboard() {
     return (
         <AppShell>
             <PageHeader
-                title={`${greeting()}, ${business?.name ?? "there"}`}
+                title={`${greeting()}, ${agency?.name ?? "there"}`}
                 description="Here's what's happening across your AI Workforce."
             />
 

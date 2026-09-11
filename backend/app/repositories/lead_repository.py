@@ -8,7 +8,7 @@ class LeadRepository:
 
     def get_all(
         self,
-        business_id: UUID,
+        agency_id: UUID,
     ):
         db = SessionLocal()
 
@@ -17,7 +17,7 @@ class LeadRepository:
             return (
                 db.query(Lead)
                 .filter(
-                    Lead.business_id == business_id
+                    Lead.agency_id == agency_id
                 )
                 .order_by(
                     Lead.created_at.desc()
@@ -53,7 +53,7 @@ class LeadRepository:
     def update(
         self,
         lead_id,
-        business_id,
+        agency_id,
         payload,
     ):
 
@@ -65,7 +65,7 @@ class LeadRepository:
                 db.query(Lead)
                 .filter(
                     Lead.id == lead_id,
-                    Lead.business_id == business_id,
+                    Lead.agency_id == agency_id,
                 )
                 .first()
             )
@@ -93,7 +93,7 @@ class LeadRepository:
     def delete(
         self,
         lead_id,
-        business_id,
+        agency_id,
     ):
 
         db = SessionLocal()
@@ -104,7 +104,7 @@ class LeadRepository:
                 db.query(Lead)
                 .filter(
                     Lead.id == lead_id,
-                    Lead.business_id == business_id,
+                    Lead.agency_id == agency_id,
                 )
                 .first()
             )

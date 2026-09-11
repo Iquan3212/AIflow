@@ -7,19 +7,19 @@ Analytics), runs real tools against real data, and synthesizes one reply.
 
 ## What's actually working today
 
-- **Multi-tenant backend** — one deployment serves every business that signs
-  up; every table is scoped by `business_id`.
+- **Multi-tenant backend** — one deployment serves every agency that signs
+  up; every table is scoped by `agency_id`.
 - **Auth** with real access + refresh tokens (rotated on refresh) and a
   session table you can inspect/revoke from Settings → Security.
 - **Public website widget** (`widget/widget.js`) that answers FAQs grounded in
-  a business's own configured info, captures leads via LLM tool-calling, and
+  an agency's own configured info, captures leads via LLM tool-calling, and
   books/reschedules/cancels appointments against a real availability engine
-  (business hours, buffers, min-notice, max-advance, double-booking guards).
+  (agency hours, buffers, min-notice, max-advance, double-booking guards).
 - **AI Workforce** (owner-facing, at `/manager` in the dashboard): every
   message goes through Planner → Manager → one or more specialist Employees →
   ToolRouter → real services/DB → Manager synthesis → reply. Employees
   actually create leads, book appointments, query real dashboard data, and
-  draft marketing/quotation content grounded in the business's own configured
+  draft marketing/quotation content grounded in the agency's own configured
   services — never fabricated numbers or facts.
 - **React dashboard** (Vite + TypeScript + Tailwind) — Dashboard, AI Workforce,
   Manager AI, Leads, Conversations, Appointments, Drafts, Support, Analytics,
@@ -27,7 +27,7 @@ Analytics), runs real tools against real data, and synthesizes one reply.
   placeholder/demo data anywhere in the product.
 - **Google Calendar sync** (OAuth) for appointments, once you configure your
   own Google Cloud OAuth client.
-- **Knowledge Base / RAG** — upload real business documents (PDF/DOCX/TXT:
+- **Knowledge Base / RAG** — upload real agency documents (PDF/DOCX/TXT:
   menus, policies, FAQs) and every AI Workforce employee answers customer
   questions grounded in them, with source attribution and no fabrication.
   Retrieval runs on pgvector, is always tenant-isolated, and never lets a
@@ -115,7 +115,7 @@ Separate from the `LLM_PROVIDER` chat layer above — set via
 | `gemini` | `GEMINI_API_KEY` (same key as the `gemini` `LLM_PROVIDER` option above — no separate credential needed) | Real semantic embeddings (`gemini-embedding-001`, truncated to 768 dimensions). Use this for anything beyond exercising the ingestion/retrieval plumbing. |
 
 `KNOWLEDGE_STORAGE_DIR` (default `./data/knowledge`) sets where uploaded
-document files are stored on disk (per-business subdirectories,
+document files are stored on disk (per-agency subdirectories,
 git-ignored). No cloud object storage is required.
 
 ### 2. Frontend
@@ -129,7 +129,7 @@ npm run dev
 
 ### 3. Try it
 
-Sign up a business at `http://localhost:5173/register`, then open **Manager
+Sign up an agency at `http://localhost:5173/register`, then open **Manager
 AI** and try: *"Create a lead for John and book an appointment with him
 tomorrow at 3pm."* — that one message routes through both the Sales and
 Receptionist employees and comes back as one synthesized reply.

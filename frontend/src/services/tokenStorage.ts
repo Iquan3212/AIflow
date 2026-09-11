@@ -4,12 +4,12 @@
 
 const ACCESS_KEY = "aiflow.access_token";
 const REFRESH_KEY = "aiflow.refresh_token";
-const SLUG_KEY = "aiflow.business_slug";
+const SLUG_KEY = "aiflow.agency_slug";
 
 export interface StoredTokens {
   access_token: string;
   refresh_token: string;
-  business_slug?: string;
+  agency_slug?: string;
 }
 
 export function getAccessToken(): string | null {
@@ -20,15 +20,15 @@ export function getRefreshToken(): string | null {
   return localStorage.getItem(REFRESH_KEY);
 }
 
-export function getBusinessSlug(): string | null {
+export function getAgencySlug(): string | null {
   return localStorage.getItem(SLUG_KEY);
 }
 
 export function setTokens(tokens: StoredTokens): void {
   localStorage.setItem(ACCESS_KEY, tokens.access_token);
   localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
-  if (tokens.business_slug) {
-    localStorage.setItem(SLUG_KEY, tokens.business_slug);
+  if (tokens.agency_slug) {
+    localStorage.setItem(SLUG_KEY, tokens.agency_slug);
   }
 }
 

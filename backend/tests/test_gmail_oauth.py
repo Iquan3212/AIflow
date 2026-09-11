@@ -43,7 +43,7 @@ class TestState:
         this is exactly the cross-flow replay protection the purpose claim
         exists for."""
         payload = {
-            "business_id": "biz-123",
+            "agency_id": "biz-123",
             "purpose": "google_calendar_oauth",
             "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
         }
@@ -52,7 +52,7 @@ class TestState:
 
     def test_expired_state_rejected(self):
         payload = {
-            "business_id": "biz-123",
+            "agency_id": "biz-123",
             "purpose": "gmail_oauth",
             "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
         }
@@ -82,7 +82,7 @@ class TestConsentUrl:
         # Never the broad, unrestricted mailbox scope.
         assert "mail.google.com" not in url
 
-    def test_state_is_valid_for_this_business(self, monkeypatch):
+    def test_state_is_valid_for_this_agency(self, monkeypatch):
         monkeypatch.setattr(gmail_oauth.settings, "google_client_id", "test-client-id")
         monkeypatch.setattr(gmail_oauth.settings, "google_gmail_redirect_uri", "http://localhost:8000/gmail/callback")
         url = gmail_oauth.build_consent_url("biz-456")

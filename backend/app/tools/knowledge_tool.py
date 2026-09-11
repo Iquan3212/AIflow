@@ -7,7 +7,7 @@ second AI brain - see ARCHITECTURE.md's "Knowledge Base / RAG" section.
 
 Read-only and side-effect-free: this never writes anything, so unlike
 Gmail there is no permission/approval concern beyond the same tenant
-isolation retrieval.py already enforces via business_id.
+isolation retrieval.py already enforces via agency_id.
 """
 
 from __future__ import annotations
@@ -20,12 +20,12 @@ from app.services.knowledge.retrieval import retrieve
 
 class KnowledgeSearchTool:
     def execute(
-        self, message: str, db: Session = None, business: models.Business = None,
+        self, message: str, db: Session = None, agency: models.Agency = None,
         conversation=None, lead=None, query: str | None = None, top_k: int = 4, **kwargs,
     ) -> dict:
-        if business is None:
-            return {"ok": False, "error": "missing_business"}
-        results = retrieve(db, business.id, query or message, top_k=top_k)
+        if agency is None:
+            return {"ok": False, "error": "missing_agency"}
+        results = retrieve(db, agency.id, query or message, top_k=top_k)
         return {
             "ok": True,
             "results": [

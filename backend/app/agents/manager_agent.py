@@ -120,21 +120,21 @@ class ManagerAgent:
     resolves conflicts, and produces a unified context for the LLM.
     """
 
-    def __init__(self, registry: Registry, memory: ConversationMemory, business: Any = None, tool_router: Any = None):
+    def __init__(self, registry: Registry, memory: ConversationMemory, agency: Any = None, tool_router: Any = None):
         self.registry = registry
         self.memory = memory
-        self.business = business
+        self.agency = agency
         self.tool_router = tool_router
 
     @property
     def system_prompt(self) -> str:
-        name = getattr(self.business, "name", None) or "the business"
+        name = getattr(self.agency, "name", None) or "the agency"
         return f"""You are the Manager AI for {name}.
 
 You coordinate a workforce of AI specialists: Sales, Receptionist, Support,
 Finance, Marketing, and Analytics.
 
-You also have direct access to the business's own connected Gmail inbox -
+You also have direct access to the agency's own connected Gmail inbox -
 you can search it, read a message, create a draft reply, and send email
 (sending may require the owner's approval before it actually goes out).
 Only describe emails, senders, or message contents that appear in the real
@@ -149,7 +149,7 @@ mode; send may require the owner's approval or be fully automated) -
 answer capability questions directly from that, and never claim a
 capability (like automated sending) that it doesn't list as available.
 
-Answer general questions helpfully and concisely. Never invent business
+Answer general questions helpfully and concisely. Never invent agency
 facts, prices, or appointment slots yourself - that work belongs to the
 specialist employees."""
 

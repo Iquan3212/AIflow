@@ -23,18 +23,18 @@ class SupportTicketTool:
         self,
         message: str,
         db=None,
-        business=None,
+        agency=None,
         conversation=None,
         lead=None,
         priority: str = "normal",
         **kwargs,
     ) -> dict:
         db = db or self.db
-        if business is None:
-            return {"ok": False, "error": "missing_business"}
+        if agency is None:
+            return {"ok": False, "error": "missing_agency"}
 
         ticket = SupportTicketService(db).create(
-            business_id=business.id,
+            agency_id=agency.id,
             issue_summary=message,
             priority=priority,
             lead_id=getattr(lead, "id", None),
@@ -45,17 +45,17 @@ class SupportTicketTool:
             # real, already-committed ticket.
             try:
                 NotificationDispatcher().notify_owner(
-                    db=db, business=business, event_type=notif_prefs.SUPPORT_ESCALATION,
-                    subject=f"Support escalation — {business.name}",
+                    db=db, agency=agency, event_type=notif_prefs.SUPPORT_ESCALATION,
+                    subject=f"Support escalation — {agency.name}",
                     body=f"A support issue was escalated: {ticket.issue_summary}",
                 )
             except Exception:
                 logger.exception("notification.support_escalation_failed", extra={"ctx": {
-                    "event": "notification.support_escalation_failed", "business_id": business.id, "ticket_id": ticket.id,
+                    "event": "notification.support_escalation_failed", "agency_id": agency.id, "ticket_id": ticket.id,
                 }})
 
             fire_trigger(
-                db, business.id, models.WorkflowTriggerType.support_escalated,
+                db, agency.id, models.WorkflowTriggerType.support_escalated,
                 support_escalated_data(ticket), event_id=str(ticket.id),
             )
 

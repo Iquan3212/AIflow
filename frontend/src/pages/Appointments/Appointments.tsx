@@ -12,7 +12,7 @@ import {
     AlertTriangle,
 } from "lucide-react";
 
-import { useBusiness } from "../../context/BusinessContext";
+import { useAgency } from "../../context/AgencyContext";
 import AppShell from "../../components/layout/AppShell";
 import {
     listAppointments,
@@ -43,8 +43,8 @@ function todayISO(): string {
 }
 
 function useTz(): string {
-    const { business } = useBusiness();
-    return business?.timezone || "Asia/Kolkata";
+    const { agency } = useAgency();
+    return agency?.timezone || "Asia/Kolkata";
 }
 
 function fmt(utcIso: string, tz: string): string {

@@ -34,7 +34,7 @@ ALL_REASONS = frozenset({
 # (invalid_request) or refused by our own code before it ever reaches a
 # provider would fail identically on any other provider too - falling back
 # would just waste a second call for a second, identical failure. Not
-# used for prompt-injection refusals or business/tool-rule failures at
+# used for prompt-injection refusals or agency/tool-rule failures at
 # all: those never raise LLMProviderError in the first place, since they
 # are not provider failures - see prompt_guard.py and ToolRouter.
 FALLBACK_ELIGIBLE_REASONS = frozenset({RATE_LIMITED, TIMEOUT, UNAVAILABLE, PROVIDER_ERROR})

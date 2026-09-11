@@ -2,7 +2,7 @@ export type KnowledgeDocumentStatus = "queued" | "processing" | "ready" | "faile
 
 export interface KnowledgeDocument {
     id: string;
-    business_id: string;
+    agency_id: string;
     title: string;
     filename: string;
     file_type: string;

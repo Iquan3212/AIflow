@@ -9,7 +9,7 @@ import { getErrorMessage } from "../../services/api";
 import { ChannelBadge } from "./ConversationList";
 
 import type { Conversation } from "../../types/conversation";
-import { useBusiness } from "../../context/BusinessContext";
+import { useAgency } from "../../context/AgencyContext";
 
 type Props = {
     conversation: Conversation | null;
@@ -24,7 +24,7 @@ type Props = {
 };
 
 export default function ChatWindow({ conversation, onMessageSent }: Props) {
-    const { business } = useBusiness();
+    const { agency } = useAgency();
 
     const [sending, setSending] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -38,8 +38,8 @@ export default function ChatWindow({ conversation, onMessageSent }: Props) {
     }, [messages.length]);
 
     async function handleSend(text: string) {
-        if (!business?.slug) {
-            setError("Business context is unavailable");
+        if (!agency?.slug) {
+            setError("Agency context is unavailable");
             return;
         }
 
@@ -47,7 +47,7 @@ export default function ChatWindow({ conversation, onMessageSent }: Props) {
         setSending(true);
 
         try {
-            const response = await sendMessage(text, business.slug, conversation?.id);
+            const response = await sendMessage(text, agency.slug, conversation?.id);
 
             // The conversation prop is the single source of truth for
             // messages/customer info - refresh it rather than keeping a

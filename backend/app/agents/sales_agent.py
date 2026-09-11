@@ -14,9 +14,9 @@ class SalesAgent:
     - Capture buying intent
     """
 
-    def __init__(self, business, lead=None):
+    def __init__(self, agency, lead=None):
 
-        self.business = business
+        self.agency = agency
         self.lead = lead
         self.memory = ConversationMemory()
 
@@ -26,11 +26,11 @@ class SalesAgent:
         services = []
 
         if (
-            hasattr(self.business, "chatbot_config")
-            and self.business.chatbot_config
-            and self.business.chatbot_config.services
+            hasattr(self.agency, "chatbot_config")
+            and self.agency.chatbot_config
+            and self.agency.chatbot_config.services
         ):
-            services = self.business.chatbot_config.services
+            services = self.agency.chatbot_config.services
 
         services_text = "\n".join(
             f"- {service}"
@@ -38,7 +38,7 @@ class SalesAgent:
         )
 
         return f"""
-You are the Sales AI for {self.business.name}.
+You are the Sales AI for {self.agency.name}.
 
 ROLE
 

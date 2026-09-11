@@ -1,6 +1,6 @@
 """
 Controlled Workflow Automation API (Phase 5) - all authenticated, all
-business/tenant-scoped via get_current_business, matching every other
+agency/tenant-scoped via get_current_agency, matching every other
 CRUD router in this app (drafts.py, knowledge.py, gmail.py). This is the
 ONLY way a Workflow can ever be created or changed - see
 services/workflows/service.py's validate_workflow_config() for why an
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
-from app.deps import get_current_business, get_current_user
+from app.deps import get_current_agency, get_current_user
 from app.services.workflows.engine import WorkflowEngine
 from app.services.workflows.service import WorkflowService, WorkflowValidationError
 
@@ -29,21 +29,21 @@ def _to_trigger_type(value: str) -> models.WorkflowTriggerType:
 
 @router.get("/workflows", response_model=list[schemas.WorkflowOut])
 def list_workflows(
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    return WorkflowService(db).get_all(business.id)
+    return WorkflowService(db).get_all(agency.id)
 
 
 @router.post("/workflows", response_model=schemas.WorkflowOut, status_code=201)
 def create_workflow(
     payload: schemas.WorkflowCreate,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
     try:
         return WorkflowService(db).create(
-            business_id=business.id, name=payload.name, description=payload.description,
+            agency_id=agency.id, name=payload.name, description=payload.description,
             trigger_type=_to_trigger_type(payload.trigger_type),
             conditions=[c.model_dump() for c in payload.conditions],
             actions=[a.model_dump() for a in payload.actions],
@@ -55,10 +55,10 @@ def create_workflow(
 @router.get("/workflows/{workflow_id}", response_model=schemas.WorkflowOut)
 def get_workflow(
     workflow_id: str,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    workflow = WorkflowService(db).get(workflow_id, business.id)
+    workflow = WorkflowService(db).get(workflow_id, agency.id)
     if workflow is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return workflow
@@ -68,12 +68,12 @@ def get_workflow(
 def update_workflow(
     workflow_id: str,
     payload: schemas.WorkflowUpdate,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
     try:
         workflow = WorkflowService(db).update(
-            workflow_id, business.id,
+            workflow_id, agency.id,
             name=payload.name, description=payload.description,
             conditions=[c.model_dump() for c in payload.conditions] if payload.conditions is not None else None,
             actions=[a.model_dump() for a in payload.actions] if payload.actions is not None else None,
@@ -88,10 +88,10 @@ def update_workflow(
 @router.delete("/workflows/{workflow_id}")
 def delete_workflow(
     workflow_id: str,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    if not WorkflowService(db).delete(workflow_id, business.id):
+    if not WorkflowService(db).delete(workflow_id, agency.id):
         raise HTTPException(status_code=404, detail="Workflow not found")
     return {"message": "Workflow deleted successfully"}
 
@@ -99,10 +99,10 @@ def delete_workflow(
 @router.post("/workflows/{workflow_id}/enable", response_model=schemas.WorkflowOut)
 def enable_workflow(
     workflow_id: str,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    workflow = WorkflowService(db).set_status(workflow_id, business.id, models.WorkflowStatus.active)
+    workflow = WorkflowService(db).set_status(workflow_id, agency.id, models.WorkflowStatus.active)
     if workflow is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return workflow
@@ -111,10 +111,10 @@ def enable_workflow(
 @router.post("/workflows/{workflow_id}/disable", response_model=schemas.WorkflowOut)
 def disable_workflow(
     workflow_id: str,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    workflow = WorkflowService(db).set_status(workflow_id, business.id, models.WorkflowStatus.disabled)
+    workflow = WorkflowService(db).set_status(workflow_id, agency.id, models.WorkflowStatus.disabled)
     if workflow is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
     return workflow
@@ -123,19 +123,19 @@ def disable_workflow(
 @router.get("/workflows/{workflow_id}/runs", response_model=list[schemas.WorkflowRunOut])
 def list_workflow_runs(
     workflow_id: str,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    return WorkflowService(db).get_runs(workflow_id, business.id)
+    return WorkflowService(db).get_runs(workflow_id, agency.id)
 
 
 @router.get("/workflow-runs/{run_id}", response_model=schemas.WorkflowRunOut)
 def get_workflow_run(
     run_id: str,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    run = WorkflowService(db).get_run(run_id, business.id)
+    run = WorkflowService(db).get_run(run_id, agency.id)
     if run is None:
         raise HTTPException(status_code=404, detail="Workflow run not found")
     return run
@@ -143,12 +143,12 @@ def get_workflow_run(
 
 @router.get("/workflow-approvals", response_model=list[schemas.ApprovalRequestOut])
 def list_workflow_approvals(
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
     return (
         db.query(models.ApprovalRequest)
-        .filter(models.ApprovalRequest.business_id == business.id)
+        .filter(models.ApprovalRequest.agency_id == agency.id)
         .order_by(models.ApprovalRequest.created_at.desc())
         .all()
     )
@@ -158,7 +158,7 @@ def list_workflow_approvals(
 def decide_workflow_approval(
     approval_id: str,
     payload: schemas.ApprovalDecisionRequest,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -166,7 +166,7 @@ def decide_workflow_approval(
 
     approval = (
         db.query(models.ApprovalRequest)
-        .filter(models.ApprovalRequest.id == approval_id, models.ApprovalRequest.business_id == business.id)
+        .filter(models.ApprovalRequest.id == approval_id, models.ApprovalRequest.agency_id == agency.id)
         .first()
     )
     if approval is None:

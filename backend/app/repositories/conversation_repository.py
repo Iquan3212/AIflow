@@ -3,10 +3,10 @@ from sqlalchemy.orm import Session
 from app import models
 
 
-def get_business_by_slug(db: Session, slug: str):
+def get_agency_by_slug(db: Session, slug: str):
     return (
-        db.query(models.Business)
-        .filter(models.Business.slug == slug)
+        db.query(models.Agency)
+        .filter(models.Agency.slug == slug)
         .first()
     )
 
@@ -14,14 +14,14 @@ def get_business_by_slug(db: Session, slug: str):
 def get_conversation(
     db: Session,
     conversation_id: str,
-    business_id: str | None = None,
+    agency_id: str | None = None,
     visitor_id: str | None = None,
     channel: str | None = None,
 ):
     """Load a conversation only when it belongs to the supplied scope."""
     query = db.query(models.Conversation).filter(models.Conversation.id == conversation_id)
-    if business_id is not None:
-        query = query.filter(models.Conversation.business_id == business_id)
+    if agency_id is not None:
+        query = query.filter(models.Conversation.agency_id == agency_id)
     if visitor_id is not None:
         query = query.filter(models.Conversation.visitor_id == visitor_id)
     if channel is not None:
@@ -31,7 +31,7 @@ def get_conversation(
 
 def find_conversation_by_visitor(
     db: Session,
-    business_id: str,
+    agency_id: str,
     visitor_id: str,
     channel: str,
 ):
@@ -46,7 +46,7 @@ def find_conversation_by_visitor(
     return (
         db.query(models.Conversation)
         .filter(
-            models.Conversation.business_id == business_id,
+            models.Conversation.agency_id == agency_id,
             models.Conversation.visitor_id == visitor_id,
             models.Conversation.channel == channel,
         )
@@ -57,12 +57,12 @@ def find_conversation_by_visitor(
 
 def create_conversation(
     db: Session,
-    business_id: str,
+    agency_id: str,
     visitor_id: str,
     channel: str = "website",
 ):
     conversation = models.Conversation(
-        business_id=business_id,
+        agency_id=agency_id,
         visitor_id=visitor_id,
         channel=channel,
     )
@@ -106,18 +106,18 @@ def load_history(
     )
 
     return history
-def get_business_conversations(db: Session, business_id: str, channel: str | None = None):
-    query = db.query(models.Conversation).filter(models.Conversation.business_id == business_id)
+def get_agency_conversations(db: Session, agency_id: str, channel: str | None = None):
+    query = db.query(models.Conversation).filter(models.Conversation.agency_id == agency_id)
     if channel is not None:
         query = query.filter(models.Conversation.channel == channel)
     return query.order_by(models.Conversation.started_at.desc()).all()
 def get_or_create_employee_conversation(
     db: Session,
-    business_id: str,
+    agency_id: str,
     conversation_id: str | None = None,
 ):
     """
-    Returns the dashboard AI conversation for this business.
+    Returns the dashboard AI conversation for this agency.
     Creates one if it doesn't exist.
     """
 
@@ -125,7 +125,7 @@ def get_or_create_employee_conversation(
         conversation = get_conversation(
             db,
             conversation_id,
-            business_id=business_id,
+            agency_id=agency_id,
             channel="employee",
         )
         if conversation is not None:
@@ -134,7 +134,7 @@ def get_or_create_employee_conversation(
     conversation = (
         db.query(models.Conversation)
         .filter(
-            models.Conversation.business_id == business_id,
+            models.Conversation.agency_id == agency_id,
             models.Conversation.channel == "employee",
         )
         .first()
@@ -144,7 +144,7 @@ def get_or_create_employee_conversation(
         return conversation
 
     conversation = models.Conversation(
-        business_id=business_id,
+        agency_id=agency_id,
         visitor_id="dashboard-owner",
         channel="employee",
     )

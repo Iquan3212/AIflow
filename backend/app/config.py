@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     # Optional: if set to one of the four provider names (and different
     # from llm_provider), a transient failure (rate limit/timeout/
     # unavailable/provider_error - never an invalid request, an auth
-    # problem in OUR app, a prompt-injection refusal, or a tool/business-
+    # problem in OUR app, a prompt-injection refusal, or a tool/agency-
     # rule failure) triggers exactly one retry against this provider
     # instead. "" or "none" (the default) disables fallback entirely.
     llm_fallback_provider: str = ""
@@ -157,7 +157,7 @@ class Settings(BaseSettings):
     #
     # These belong to AIFlow's own Meta App configuration (one per
     # deployment), NOT to any one tenant - that's why they're env vars
-    # rather than per-business database rows. A business's own connection
+    # rather than per-agency database rows. An agency's own connection
     # (which WhatsApp number / Instagram account, and the token to send as
     # it) is per-tenant data, stored in ChannelCredential instead - see
     # app/models.py and app/services/channels/.
@@ -193,7 +193,7 @@ class Settings(BaseSettings):
     #   - "gemini": real embeddings via the already-configured
     #     GEMINI_API_KEY (no new credential needed) - see embeddings.py.
     # KNOWLEDGE_STORAGE_DIR: where uploaded documents' raw bytes are
-    # written (see storage.py) - one subdirectory per business_id.
+    # written (see storage.py) - one subdirectory per agency_id.
     # =====================================================
 
     embedding_provider: str = "mock"

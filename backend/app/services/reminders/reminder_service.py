@@ -28,16 +28,16 @@ class ReminderService:
         due = self.repo.get_due_reminders(within=timedelta(hours=lookahead_hours))
         sent = 0
         for appt in due:
-            business = appt.business
-            when = humanize(appt.scheduled_at, business.timezone)
-            body = (f"Reminder: you have an appointment with {business.name} "
+            agency = appt.agency
+            when = humanize(appt.scheduled_at, agency.timezone)
+            body = (f"Reminder: you have an appointment with {agency.name} "
                     f"on {when}. Reply here if you need to reschedule or cancel.")
             results = self.notifier.notify_customer(
-                db=self.db, business_id=business.id, event_type=notif_prefs.APPOINTMENT_REMINDER,
+                db=self.db, agency_id=agency.id, event_type=notif_prefs.APPOINTMENT_REMINDER,
                 name=appt.customer_name,
                 email=appt.customer_email,
                 phone=appt.customer_phone,
-                subject=f"Reminder — appointment with {business.name}",
+                subject=f"Reminder — appointment with {agency.name}",
                 body=body,
             )
             if any(r.ok for r in results):

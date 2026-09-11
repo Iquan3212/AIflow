@@ -13,7 +13,7 @@ all depend on this module's shape, never on a specific provider's SDK.
 Optional single-attempt fallback: if LLM_FALLBACK_PROVIDER names a second
 provider, a transient failure on the primary (rate limit/timeout/
 unavailable/provider_error only - never an invalid request, an auth
-problem, a prompt-injection refusal, or a tool/business-rule failure, none
+problem, a prompt-injection refusal, or a tool/agency-rule failure, none
 of which are provider failures in the first place) retries once against
 it. Disabled by default; never recurses - the fallback attempt's own
 failure always propagates rather than trying a third provider.

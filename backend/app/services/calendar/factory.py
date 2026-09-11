@@ -1,4 +1,4 @@
-"""Return the calendar adapter for a business. Google if it's connected (needs
+"""Return the calendar adapter for an agency. Google if it's connected (needs
 the request DB session to read stored tokens), else the no-op adapter."""
 
 from __future__ import annotations
@@ -8,8 +8,8 @@ from .noop import NoOpCalendar
 from .google_calendar import GoogleCalendarSync
 
 
-def get_calendar_for(business, db=None) -> CalendarSync:
+def get_calendar_for(agency, db=None) -> CalendarSync:
     google = GoogleCalendarSync(db)
-    if google.is_configured(business):
+    if google.is_configured(agency):
         return google
     return NoOpCalendar()

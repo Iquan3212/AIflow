@@ -3,9 +3,9 @@ from sqlalchemy.orm import Session
 
 from app import schemas
 from app.database import get_db
-from app.deps import get_current_business
+from app.deps import get_current_agency
 from app.dashboard_service import get_dashboard_stats
-from app.models import Business
+from app.models import Agency
 
 router = APIRouter(
     prefix="/dashboard",
@@ -18,7 +18,7 @@ router = APIRouter(
     response_model=schemas.DashboardStats,
 )
 def dashboard_stats(
-    business: Business = Depends(get_current_business),
+    agency: Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    return get_dashboard_stats(db, business.id)
+    return get_dashboard_stats(db, agency.id)

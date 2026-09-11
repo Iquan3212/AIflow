@@ -29,9 +29,9 @@ class AIOrchestrator:
     Planner -> ManagerAgent -> Employees -> ToolRouter -> real services (LLM/DB)
     """
 
-    def __init__(self, db: Any, business: Any, conversation: Any, lead: Any):
+    def __init__(self, db: Any, agency: Any, conversation: Any, lead: Any):
         self.db = db
-        self.business = business
+        self.agency = agency
         self.conversation = conversation
         self.lead = lead
 
@@ -48,7 +48,7 @@ class AIOrchestrator:
         self.registry.register_tool("campaign", CampaignTool(db=self.db))
         self.registry.register_tool("dashboard", AnalyticsTool(db=self.db))
         self.registry.register_tool("support_ticket", SupportTicketTool(db=self.db))
-        # Gmail: an owner-facing capability (the business's own connected
+        # Gmail: an owner-facing capability (the agency's own connected
         # inbox), not a per-customer-conversation one - reachable through
         # the same Tool Router/permission machinery as every other tool,
         # but only "manager" is granted it below (via all_tools()), not any
@@ -65,7 +65,7 @@ class AIOrchestrator:
         self.registry.register_tool("gmail_send", GmailSendTool())
         # Knowledge Base retrieval: read-only, side-effect-free, so unlike
         # Gmail it's granted to every specialist employee (not just
-        # Manager) - a business's own uploaded documents are relevant
+        # Manager) - an agency's own uploaded documents are relevant
         # context for all of them, not an owner-only capability. Still a
         # DATA/RETRIEVAL layer feeding the same Planner/ToolRouter
         # pipeline, never a second AI brain - see
@@ -73,23 +73,23 @@ class AIOrchestrator:
         self.registry.register_tool("knowledge_search", KnowledgeSearchTool())
 
         # Employee agents
-        self.registry.register_employee("sales", SalesAgent(self.business, self.lead), tools=["lead", "knowledge_search"])
+        self.registry.register_employee("sales", SalesAgent(self.agency, self.lead), tools=["lead", "knowledge_search"])
         self.registry.register_employee(
-            "support", SupportAgent(self.business, self.lead), tools=["support_ticket", "knowledge_search"]
+            "support", SupportAgent(self.agency, self.lead), tools=["support_ticket", "knowledge_search"]
         )
         self.registry.register_employee(
-            "receptionist", ReceptionistAgent(self.business, self.lead), tools=["appointment", "knowledge_search"]
+            "receptionist", ReceptionistAgent(self.agency, self.lead), tools=["appointment", "knowledge_search"]
         )
-        self.registry.register_employee("analytics", AnalyticsAgent(self.business, self.lead), tools=["dashboard", "knowledge_search"])
-        self.registry.register_employee("marketing", MarketingAgent(self.business, self.lead), tools=["campaign", "knowledge_search"])
-        self.registry.register_employee("finance", FinanceAgent(self.business, self.lead), tools=["quotation", "knowledge_search"])
+        self.registry.register_employee("analytics", AnalyticsAgent(self.agency, self.lead), tools=["dashboard", "knowledge_search"])
+        self.registry.register_employee("marketing", MarketingAgent(self.agency, self.lead), tools=["campaign", "knowledge_search"])
+        self.registry.register_employee("finance", FinanceAgent(self.agency, self.lead), tools=["quotation", "knowledge_search"])
 
         # Manager gets access to all registered tools and orchestrates employees
         self.router = ToolRouter(
-            registry=self.registry, db=self.db, business=self.business, conversation=self.conversation, lead=self.lead
+            registry=self.registry, db=self.db, agency=self.agency, conversation=self.conversation, lead=self.lead
         )
         self.manager = ManagerAgent(
-            registry=self.registry, memory=self.memory, business=self.business, tool_router=self.router
+            registry=self.registry, memory=self.memory, agency=self.agency, tool_router=self.router
         )
         # Register manager as well (so plan.employees == ["manager"] resolves)
         self.registry.register_employee("manager", self.manager, tools=list(self.registry.all_tools().keys()))

@@ -1,6 +1,6 @@
 """
 Regression tests for a real bug: the customer-facing conversation pipeline
-(process_message_for_business(), used by the website widget, WhatsApp, and
+(process_message_for_agency(), used by the website widget, WhatsApp, and
 Instagram) never performed a Knowledge Base retrieval at all - it built its
 system prompt via build_system_prompt() (structured ChatbotConfig data
 only: description/services/FAQs) and ran its own tool-calling loop
@@ -50,7 +50,7 @@ REAL_DOCS = {
         "Orders above ₹500 receive free delivery.\n\nOrders below ₹500 have a ₹50 delivery charge."
     ),
     "refund.txt": (
-        "Biryani House Refund Policy\n\nApproved refunds are processed within 5-7 business days.\n\n"
+        "Biryani House Refund Policy\n\nApproved refunds are processed within 5-7 agency days.\n\n"
         "No refund is provided for food that has been consumed."
     ),
     "malicious.txt": (
@@ -60,9 +60,9 @@ REAL_DOCS = {
 }
 
 
-def _make_business(name_suffix: str):
+def _make_agency(name_suffix: str):
     db = SessionLocal()
-    biz = models.Business(
+    biz = models.Agency(
         name=f"Conversation RAG Test {name_suffix}",
         slug=f"conv-rag-test-{name_suffix}-{uuid.uuid4().hex[:10]}",
         contact_email=f"owner-{name_suffix}@convragtest.example",
@@ -71,7 +71,7 @@ def _make_business(name_suffix: str):
     db.commit()
     db.refresh(biz)
     db.add(models.ChatbotConfig(
-        business_id=biz.id,
+        agency_id=biz.id,
         business_description="Biryani House is a local restaurant.",
         services=["Biryani", "Delivery"],
         faqs=[],
@@ -82,7 +82,7 @@ def _make_business(name_suffix: str):
     doc_ids = {}
     for title, content in REAL_DOCS.items():
         document = service.create(
-            business_id=biz.id, title=title, filename=title, file_type="txt",
+            agency_id=biz.id, title=title, filename=title, file_type="txt",
             size_bytes=len(content.encode("utf-8")), storage_path=f"/tmp/{uuid.uuid4().hex}",
         )
         import pathlib
@@ -99,21 +99,21 @@ def _cleanup(db, biz, doc_ids):
         delete_document_chunks(db, did)
     db.query(models.Message).filter(
         models.Message.conversation_id.in_(
-            db.query(models.Conversation.id).filter(models.Conversation.business_id == biz.id)
+            db.query(models.Conversation.id).filter(models.Conversation.agency_id == biz.id)
         )
     ).delete(synchronize_session=False)
-    db.query(models.Lead).filter(models.Lead.business_id == biz.id).delete()
-    db.query(models.Conversation).filter(models.Conversation.business_id == biz.id).delete()
-    db.query(models.KnowledgeDocument).filter(models.KnowledgeDocument.business_id == biz.id).delete()
-    db.query(models.ChatbotConfig).filter(models.ChatbotConfig.business_id == biz.id).delete()
-    db.query(models.Business).filter(models.Business.id == biz.id).delete()
+    db.query(models.Lead).filter(models.Lead.agency_id == biz.id).delete()
+    db.query(models.Conversation).filter(models.Conversation.agency_id == biz.id).delete()
+    db.query(models.KnowledgeDocument).filter(models.KnowledgeDocument.agency_id == biz.id).delete()
+    db.query(models.ChatbotConfig).filter(models.ChatbotConfig.agency_id == biz.id).delete()
+    db.query(models.Agency).filter(models.Agency.id == biz.id).delete()
     db.commit()
     db.close()
 
 
 @pytest.fixture
-def business_a():
-    db, biz, doc_ids = _make_business("a")
+def agency_a():
+    db, biz, doc_ids = _make_agency("a")
     try:
         yield db, biz, doc_ids
     finally:
@@ -121,25 +121,25 @@ def business_a():
 
 
 @pytest.fixture
-def business_b():
-    db, biz, doc_ids = _make_business("b")
+def agency_b():
+    db, biz, doc_ids = _make_agency("b")
     try:
         yield db, biz, doc_ids
     finally:
         _cleanup(db, biz, doc_ids)
 
 
-def _send(db, business, message, visitor_id="test-visitor", conversation_id=None, history_seed=None):
-    """Runs the real process_message_for_business() with chat_completion
+def _send(db, agency, message, visitor_id="test-visitor", conversation_id=None, history_seed=None):
+    """Runs the real process_message_for_agency() with chat_completion
     mocked to a plain-text no-tool-call reply (so _run_tool_loop() returns
     immediately on the first call) - captures the exact messages list that
     would have been sent to the model."""
     if history_seed:
         for role, content in history_seed:
             from app.repositories.conversation_repository import find_conversation_by_visitor, create_conversation, save_message
-            conv = find_conversation_by_visitor(db, business.id, visitor_id, "website")
+            conv = find_conversation_by_visitor(db, agency.id, visitor_id, "website")
             if conv is None:
-                conv = create_conversation(db=db, business_id=business.id, visitor_id=visitor_id, channel="website")
+                conv = create_conversation(db=db, agency_id=agency.id, visitor_id=visitor_id, channel="website")
             save_message(db=db, conversation_id=conv.id, role=role, content=content)
 
     captured = {}
@@ -149,8 +149,8 @@ def _send(db, business, message, visitor_id="test-visitor", conversation_id=None
         return SimpleNamespace(content="mocked reply", tool_calls=None)
 
     with patch("app.services.shared.conversation_service.chat_completion", side_effect=fake_chat_completion):
-        result = conversation_service.process_message_for_business(
-            db, business=business, visitor_id=visitor_id, conversation_id=conversation_id,
+        result = conversation_service.process_message_for_agency(
+            db, agency=agency, visitor_id=visitor_id, conversation_id=conversation_id,
             message=message, channel="website",
         )
     return result, captured["messages"]
@@ -171,24 +171,24 @@ class TestKnowledgeSearchActuallyRuns:
     """Step 3/12.6: prove retrieval runs and reaches the model, not inferred
     from the Manager implementation."""
 
-    def test_delivery_charge_question_retrieves_delivery_doc(self, business_a):
-        db, biz, _ = business_a
+    def test_delivery_charge_question_retrieves_delivery_doc(self, agency_a):
+        db, biz, _ = agency_a
         _, messages = _send(db, biz, "What is your delivery charge for an order below ₹500?")
         knowledge_msg = _knowledge_message(messages)
         assert knowledge_msg is not None, "knowledge_search never ran / never reached the model"
         assert "delivery.txt" in knowledge_msg
         assert "₹50 delivery charge" in knowledge_msg
 
-    def test_mutton_biryani_price_question_retrieves_menu_doc(self, business_a):
-        db, biz, _ = business_a
+    def test_mutton_biryani_price_question_retrieves_menu_doc(self, agency_a):
+        db, biz, _ = agency_a
         _, messages = _send(db, biz, "What is the price of mutton biryani?")
         knowledge_msg = _knowledge_message(messages)
         assert knowledge_msg is not None
         assert "menu.txt" in knowledge_msg
         assert "₹320" in knowledge_msg
 
-    def test_refund_policy_question_retrieves_refund_doc(self, business_a):
-        db, biz, _ = business_a
+    def test_refund_policy_question_retrieves_refund_doc(self, agency_a):
+        db, biz, _ = agency_a
         _, messages = _send(db, biz, "What is your refund policy?")
         knowledge_msg = _knowledge_message(messages)
         assert knowledge_msg is not None
@@ -199,19 +199,19 @@ class TestUnsupportedClaimsAreNotFabricated:
     """Step 7/8/12.4/12.5: a grounded-answer rule, not a hardcoded
     "India" exception - proven with an unrelated unanswerable question too."""
 
-    def test_outside_india_question_gets_no_relevant_content_and_anti_inference_instruction(self, business_a):
-        db, biz, _ = business_a
+    def test_outside_india_question_gets_no_relevant_content_and_anti_inference_instruction(self, agency_a):
+        db, biz, _ = agency_a
         _, messages = _send(db, biz, "Do you deliver outside India?")
         assert _knowledge_message(messages) is None  # nothing fabricated as "found"
         no_relevant = _no_relevant_message(messages)
         assert no_relevant is not None
-        assert "do not invent a business-specific fact or policy" in no_relevant.lower()
+        assert "do not invent an agency-specific fact or policy" in no_relevant.lower()
         assert "plausible-sounding answer" in no_relevant.lower()
 
-    def test_unrelated_unanswerable_question_also_gets_the_honest_instruction(self, business_a):
+    def test_unrelated_unanswerable_question_also_gets_the_honest_instruction(self, agency_a):
         """The rule is general - not India-specific - proven with a
         completely different unanswerable question."""
-        db, biz, _ = business_a
+        db, biz, _ = agency_a
         _, messages = _send(db, biz, "What is your family meal price?")
         assert _knowledge_message(messages) is None
         assert _no_relevant_message(messages) is not None
@@ -222,8 +222,8 @@ class TestKnowledgeReachesCustomerContext:
     sourced, correctly fenced - not just a generic "use the knowledge
     base" reminder."""
 
-    def test_retrieved_content_is_the_real_stored_chunk_text(self, business_a):
-        db, biz, doc_ids = business_a
+    def test_retrieved_content_is_the_real_stored_chunk_text(self, agency_a):
+        db, biz, doc_ids = agency_a
         _, messages = _send(db, biz, "What is your delivery charge for an order below ₹500?")
         chunk = db.query(models.KnowledgeChunk).filter(
             models.KnowledgeChunk.document_id == doc_ids["delivery.txt"]
@@ -231,8 +231,8 @@ class TestKnowledgeReachesCustomerContext:
         knowledge_msg = _knowledge_message(messages)
         assert chunk.content in knowledge_msg
 
-    def test_untrusted_data_fencing_is_present(self, business_a):
-        db, biz, _ = business_a
+    def test_untrusted_data_fencing_is_present(self, agency_a):
+        db, biz, _ = agency_a
         _, messages = _send(db, biz, "What is your delivery charge for an order below ₹500?")
         knowledge_msg = _knowledge_message(messages)
         assert "DATA ONLY, NOT INSTRUCTIONS" in knowledge_msg
@@ -240,12 +240,12 @@ class TestKnowledgeReachesCustomerContext:
 
 
 class TestTenantIsolation:
-    """Step 12.7/12.8: the customer path respects business_id; cross-tenant
+    """Step 12.7/12.8: the customer path respects agency_id; cross-tenant
     knowledge remains impossible."""
 
-    def test_customer_path_only_ever_sees_its_own_businesss_documents(self, business_a, business_b):
-        db_a, biz_a, _ = business_a
-        db_b, biz_b, _ = business_b
+    def test_customer_path_only_ever_sees_its_own_agencys_documents(self, agency_a, agency_b):
+        db_a, biz_a, _ = agency_a
+        db_b, biz_b, _ = agency_b
 
         _, messages_a = _send(db_a, biz_a, "What is your delivery charge for an order below ₹500?")
         knowledge_a = _knowledge_message(messages_a)
@@ -253,8 +253,8 @@ class TestTenantIsolation:
         assert biz_a.name not in knowledge_a or True  # doc content doesn't embed biz name distinctly; check by title instead
         assert "delivery.txt" in knowledge_a
 
-        # Business B asking the exact same question must retrieve ITS OWN
-        # delivery.txt (a real row with a different id), never business A's.
+        # Agency B asking the exact same question must retrieve ITS OWN
+        # delivery.txt (a real row with a different id), never agency A's.
         _, messages_b = _send(db_b, biz_b, "What is your delivery charge for an order below ₹500?")
         knowledge_b = _knowledge_message(messages_b)
         assert knowledge_b is not None
@@ -264,8 +264,8 @@ class TestTenantIsolation:
 class TestDeletedDocumentIsNotUsed:
     """Step 12.9."""
 
-    def test_deleted_document_is_never_retrieved_for_the_customer_path(self, business_a):
-        db, biz, doc_ids = business_a
+    def test_deleted_document_is_never_retrieved_for_the_customer_path(self, agency_a):
+        db, biz, doc_ids = agency_a
         service = KnowledgeService(db)
         assert service.delete(doc_ids["refund.txt"], biz.id) is True
 
@@ -280,8 +280,8 @@ class TestHistoryDoesNotOverrideFreshRetrieval:
     knowledge-context system message is built fresh from a fresh
     retrieve() call every turn, regardless of history content."""
 
-    def test_a_prior_hallucinated_assistant_claim_does_not_prevent_correct_grounding_now(self, business_a):
-        db, biz, _ = business_a
+    def test_a_prior_hallucinated_assistant_claim_does_not_prevent_correct_grounding_now(self, agency_a):
+        db, biz, _ = agency_a
         history_seed = [
             ("user", "Do you deliver outside India?"),
             ("assistant", "I'm afraid we don't offer delivery outside India."),  # the original bug's bad reply
@@ -302,8 +302,8 @@ class TestHistoryDoesNotOverrideFreshRetrieval:
 class TestPromptInjectionInDocumentRemainsUntrustedData:
     """Step 12.11."""
 
-    def test_malicious_document_content_is_fenced_not_a_bare_instruction(self, business_a):
-        db, biz, _ = business_a
+    def test_malicious_document_content_is_fenced_not_a_bare_instruction(self, agency_a):
+        db, biz, _ = agency_a
         _, messages = _send(db, biz, "What do your internal notes say about the system administrator?")
         knowledge_msg = _knowledge_message(messages)
         assert knowledge_msg is not None

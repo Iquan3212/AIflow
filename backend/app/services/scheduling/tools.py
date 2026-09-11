@@ -102,9 +102,9 @@ def tool_definitions() -> list[dict]:
 class ToolDispatcher:
     """Executes a tool call and returns a compact JSON string result for the model."""
 
-    def __init__(self, db: Session, business: models.Business, conversation: models.Conversation, lead: models.Lead):
+    def __init__(self, db: Session, agency: models.Agency, conversation: models.Conversation, lead: models.Lead):
         self.db = db
-        self.business = business
+        self.agency = agency
         self.conversation = conversation
         self.lead = lead
         self.appts = AppointmentService(db)
@@ -134,18 +134,18 @@ class ToolDispatcher:
         return json.dumps({"ok": True, "saved": changed})
 
     def _check_availability(self, args: dict) -> str:
-        tz = self.business.timezone
+        tz = self.agency.timezone
         if args.get("start_local_iso"):
             from app.services.scheduling.datetime_utils import parse_local_iso
             try:
                 start_utc = parse_local_iso(args["start_local_iso"], tz)
             except (ValueError, TypeError):
                 return json.dumps({"ok": False, "error": "bad_datetime"})
-            check = self.appts.is_available(self.business, start_utc)
+            check = self.appts.is_available(self.agency, start_utc)
             resp = {"ok": True, "requested": humanize(start_utc, tz), "available": check.available}
             if not check.available:
                 resp["reason"] = check.reason
-                resp["alternatives"] = self.appts._humanized_alternatives(self.business, start_utc)
+                resp["alternatives"] = self.appts._humanized_alternatives(self.agency, start_utc)
             return json.dumps(resp)
 
         if args.get("date_local"):
@@ -155,7 +155,7 @@ class ToolDispatcher:
                 day = date(y, m, d)
             except Exception:
                 return json.dumps({"ok": False, "error": "bad_date"})
-            slots = self.appts.list_slots(self.business, day)
+            slots = self.appts.list_slots(self.agency, day)
             return json.dumps({
                 "ok": True,
                 "date": args["date_local"],
@@ -175,7 +175,7 @@ class ToolDispatcher:
                                "need": "Ask for the customer's name and a phone or email before booking."})
 
         outcome = self.appts.book(
-            self.business,
+            self.agency,
             start_local_iso=args.get("start_local_iso", ""),
             customer_name=name, customer_phone=phone, customer_email=email, service=service,
             lead_id=self.lead.id, conversation_id=self.conversation.id, source="chat",
@@ -184,24 +184,24 @@ class ToolDispatcher:
 
     def _reschedule_appointment(self, args: dict) -> str:
         appt = self.appts.find_for_customer(
-            self.business, phone=self.lead.phone, email=self.lead.email,
+            self.agency, phone=self.lead.phone, email=self.lead.email,
             conversation_id=self.conversation.id,
         )
         if not appt:
             return json.dumps({"ok": False, "error": "not_found",
                                "message": "No existing appointment found to reschedule."})
-        outcome = self.appts.reschedule(self.business, appt.id, args.get("new_start_local_iso", ""))
+        outcome = self.appts.reschedule(self.agency, appt.id, args.get("new_start_local_iso", ""))
         return _outcome_json(outcome)
 
     def _cancel_appointment(self, args: dict) -> str:
         appt = self.appts.find_for_customer(
-            self.business, phone=self.lead.phone, email=self.lead.email,
+            self.agency, phone=self.lead.phone, email=self.lead.email,
             conversation_id=self.conversation.id,
         )
         if not appt:
             return json.dumps({"ok": False, "error": "not_found",
                                "message": "No existing appointment found to cancel."})
-        outcome = self.appts.cancel(self.business, appt.id)
+        outcome = self.appts.cancel(self.agency, appt.id)
         return _outcome_json(outcome)
 
 

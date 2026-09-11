@@ -15,29 +15,29 @@ class DashboardRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_stats(self, business_id: str) -> dict:
+    def get_stats(self, agency_id: str) -> dict:
         db = self.db
         today = datetime.utcnow().date()
         today_start = datetime.combine(today, datetime.min.time())
 
         today_chats = (
             db.query(Conversation)
-            .filter(Conversation.business_id == business_id, Conversation.started_at >= today_start)
+            .filter(Conversation.agency_id == agency_id, Conversation.started_at >= today_start)
             .count()
         )
 
         new_leads_today = (
             db.query(Lead)
-            .filter(Lead.business_id == business_id, Lead.created_at >= today_start)
+            .filter(Lead.agency_id == agency_id, Lead.created_at >= today_start)
             .count()
         )
 
-        total_leads = db.query(Lead).filter(Lead.business_id == business_id).count()
+        total_leads = db.query(Lead).filter(Lead.agency_id == agency_id).count()
 
         upcoming_appointments = (
             db.query(Appointment)
             .filter(
-                Appointment.business_id == business_id,
+                Appointment.agency_id == agency_id,
                 Appointment.status == AppointmentStatus.scheduled,
                 Appointment.scheduled_at >= datetime.now(),
             )
@@ -49,11 +49,11 @@ class DashboardRepository:
             "new_leads_today": new_leads_today,
             "total_leads": total_leads,
             "upcoming_appointments": upcoming_appointments,
-            "avg_response_time_seconds": self._avg_response_time_seconds(business_id),
+            "avg_response_time_seconds": self._avg_response_time_seconds(agency_id),
             "model": get_settings().llm_model,
         }
 
-    def _avg_response_time_seconds(self, business_id: str) -> float | None:
+    def _avg_response_time_seconds(self, agency_id: str) -> float | None:
         """Average gap between a customer message and the AI's next reply,
         over the last 7 days. None (not 0) when there's no data yet -
         the frontend must render that as "not enough data", never as 0s."""
@@ -61,7 +61,7 @@ class DashboardRepository:
         rows = (
             self.db.query(Message.conversation_id, Message.role, Message.created_at)
             .join(Conversation, Conversation.id == Message.conversation_id)
-            .filter(Conversation.business_id == business_id, Message.created_at >= since)
+            .filter(Conversation.agency_id == agency_id, Message.created_at >= since)
             .order_by(Message.conversation_id, Message.created_at)
             .all()
         )

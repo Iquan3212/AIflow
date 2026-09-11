@@ -22,12 +22,12 @@ EMBEDDING_DIMENSION = 768
 # ---- upload validation ------------------------------------------------
 
 ALLOWED_FILE_TYPES = ("pdf", "docx", "txt")
-MAX_UPLOAD_SIZE_BYTES = 15 * 1024 * 1024  # 15 MB - generous for a business policy/menu document, not a media dump
+MAX_UPLOAD_SIZE_BYTES = 15 * 1024 * 1024  # 15 MB - generous for an agency policy/menu document, not a media dump
 
 # ---- chunking -----------------------------------------------------------
 # Character-based, not token-based - simple, deterministic, and doesn't
 # couple the ingestion pipeline to any one tokenizer. Sized to comfortably
-# hold a paragraph or two of real business content (a menu section, one
+# hold a paragraph or two of real agency content (a menu section, one
 # FAQ answer, one policy clause) without being so large that a single
 # irrelevant chunk crowds out the context budget in retrieval.py.
 CHUNK_SIZE_CHARS = 1000
@@ -77,7 +77,7 @@ MOCK_EMBEDDING_STOPWORDS = frozenset({
 })
 
 # Measured empirically (see the migration/fix that added this constant)
-# against this exact bag-of-words scheme, using real uploaded business
+# against this exact bag-of-words scheme, using real uploaded agency
 # documents and real natural-language questions: genuinely relevant
 # matches scored 0.50-0.63, while an unrelated query's best (wrong) match
 # scored at most ~0.12 - 0.3 sits with wide margin on both sides of that

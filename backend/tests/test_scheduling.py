@@ -37,7 +37,7 @@ def utc(y, m, d, h, mi):
     return datetime(y, m, d, h, mi, tzinfo=IST).astimezone(timezone.utc)
 
 
-# A Tuesday: 2026-08-04. Business open Tue 10:00–18:00 IST, 30-min slots.
+# A Tuesday: 2026-08-04. Agency open Tue 10:00–18:00 IST, 30-min slots.
 TUE = datetime(2026, 8, 4).date()
 HOURS_TUE = DayHours(weekday=1, is_open=True, open_time=time(10, 0), close_time=time(18, 0))
 RULES = Rules(slot_duration_minutes=30, buffer_minutes=0, min_notice_minutes=60, max_advance_days=60)

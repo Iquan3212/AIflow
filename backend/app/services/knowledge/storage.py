@@ -1,7 +1,7 @@
 """
 Local on-disk storage for uploaded Knowledge Base documents. This repo has
 no cloud object storage configured (no S3/GCS credentials anywhere in
-config.py) - files are written under a per-business directory on the
+config.py) - files are written under a per-agency directory on the
 backend's own filesystem, exactly the kind of "simplest production-safe
 option compatible with the current codebase" the project's other Phase
 work (AIDraft, GmailPendingAction) already favors over introducing new
@@ -46,26 +46,26 @@ def sanitize_filename(filename: str) -> str:
     return base[:200]
 
 
-def save_file(business_id: str, filename: str, content: bytes) -> tuple[str, str]:
-    """Writes `content` under this business's own directory. Returns
+def save_file(agency_id: str, filename: str, content: bytes) -> tuple[str, str]:
+    """Writes `content` under this agency's own directory. Returns
     (storage_path, safe_filename). The on-disk name is always
     `<uuid>_<sanitized-original-name>` - the UUID prefix is what actually
     guarantees uniqueness and prevents any path-traversal/collision risk
     from the original name, the sanitization is only for a readable audit
     trail on disk."""
     safe_name = sanitize_filename(filename)
-    business_dir = _storage_root() / business_id
-    business_dir.mkdir(parents=True, exist_ok=True)
+    agency_dir = _storage_root() / agency_id
+    agency_dir.mkdir(parents=True, exist_ok=True)
 
     on_disk_name = f"{uuid.uuid4().hex}_{safe_name}"
-    path = business_dir / on_disk_name
+    path = agency_dir / on_disk_name
 
     # Defense in depth: even though on_disk_name can't contain a path
     # separator (sanitize_filename already stripped them), resolve and
-    # verify the final path is still inside business_dir before writing.
+    # verify the final path is still inside agency_dir before writing.
     resolved = path.resolve()
-    if not str(resolved).startswith(str(business_dir.resolve()) + os.sep):
-        raise ValueError("resolved storage path escaped the business directory")
+    if not str(resolved).startswith(str(agency_dir.resolve()) + os.sep):
+        raise ValueError("resolved storage path escaped the agency directory")
 
     resolved.write_bytes(content)
     return str(resolved), safe_name

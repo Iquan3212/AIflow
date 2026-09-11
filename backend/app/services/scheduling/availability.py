@@ -2,7 +2,7 @@
 Pure scheduling logic: no database, no framework, no I/O.
 
 Everything here is deterministic and unit-tested (see tests/test_scheduling.py).
-The DB layer feeds it plain data (business hours, existing bookings as UTC
+The DB layer feeds it plain data (agency hours, existing bookings as UTC
 intervals) and gets back answers: is this slot bookable, what are the open
 slots, does this collide with an existing appointment.
 
@@ -20,7 +20,7 @@ from .datetime_utils import get_tz, now_utc
 
 @dataclass(frozen=True)
 class DayHours:
-    """Opening hours for a single weekday, in the business's local wall clock."""
+    """Opening hours for a single weekday, in the agency's local wall clock."""
     weekday: int          # 0=Mon .. 6=Sun
     is_open: bool
     open_time: time | None
@@ -70,7 +70,7 @@ def has_conflict(candidate: Interval, existing: list[Interval], buffer_minutes: 
 
 def _within_hours(candidate: Interval, day_hours: DayHours, tz_name: str | None) -> bool:
     """Candidate must fall entirely inside that weekday's opening hours,
-    evaluated in the business's local timezone."""
+    evaluated in the agency's local timezone."""
     if not day_hours.is_open or day_hours.open_time is None or day_hours.close_time is None:
         return False
 

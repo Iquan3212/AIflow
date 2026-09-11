@@ -38,46 +38,46 @@ class GmailStatusTool:
     to find out whether it's even connected."""
 
     def execute(
-        self, message: str, db: Session = None, business: models.Business = None,
+        self, message: str, db: Session = None, agency: models.Agency = None,
         conversation=None, lead=None, **kwargs,
     ) -> dict:
-        if business is None:
-            return {"ok": False, "error": "missing_business"}
-        return GmailService(db).status(business)
+        if agency is None:
+            return {"ok": False, "error": "missing_agency"}
+        return GmailService(db).status(agency)
 
 
 class GmailSearchTool:
     def execute(
-        self, message: str, db: Session = None, business: models.Business = None,
+        self, message: str, db: Session = None, agency: models.Agency = None,
         conversation=None, lead=None, query: str | None = None, max_results: int = 10, **kwargs,
     ) -> dict:
-        if business is None:
-            return {"ok": False, "error": "missing_business"}
+        if agency is None:
+            return {"ok": False, "error": "missing_agency"}
         if query is None:
             query = gmail_ai_service.extract_search_request(message).get("query") or message
-        return GmailService(db).search(business, query, max_results=max_results)
+        return GmailService(db).search(agency, query, max_results=max_results)
 
 
 class GmailReadTool:
     def execute(
-        self, message: str, db: Session = None, business: models.Business = None,
+        self, message: str, db: Session = None, agency: models.Agency = None,
         conversation=None, lead=None, message_id: str | None = None, **kwargs,
     ) -> dict:
-        if business is None:
-            return {"ok": False, "error": "missing_business"}
+        if agency is None:
+            return {"ok": False, "error": "missing_agency"}
         if not message_id:
             return {"ok": False, "error": "missing_message_id", "message": "A Gmail message id is required to read a specific email."}
-        return GmailService(db).read(business, message_id)
+        return GmailService(db).read(agency, message_id)
 
 
 class GmailDraftTool:
     def execute(
-        self, message: str, db: Session = None, business: models.Business = None,
+        self, message: str, db: Session = None, agency: models.Agency = None,
         conversation=None, lead=None, employee: str | None = None,
         to: str | None = None, subject: str | None = None, body: str | None = None, **kwargs,
     ) -> dict:
-        if business is None:
-            return {"ok": False, "error": "missing_business"}
+        if agency is None:
+            return {"ok": False, "error": "missing_agency"}
         if not (to and body):
             extracted = gmail_ai_service.extract_send_request(message)
             to = to or extracted.get("to")
@@ -85,17 +85,17 @@ class GmailDraftTool:
             body = body or extracted.get("body")
         if not to or not body:
             return {"ok": False, "error": "missing_fields", "message": "A recipient and a body are required to draft an email."}
-        return GmailService(db).draft(business, to=to, subject=subject or "", body=body, employee=employee)
+        return GmailService(db).draft(agency, to=to, subject=subject or "", body=body, employee=employee)
 
 
 class GmailSendTool:
     def execute(
-        self, message: str, db: Session = None, business: models.Business = None,
+        self, message: str, db: Session = None, agency: models.Agency = None,
         conversation=None, lead=None, employee: str | None = None,
         to: str | None = None, subject: str | None = None, body: str | None = None, **kwargs,
     ) -> dict:
-        if business is None:
-            return {"ok": False, "error": "missing_business"}
+        if agency is None:
+            return {"ok": False, "error": "missing_agency"}
         if not (to and body):
             extracted = gmail_ai_service.extract_send_request(message)
             to = to or extracted.get("to")
@@ -105,5 +105,5 @@ class GmailSendTool:
             return {"ok": False, "error": "missing_fields", "message": "A recipient and a body are required to send an email."}
         conversation_id = getattr(conversation, "id", None)
         return GmailService(db).send(
-            business, to=to, subject=subject or "", body=body, employee=employee, conversation_id=conversation_id,
+            agency, to=to, subject=subject or "", body=body, employee=employee, conversation_id=conversation_id,
         )

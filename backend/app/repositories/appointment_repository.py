@@ -30,32 +30,32 @@ class AppointmentRepository:
 
     # ---- reads --------------------------------------------------------------
 
-    def get(self, business_id: str, appointment_id: str) -> models.Appointment | None:
+    def get(self, agency_id: str, appointment_id: str) -> models.Appointment | None:
         return (
             self.db.query(models.Appointment)
             .filter(
                 models.Appointment.id == appointment_id,
-                models.Appointment.business_id == business_id,
+                models.Appointment.agency_id == agency_id,
             )
             .first()
         )
 
-    def get_all(self, business_id: str) -> list[models.Appointment]:
+    def get_all(self, agency_id: str) -> list[models.Appointment]:
         return (
             self.db.query(models.Appointment)
-            .filter(models.Appointment.business_id == business_id)
+            .filter(models.Appointment.agency_id == agency_id)
             .order_by(models.Appointment.scheduled_at.desc())
             .all()
         )
 
     def get_active_on_day(
-        self, business_id: str, day_start_utc: datetime, day_end_utc: datetime
+        self, agency_id: str, day_start_utc: datetime, day_end_utc: datetime
     ) -> list[models.Appointment]:
         """Non-cancelled appointments whose start falls in [day_start, day_end)."""
         return (
             self.db.query(models.Appointment)
             .filter(
-                models.Appointment.business_id == business_id,
+                models.Appointment.agency_id == agency_id,
                 models.Appointment.status != models.AppointmentStatus.cancelled,
                 models.Appointment.scheduled_at >= day_start_utc,
                 models.Appointment.scheduled_at < day_end_utc,
@@ -65,7 +65,7 @@ class AppointmentRepository:
 
     def get_overlapping(
         self,
-        business_id: str,
+        agency_id: str,
         start_utc: datetime,
         end_utc: datetime,
         exclude_id: str | None = None,
@@ -74,7 +74,7 @@ class AppointmentRepository:
         [start_utc, end_utc). This is the DB-side conflict guard that backs up
         the in-memory check_slot — the last line of defense against a race."""
         q = self.db.query(models.Appointment).filter(
-            models.Appointment.business_id == business_id,
+            models.Appointment.agency_id == agency_id,
             models.Appointment.status != models.AppointmentStatus.cancelled,
             and_(
                 models.Appointment.scheduled_at < end_utc,

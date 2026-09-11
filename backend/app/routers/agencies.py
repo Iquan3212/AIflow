@@ -3,33 +3,33 @@ from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
-from app.deps import get_current_business
+from app.deps import get_current_agency
 
-router = APIRouter(prefix="/businesses", tags=["businesses"])
+router = APIRouter(prefix="/agencies", tags=["agencies"])
 
 
 # =====================================================
 # BUSINESS INFO
 # =====================================================
 
-@router.get("/me", response_model=schemas.BusinessOut)
-def get_my_business(
-    business: models.Business = Depends(get_current_business),
+@router.get("/me", response_model=schemas.AgencyOut)
+def get_my_agency(
+    agency: models.Agency = Depends(get_current_agency),
 ):
-    return business
+    return agency
 
 
-@router.patch("/me", response_model=schemas.BusinessOut)
-def update_my_business(
-    payload: schemas.BusinessUpdate,
-    business: models.Business = Depends(get_current_business),
+@router.patch("/me", response_model=schemas.AgencyOut)
+def update_my_agency(
+    payload: schemas.AgencyUpdate,
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
     for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(business, field, value)
+        setattr(agency, field, value)
     db.commit()
-    db.refresh(business)
-    return business
+    db.refresh(agency)
+    return agency
 
 
 # =====================================================
@@ -38,18 +38,18 @@ def update_my_business(
 
 @router.get("/me/chatbot-config", response_model=schemas.ChatbotConfigOut)
 def get_my_config(
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
 ):
-    return business.chatbot_config
+    return agency.chatbot_config
 
 
 @router.put("/me/chatbot-config", response_model=schemas.ChatbotConfigOut)
 def update_my_config(
     payload: schemas.ChatbotConfigUpdate,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    config = business.chatbot_config
+    config = agency.chatbot_config
 
     # Only update the fields the client actually sent.
     for field, value in payload.model_dump(exclude_unset=True).items():

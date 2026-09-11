@@ -20,12 +20,12 @@ settings = get_settings()
 
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    return slug or "business"
+    return slug or "agency"
 
 
-def _issue_tokens(db: Session, user: models.User, business: models.Business, request: Request) -> schemas.TokenResponse:
-    access_token = create_access_token({"business_id": business.id, "sub": user.email})
-    refresh_token = create_refresh_token({"business_id": business.id, "sub": user.email, "user_id": user.id})
+def _issue_tokens(db: Session, user: models.User, agency: models.Agency, request: Request) -> schemas.TokenResponse:
+    access_token = create_access_token({"agency_id": agency.id, "sub": user.email})
+    refresh_token = create_refresh_token({"agency_id": agency.id, "sub": user.email, "user_id": user.id})
 
     session = models.UserSession(
         user_id=user.id,
@@ -41,41 +41,41 @@ def _issue_tokens(db: Session, user: models.User, business: models.Business, req
     return schemas.TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        business_id=business.id,
-        business_slug=business.slug,
+        agency_id=agency.id,
+        agency_slug=agency.slug,
     )
 
 
 @router.post("/signup", response_model=schemas.TokenResponse)
 @limiter.limit(SIGNUP_RATE_LIMIT)
-def signup(payload: schemas.BusinessSignup, request: Request, db: Session = Depends(get_db)):
+def signup(payload: schemas.AgencySignup, request: Request, db: Session = Depends(get_db)):
     if db.query(models.User).filter(models.User.email == payload.owner_email).first():
         logger.warning("auth.signup_conflict", extra={"ctx": {"event": "auth.signup_conflict"}})
         raise HTTPException(status_code=400, detail="An account with this email already exists")
 
-    base_slug = slugify(payload.business_name)
+    base_slug = slugify(payload.agency_name)
     slug = base_slug
     suffix = 1
-    while db.query(models.Business).filter(models.Business.slug == slug).first():
+    while db.query(models.Agency).filter(models.Agency.slug == slug).first():
         suffix += 1
         slug = f"{base_slug}-{suffix}"
 
-    business = models.Business(
-        name=payload.business_name,
+    agency = models.Agency(
+        name=payload.agency_name,
         slug=slug,
         industry=payload.industry,
         contact_email=payload.owner_email,
     )
-    db.add(business)
+    db.add(agency)
     db.commit()
-    db.refresh(business)
+    db.refresh(agency)
 
-    # Every business gets a default, empty chatbot config it can fill in
+    # Every agency gets a default, empty chatbot config it can fill in
     # right away — via the API today, via the dashboard's settings page.
-    db.add(models.ChatbotConfig(business_id=business.id))
+    db.add(models.ChatbotConfig(agency_id=agency.id))
 
     user = models.User(
-        business_id=business.id,
+        agency_id=agency.id,
         email=payload.owner_email,
         hashed_password=hash_password(payload.password),
         role="owner",
@@ -84,8 +84,8 @@ def signup(payload: schemas.BusinessSignup, request: Request, db: Session = Depe
     db.commit()
     db.refresh(user)
 
-    logger.info("auth.signup_success", extra={"ctx": {"event": "auth.signup_success", "business_id": business.id}})
-    return _issue_tokens(db, user, business, request)
+    logger.info("auth.signup_success", extra={"ctx": {"event": "auth.signup_success", "agency_id": agency.id}})
+    return _issue_tokens(db, user, agency, request)
 
 
 @router.post("/login", response_model=schemas.TokenResponse)
@@ -96,9 +96,9 @@ def login(payload: schemas.LoginRequest, request: Request, db: Session = Depends
         logger.warning("auth.login_failed", extra={"ctx": {"event": "auth.login_failed"}})
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
-    business = db.query(models.Business).filter(models.Business.id == user.business_id).first()
-    logger.info("auth.login_success", extra={"ctx": {"event": "auth.login_success", "business_id": user.business_id}})
-    return _issue_tokens(db, user, business, request)
+    agency = db.query(models.Agency).filter(models.Agency.id == user.agency_id).first()
+    logger.info("auth.login_success", extra={"ctx": {"event": "auth.login_success", "agency_id": user.agency_id}})
+    return _issue_tokens(db, user, agency, request)
 
 
 @router.post("/refresh", response_model=schemas.TokenResponse)
@@ -128,9 +128,9 @@ def refresh(payload: schemas.RefreshRequest, request: Request, db: Session = Dep
         raise unauthorized
 
     user = db.query(models.User).filter(models.User.id == session.user_id).first()
-    business = db.query(models.Business).filter(models.Business.id == user.business_id).first() if user else None
-    if user is None or business is None:
-        logger.warning("auth.refresh_user_or_business_missing", extra={"ctx": {"event": "auth.refresh_user_or_business_missing"}})
+    agency = db.query(models.Agency).filter(models.Agency.id == user.agency_id).first() if user else None
+    if user is None or agency is None:
+        logger.warning("auth.refresh_user_or_agency_missing", extra={"ctx": {"event": "auth.refresh_user_or_agency_missing"}})
         raise unauthorized
 
     # Rotate: retire this refresh token, issue a fresh pair.
@@ -138,7 +138,7 @@ def refresh(payload: schemas.RefreshRequest, request: Request, db: Session = Dep
     db.add(session)
     db.commit()
 
-    return _issue_tokens(db, user, business, request)
+    return _issue_tokens(db, user, agency, request)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

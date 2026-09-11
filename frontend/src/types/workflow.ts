@@ -25,7 +25,7 @@ export interface WorkflowAction {
 
 export interface Workflow {
     id: string;
-    business_id: string;
+    agency_id: string;
     name: string;
     description: string | null;
     status: WorkflowStatus;
@@ -53,7 +53,7 @@ export interface WorkflowStepRun {
 export interface WorkflowRun {
     id: string;
     workflow_id: string;
-    business_id: string;
+    agency_id: string;
     status: WorkflowRunStatus;
     trigger_event_id: string;
     trigger_data: Record<string, unknown>;
@@ -65,7 +65,7 @@ export interface WorkflowRun {
 
 export interface ApprovalRequestOut {
     id: string;
-    business_id: string;
+    agency_id: string;
     workflow_step_run_id: string;
     action_type: string;
     summary: string;

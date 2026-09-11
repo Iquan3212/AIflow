@@ -3,7 +3,7 @@ WhatsApp Cloud API adapter: webhook signature verification, inbound
 payload normalization, and outbound sending. This file knows the shape of
 Meta's WhatsApp JSON and nothing about the AI Workforce - routers/
 whatsapp.py wires this to the shared, channel-agnostic
-conversation_service.process_message_for_business().
+conversation_service.process_message_for_agency().
 
 Payload shape (documented, stable Meta Cloud API format):
 {

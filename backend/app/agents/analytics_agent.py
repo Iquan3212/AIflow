@@ -14,14 +14,14 @@ class AnalyticsAgent:
 
     - Appointment summaries
 
-    - Business analytics
+    - Agency analytics
 
     - KPI explanations
     """
 
-    def __init__(self, business, lead=None):
+    def __init__(self, agency, lead=None):
 
-        self.business = business
+        self.agency = agency
         self.lead = lead
 
         self.memory = ConversationMemory()
@@ -30,11 +30,11 @@ class AnalyticsAgent:
     def system_prompt(self):
 
         return f"""
-You are the Analytics AI for {self.business.name}.
+You are the Analytics AI for {self.agency.name}.
 
 ROLE
 
-Help the business owner understand business performance.
+Help the agency owner understand agency performance.
 
 RESPONSIBILITIES
 
@@ -50,7 +50,7 @@ RULES
 
 Never invent statistics.
 
-Only explain available business data.
+Only explain available agency data.
 
 Always present insights clearly.
 """

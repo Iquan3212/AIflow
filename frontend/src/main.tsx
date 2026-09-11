@@ -5,7 +5,8 @@ import App from "./App";
 
 import ErrorBoundary from "./components/ErrorBoundary";
 import { AuthProvider } from "./context/AuthContext";
-import { BusinessProvider } from "./context/BusinessContext";
+import { AgencyProvider } from "./context/AgencyContext";
+import { BuyerAuthProvider } from "./context/BuyerAuthContext";
 
 import "./index.css";
 
@@ -19,11 +20,15 @@ ReactDOM.createRoot(
 
             <AuthProvider>
 
-                <BusinessProvider>
+                <AgencyProvider>
 
-                    <App />
+                    <BuyerAuthProvider>
 
-                </BusinessProvider>
+                        <App />
+
+                    </BuyerAuthProvider>
+
+                </AgencyProvider>
 
             </AuthProvider>
 

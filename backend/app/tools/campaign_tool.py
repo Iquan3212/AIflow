@@ -17,36 +17,36 @@ logger = get_logger(__name__)
 
 class CampaignTool:
     """Drafts marketing copy (captions, posts, promo ideas) grounded in the
-    business's own configured profile, and persists it as an AIDraft so it
+    agency's own configured profile, and persists it as an AIDraft so it
     can be reviewed later from the Drafts page instead of only existing in
     the chat transcript.
 
-    It never invents offers or facts the business hasn't provided."""
+    It never invents offers or facts the agency hasn't provided."""
 
     def __init__(self, db: Session):
         self.db = db
 
-    def execute(self, message: str, db=None, business=None, conversation=None, lead=None, **kwargs) -> dict:
+    def execute(self, message: str, db=None, agency=None, conversation=None, lead=None, **kwargs) -> dict:
         db = db or self.db
-        if business is None:
-            return {"ok": False, "error": "missing_business"}
+        if agency is None:
+            return {"ok": False, "error": "missing_agency"}
 
-        config = getattr(business, "chatbot_config", None)
+        config = getattr(agency, "chatbot_config", None)
         description = (config.business_description if config else "") or ""
         services = config.services if config and config.services else []
 
-        business_facts = wrap_untrusted(
+        agency_facts = wrap_untrusted(
             "BUSINESS FACTS",
-            f"Business description: {description or 'Not provided.'}\n"
+            f"Agency description: {description or 'Not provided.'}\n"
             f"Services: {', '.join(services) if services else 'Not provided.'}",
         )
-        system_prompt = harden_system_prompt(f"""You are writing marketing copy for {business.name}.
+        system_prompt = harden_system_prompt(f"""You are writing marketing copy for {agency.name}.
 
-{business_facts}
+{agency_facts}
 
 Write engaging, on-brand marketing copy (e.g. an Instagram caption or a short
 promo post) based only on the facts above - never invent offers, discounts,
-or facts about the business that weren't given to you.""")
+or facts about the agency that weren't given to you.""")
 
         messages = [{"role": "system", "content": system_prompt}]
         if detect_injection_signals(message):
@@ -69,7 +69,7 @@ or facts about the business that weren't given to you.""")
         draft_id = None
         if draft:
             saved = DraftService(db).create(
-                business_id=business.id,
+                agency_id=agency.id,
                 kind="campaign",
                 content=draft,
                 title=message[:80],

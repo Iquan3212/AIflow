@@ -15,10 +15,10 @@ class TestBasicChunking:
         assert chunk_text(None) == []
 
     def test_short_text_is_a_single_chunk(self):
-        chunks = chunk_text("This is a short business FAQ answer.")
+        chunks = chunk_text("This is a short agency FAQ answer.")
         assert len(chunks) == 1
         assert chunks[0].index == 0
-        assert "short business FAQ answer" in chunks[0].text
+        assert "short agency FAQ answer" in chunks[0].text
 
     def test_ordering_and_index_are_sequential(self):
         text = "\n\n".join(f"Paragraph {i}. " + ("word " * 50) for i in range(10))
@@ -33,7 +33,7 @@ class TestBasicChunking:
         assert [c.text for c in first] == [c.text for c in second]
 
     def test_paragraph_boundaries_are_respected_when_possible(self):
-        p1 = "Refunds are processed within 5-7 business days."
+        p1 = "Refunds are processed within 5-7 agency days."
         p2 = "Delivery charges apply outside a 5km radius."
         text = f"{p1}\n\n{p2}"
         chunks = chunk_text(text, chunk_size=1000)

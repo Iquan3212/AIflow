@@ -3,7 +3,7 @@ export type DraftStatus = "draft" | "sent" | "archived";
 
 export interface AIDraft {
     id: string;
-    business_id: string;
+    agency_id: string;
     lead_id: string | null;
     kind: DraftKind;
     title: string | null;

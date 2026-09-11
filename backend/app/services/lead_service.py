@@ -17,22 +17,22 @@ class LeadService:
     # Dashboard CRUD
     # --------------------------------------------------
 
-    def get_all(self, business_id: UUID):
+    def get_all(self, agency_id: UUID):
         return (
             self.db.query(models.Lead)
-            .filter(models.Lead.business_id == business_id)
+            .filter(models.Lead.agency_id == agency_id)
             .order_by(models.Lead.created_at.desc())
             .all()
         )
 
     def create(
         self,
-        business_id: UUID,
+        agency_id: UUID,
         payload: schemas.LeadCreate,
     ):
 
         lead = models.Lead(
-            business_id=business_id,
+            agency_id=agency_id,
             name=payload.name,
             phone=payload.phone,
             email=payload.email,
@@ -45,7 +45,7 @@ class LeadService:
         self.db.refresh(lead)
 
         fire_trigger(
-            self.db, business_id, models.WorkflowTriggerType.lead_created,
+            self.db, agency_id, models.WorkflowTriggerType.lead_created,
             lead_created_data(lead), event_id=str(lead.id),
         )
 
@@ -54,7 +54,7 @@ class LeadService:
     def update(
         self,
         lead_id: UUID,
-        business_id: UUID,
+        agency_id: UUID,
         payload: schemas.LeadUpdate,
     ):
 
@@ -62,7 +62,7 @@ class LeadService:
             self.db.query(models.Lead)
             .filter(
                 models.Lead.id == lead_id,
-                models.Lead.business_id == business_id,
+                models.Lead.agency_id == agency_id,
             )
             .first()
         )
@@ -81,14 +81,14 @@ class LeadService:
     def delete(
         self,
         lead_id: UUID,
-        business_id: UUID,
+        agency_id: UUID,
     ):
 
         lead = (
             self.db.query(models.Lead)
             .filter(
                 models.Lead.id == lead_id,
-                models.Lead.business_id == business_id,
+                models.Lead.agency_id == agency_id,
             )
             .first()
         )
@@ -107,7 +107,7 @@ class LeadService:
 
     def process_message(
         self,
-        business_id,
+        agency_id,
         conversation_id,
         message,
     ):
@@ -117,7 +117,7 @@ class LeadService:
         lead = (
             self.db.query(models.Lead)
             .filter(
-                models.Lead.business_id == business_id,
+                models.Lead.agency_id == agency_id,
                 models.Lead.conversation_id == conversation_id,
             )
             .first()
@@ -126,7 +126,7 @@ class LeadService:
         if lead is None:
 
             lead = models.Lead(
-                business_id=business_id,
+                agency_id=agency_id,
                 conversation_id=conversation_id,
                 status="new",
             )

@@ -15,7 +15,7 @@ from app.agents.orchestrator import AIOrchestrator
 from app.tools.gmail_tool import GmailStatusTool, GmailSearchTool, GmailReadTool, GmailDraftTool, GmailSendTool
 
 
-class FakeBusiness:
+class FakeAgency:
     id = "biz-wiring-test"
     name = "Wiring Test Co"
 
@@ -24,11 +24,11 @@ def _build_orchestrator():
     db = MagicMock()
     # A bare MagicMock's .query(...).filter(...).first() returns another
     # MagicMock (truthy) by default, which would make GmailAdapter.
-    # is_configured() look connected for a business that was never
+    # is_configured() look connected for an agency that was never
     # actually given a real GmailCredential row - explicit None here
     # matches the real "no such row" case queries actually return.
     db.query.return_value.filter.return_value.first.return_value = None
-    return AIOrchestrator(db=db, business=FakeBusiness(), conversation=None, lead=None)
+    return AIOrchestrator(db=db, agency=FakeAgency(), conversation=None, lead=None)
 
 
 class TestToolRegistration:
@@ -75,7 +75,7 @@ class TestPermissions:
         permission check passes, the tool's execute() runs. Passes an
         explicit query= kwarg so the LLM-extraction fallback (a real
         chat_completion() call) is never reached - this test verifies
-        wiring, not extraction. Business has no real GmailCredential row,
+        wiring, not extraction. Agency has no real GmailCredential row,
         so this correctly and honestly reports not_connected rather than
         fabricating search results."""
         orch = _build_orchestrator()
@@ -87,4 +87,4 @@ class TestPermissions:
         mock_extract.assert_not_called()
         assert result["success"] is True
         assert result["result"]["ok"] is False
-        assert result["result"]["error"] in ("not_connected", "missing_business")
+        assert result["result"]["error"] in ("not_connected", "missing_agency")

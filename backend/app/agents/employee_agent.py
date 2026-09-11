@@ -1,4 +1,4 @@
-"""Authenticated, persistent AI Employee for the business dashboard.
+"""Authenticated, persistent AI Employee for the agency dashboard.
 
 This is the real execution path for the owner-facing chat: every message
 goes through Planner -> ManagerAgent -> Employee(s) -> ToolRouter -> real
@@ -23,16 +23,16 @@ class EmployeeAgent:
     def __init__(self, db: Session):
         self.db = db
 
-    def process(self, business_id: str, conversation_id: Optional[str], message: str) -> dict:
-        business = self.db.query(models.Business).filter(models.Business.id == business_id).first()
-        if business is None:
-            raise ValueError("Business not found")
+    def process(self, agency_id: str, conversation_id: Optional[str], message: str) -> dict:
+        agency = self.db.query(models.Agency).filter(models.Agency.id == agency_id).first()
+        if agency is None:
+            raise ValueError("Agency not found")
 
-        conversation = get_or_create_employee_conversation(self.db, business.id, conversation_id=conversation_id)
+        conversation = get_or_create_employee_conversation(self.db, agency.id, conversation_id=conversation_id)
         save_message(self.db, conversation.id, "user", message)
         history = load_history(self.db, conversation.id)
 
-        orchestrator = AIOrchestrator(self.db, business, conversation, lead=None)
+        orchestrator = AIOrchestrator(self.db, agency, conversation, lead=None)
         agent_context = orchestrator.before_llm(message, history)
 
         manager_result = agent_context["manager_result"]
@@ -80,11 +80,11 @@ class EmployeeAgent:
             },
         }
 
-    def history(self, business_id: str, conversation_id: Optional[str] = None) -> dict:
-        business = self.db.query(models.Business).filter(models.Business.id == business_id).first()
-        if business is None:
-            raise ValueError("Business not found")
-        conversation = get_or_create_employee_conversation(self.db, business.id, conversation_id=conversation_id)
+    def history(self, agency_id: str, conversation_id: Optional[str] = None) -> dict:
+        agency = self.db.query(models.Agency).filter(models.Agency.id == agency_id).first()
+        if agency is None:
+            raise ValueError("Agency not found")
+        conversation = get_or_create_employee_conversation(self.db, agency.id, conversation_id=conversation_id)
         return {
             "conversation_id": conversation.id,
             "messages": load_history(self.db, conversation.id),

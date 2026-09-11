@@ -41,7 +41,7 @@ class TestMockEmbeddingProvider:
 
     def test_vectors_are_unit_normalized(self):
         provider = MockEmbeddingProvider()
-        v = provider.embed(["some business text"])[0]
+        v = provider.embed(["some agency text"])[0]
         norm = sum(x * x for x in v) ** 0.5
         assert abs(norm - 1.0) < 1e-6
 

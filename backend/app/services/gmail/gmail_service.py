@@ -1,5 +1,5 @@
 """
-Gmail business logic: enforces send_mode (read_only / approval_required /
+Gmail agency logic: enforces send_mode (read_only / approval_required /
 automated) around the raw adapter calls, and owns the GmailPendingAction
 approval queue. GmailTool (app/tools/gmail_tool.py) calls this, never
 GmailAdapter directly - this is where "never silently execute an
@@ -29,7 +29,7 @@ class GmailService:
 
     # ---- capability status - DB-only, no real Gmail API call ----------------
 
-    def status(self, business) -> dict:
+    def status(self, agency) -> dict:
         """Deterministic, real connection/capability state - reuses the
         exact same is_configured()/send_mode() checks every other method
         here already enforces, so this can never drift from what
@@ -37,13 +37,13 @@ class GmailService:
         question ("do you have access to my Gmail?") can be answered from
         real application state instead of the model guessing or a wasted
         real search - see app/tools/gmail_tool.py's GmailStatusTool."""
-        connected = self.adapter.is_configured(business)
+        connected = self.adapter.is_configured(agency)
         if not connected:
             return {
                 "ok": True, "connected": False, "send_mode": None,
                 "capabilities": {"search": False, "read": False, "draft": False, "send": False},
             }
-        mode = self.adapter.send_mode(business)
+        mode = self.adapter.send_mode(agency)
         return {
             "ok": True,
             "connected": True,
@@ -58,39 +58,39 @@ class GmailService:
 
     # ---- read actions - always allowed once connected, regardless of send_mode ----
 
-    def search(self, business, query: str, max_results: int = 10) -> dict:
-        if not self.adapter.is_configured(business):
-            return {"ok": False, "error": "not_connected", "message": "Gmail is not connected for this business."}
+    def search(self, agency, query: str, max_results: int = 10) -> dict:
+        if not self.adapter.is_configured(agency):
+            return {"ok": False, "error": "not_connected", "message": "Gmail is not connected for this agency."}
         try:
-            results = self.adapter.search(business, query, max_results)
-            logger.info("gmail.search", extra={"ctx": {"event": "gmail.search", "business_id": business.id, "result_count": len(results)}})
+            results = self.adapter.search(agency, query, max_results)
+            logger.info("gmail.search", extra={"ctx": {"event": "gmail.search", "agency_id": agency.id, "result_count": len(results)}})
             return {"ok": True, "results": results}
         except GmailNotAvailableError as exc:
             return {"ok": False, "error": "not_available", "message": str(exc)}
         except Exception as exc:
-            logger.exception("gmail.search_failed", extra={"ctx": {"event": "gmail.search_failed", "business_id": business.id}})
+            logger.exception("gmail.search_failed", extra={"ctx": {"event": "gmail.search_failed", "agency_id": agency.id}})
             return {"ok": False, "error": "provider_error", "message": str(exc)}
 
-    def read(self, business, message_id: str) -> dict:
-        if not self.adapter.is_configured(business):
-            return {"ok": False, "error": "not_connected", "message": "Gmail is not connected for this business."}
+    def read(self, agency, message_id: str) -> dict:
+        if not self.adapter.is_configured(agency):
+            return {"ok": False, "error": "not_connected", "message": "Gmail is not connected for this agency."}
         try:
-            message = self.adapter.read(business, message_id)
-            logger.info("gmail.read", extra={"ctx": {"event": "gmail.read", "business_id": business.id, "message_id": message_id}})
+            message = self.adapter.read(agency, message_id)
+            logger.info("gmail.read", extra={"ctx": {"event": "gmail.read", "agency_id": agency.id, "message_id": message_id}})
             return {"ok": True, "message": message}
         except GmailNotAvailableError as exc:
             return {"ok": False, "error": "not_available", "message": str(exc)}
         except Exception as exc:
-            logger.exception("gmail.read_failed", extra={"ctx": {"event": "gmail.read_failed", "business_id": business.id, "message_id": message_id}})
+            logger.exception("gmail.read_failed", extra={"ctx": {"event": "gmail.read_failed", "agency_id": agency.id, "message_id": message_id}})
             return {"ok": False, "error": "provider_error", "message": str(exc)}
 
     # ---- write actions - gated by send_mode ----
 
-    def draft(self, business, *, to: str, subject: str, body: str, employee: str | None = None) -> dict:
-        if not self.adapter.is_configured(business):
-            return {"ok": False, "error": "not_connected", "message": "Gmail is not connected for this business."}
+    def draft(self, agency, *, to: str, subject: str, body: str, employee: str | None = None) -> dict:
+        if not self.adapter.is_configured(agency):
+            return {"ok": False, "error": "not_connected", "message": "Gmail is not connected for this agency."}
 
-        mode = self.adapter.send_mode(business)
+        mode = self.adapter.send_mode(agency)
         if mode == READ_ONLY:
             return {"ok": False, "error": "read_only_mode", "message": "Gmail is connected in read-only mode; drafting is disabled."}
 
@@ -98,38 +98,38 @@ class GmailService:
         # nobody - safe to create immediately in both approval_required and
         # automated mode.
         try:
-            result = self.adapter.create_draft(business, to, subject, body)
+            result = self.adapter.create_draft(agency, to, subject, body)
             logger.info("gmail.draft_created", extra={"ctx": {
-                "event": "gmail.draft_created", "business_id": business.id, "employee": employee,
+                "event": "gmail.draft_created", "agency_id": agency.id, "employee": employee,
             }})
             return {"ok": True, **result}
         except GmailNotAvailableError as exc:
             return {"ok": False, "error": "not_available", "message": str(exc)}
         except Exception as exc:
-            logger.exception("gmail.draft_failed", extra={"ctx": {"event": "gmail.draft_failed", "business_id": business.id}})
+            logger.exception("gmail.draft_failed", extra={"ctx": {"event": "gmail.draft_failed", "agency_id": agency.id}})
             return {"ok": False, "error": "provider_error", "message": str(exc)}
 
     def send(
-        self, business, *, to: str, subject: str, body: str,
+        self, agency, *, to: str, subject: str, body: str,
         employee: str | None = None, conversation_id: str | None = None,
     ) -> dict:
-        if not self.adapter.is_configured(business):
-            return {"ok": False, "error": "not_connected", "message": "Gmail is not connected for this business."}
+        if not self.adapter.is_configured(agency):
+            return {"ok": False, "error": "not_connected", "message": "Gmail is not connected for this agency."}
 
-        mode = self.adapter.send_mode(business)
+        mode = self.adapter.send_mode(agency)
         if mode == READ_ONLY:
             return {"ok": False, "error": "read_only_mode", "message": "Gmail is connected in read-only mode; sending is disabled."}
 
         if mode == APPROVAL_REQUIRED:
             pending = models.GmailPendingAction(
-                business_id=business.id, conversation_id=conversation_id, employee=employee,
+                agency_id=agency.id, conversation_id=conversation_id, employee=employee,
                 action_type="send_email", to_address=to, subject=subject, body=body, status="pending",
             )
             self.db.add(pending)
             self.db.commit()
             self.db.refresh(pending)
             logger.info("gmail.send_queued_for_approval", extra={"ctx": {
-                "event": "gmail.send_queued_for_approval", "business_id": business.id,
+                "event": "gmail.send_queued_for_approval", "agency_id": agency.id,
                 "pending_action_id": pending.id, "employee": employee,
             }})
             # Truthful, not a fabricated success: this explicitly did NOT
@@ -138,34 +138,34 @@ class GmailService:
 
         # automated mode - send for real immediately.
         try:
-            result = self.adapter.send(business, to, subject, body)
+            result = self.adapter.send(agency, to, subject, body)
             logger.info("gmail.sent", extra={"ctx": {
-                "event": "gmail.sent", "business_id": business.id, "employee": employee,
+                "event": "gmail.sent", "agency_id": agency.id, "employee": employee,
             }})
             return {"ok": True, "sent": True, **result}
         except GmailNotAvailableError as exc:
             return {"ok": False, "error": "not_available", "message": str(exc)}
         except Exception as exc:
-            logger.exception("gmail.send_failed", extra={"ctx": {"event": "gmail.send_failed", "business_id": business.id}})
+            logger.exception("gmail.send_failed", extra={"ctx": {"event": "gmail.send_failed", "agency_id": agency.id}})
             return {"ok": False, "error": "provider_error", "message": str(exc)}
 
     # ---- approval queue ----
 
-    def list_pending(self, business, status: str | None = None) -> list["models.GmailPendingAction"]:
-        q = self.db.query(models.GmailPendingAction).filter(models.GmailPendingAction.business_id == business.id)
+    def list_pending(self, agency, status: str | None = None) -> list["models.GmailPendingAction"]:
+        q = self.db.query(models.GmailPendingAction).filter(models.GmailPendingAction.agency_id == agency.id)
         if status:
             q = q.filter(models.GmailPendingAction.status == status)
         return q.order_by(models.GmailPendingAction.created_at.desc()).all()
 
-    def _get_pending(self, business, pending_id: str) -> "models.GmailPendingAction | None":
+    def _get_pending(self, agency, pending_id: str) -> "models.GmailPendingAction | None":
         return (
             self.db.query(models.GmailPendingAction)
-            .filter(models.GmailPendingAction.id == pending_id, models.GmailPendingAction.business_id == business.id)
+            .filter(models.GmailPendingAction.id == pending_id, models.GmailPendingAction.agency_id == agency.id)
             .first()
         )
 
-    def approve(self, business, pending_id: str, decided_by_user_id: str | None) -> dict:
-        row = self._get_pending(business, pending_id)
+    def approve(self, agency, pending_id: str, decided_by_user_id: str | None) -> dict:
+        row = self._get_pending(agency, pending_id)
         if row is None:
             return {"ok": False, "error": "not_found"}
         if row.status != "pending":
@@ -175,12 +175,12 @@ class GmailService:
         row.decided_by_user_id = decided_by_user_id
 
         try:
-            result = self.adapter.send(business, row.to_address, row.subject, row.body)
+            result = self.adapter.send(agency, row.to_address, row.subject, row.body)
             row.status = "sent"
             row.gmail_message_id = result.get("message_id")
             self.db.commit()
             logger.info("gmail.pending_action_approved_and_sent", extra={"ctx": {
-                "event": "gmail.pending_action_approved_and_sent", "business_id": business.id, "pending_action_id": row.id,
+                "event": "gmail.pending_action_approved_and_sent", "agency_id": agency.id, "pending_action_id": row.id,
             }})
             self._resume_linked_workflow_step(row.id)
             return {"ok": True, "status": row.status, "gmail_message_id": row.gmail_message_id}
@@ -189,13 +189,13 @@ class GmailService:
             row.error = str(exc)
             self.db.commit()
             logger.exception("gmail.pending_action_send_failed", extra={"ctx": {
-                "event": "gmail.pending_action_send_failed", "business_id": business.id, "pending_action_id": row.id,
+                "event": "gmail.pending_action_send_failed", "agency_id": agency.id, "pending_action_id": row.id,
             }})
             self._resume_linked_workflow_step(row.id)
             return {"ok": False, "error": "send_failed", "message": str(exc)}
 
-    def reject(self, business, pending_id: str, decided_by_user_id: str | None) -> dict:
-        row = self._get_pending(business, pending_id)
+    def reject(self, agency, pending_id: str, decided_by_user_id: str | None) -> dict:
+        row = self._get_pending(agency, pending_id)
         if row is None:
             return {"ok": False, "error": "not_found"}
         if row.status != "pending":
@@ -206,7 +206,7 @@ class GmailService:
         row.decided_by_user_id = decided_by_user_id
         self.db.commit()
         logger.info("gmail.pending_action_rejected", extra={"ctx": {
-            "event": "gmail.pending_action_rejected", "business_id": business.id, "pending_action_id": row.id,
+            "event": "gmail.pending_action_rejected", "agency_id": agency.id, "pending_action_id": row.id,
         }})
         self._resume_linked_workflow_step(row.id)
         return {"ok": True, "status": row.status}

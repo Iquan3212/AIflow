@@ -112,7 +112,7 @@ const TEMPLATES: Array<{
     },
     {
         label: "High-priority support → notify owner",
-        description: "When a support ticket is escalated as high priority, notify the business owner immediately.",
+        description: "When a support ticket is escalated as high priority, notify the agency owner immediately.",
         trigger_type: "support_escalated",
         conditions: [{ field: "support.priority", op: "eq", value: "high" }],
         actions: [

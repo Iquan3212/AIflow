@@ -19,9 +19,9 @@ class MarketingAgent:
     - Content writing
     """
 
-    def __init__(self, business, lead=None):
+    def __init__(self, agency, lead=None):
 
-        self.business = business
+        self.agency = agency
         self.lead = lead
 
         self.memory = ConversationMemory()
@@ -30,7 +30,7 @@ class MarketingAgent:
     def system_prompt(self):
 
         return f"""
-You are the Marketing AI for {self.business.name}.
+You are the Marketing AI for {self.agency.name}.
 
 ROLE
 
@@ -48,9 +48,9 @@ RESPONSIBILITIES
 
 RULES
 
-Never invent business facts.
+Never invent agency facts.
 
-Only use information supplied by the business.
+Only use information supplied by the agency.
 
 Keep writing engaging and concise.
 """

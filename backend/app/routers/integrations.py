@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.config import get_settings
 from app.database import get_db
-from app.deps import get_current_business
+from app.deps import get_current_agency
 from app.logging_config import get_logger
 from app.services.calendar import google_oauth
 
@@ -31,10 +31,10 @@ router = APIRouter(prefix="/integrations", tags=["Integrations"])
 
 @router.get("/google/status")
 def google_status(
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    row = _get_row(db, business.id)
+    row = _get_row(db, agency.id)
     return {
         "provider": "google",
         "available": google_oauth.is_google_configured(),
@@ -44,14 +44,14 @@ def google_status(
 
 @router.get("/google/connect")
 def google_connect(
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
 ):
     if not google_oauth.is_google_configured():
         raise HTTPException(
             status_code=400,
             detail="Google OAuth is not configured on the server (set GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI).",
         )
-    return {"url": google_oauth.build_consent_url(business.id)}
+    return {"url": google_oauth.build_consent_url(agency.id)}
 
 
 @router.get("/google/callback")
@@ -65,21 +65,21 @@ def google_callback(
     if error or not code:
         return RedirectResponse(f"{frontend}/appointments?calendar=error")
 
-    business_id = google_oauth.read_state(state)
-    if not business_id:
+    agency_id = google_oauth.read_state(state)
+    if not agency_id:
         return RedirectResponse(f"{frontend}/appointments?calendar=invalid_state")
 
     try:
         tokens = google_oauth.exchange_code(code)
     except Exception:
         logger.exception("integration.google_oauth.code_exchange_failed", extra={"ctx": {
-            "event": "integration.google_oauth.code_exchange_failed", "business_id": business_id,
+            "event": "integration.google_oauth.code_exchange_failed", "agency_id": agency_id,
         }})
         return RedirectResponse(f"{frontend}/appointments?calendar=error")
 
-    row = _get_row(db, business_id)
+    row = _get_row(db, agency_id)
     if row is None:
-        row = models.CalendarCredential(business_id=business_id, provider="google")
+        row = models.CalendarCredential(agency_id=agency_id, provider="google")
         db.add(row)
 
     row.access_token = tokens.get("access_token")
@@ -97,21 +97,21 @@ def google_callback(
 
 @router.delete("/google")
 def google_disconnect(
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    row = _get_row(db, business.id)
+    row = _get_row(db, agency.id)
     if row:
         db.delete(row)
         db.commit()
     return {"message": "Google Calendar disconnected."}
 
 
-def _get_row(db: Session, business_id: str):
+def _get_row(db: Session, agency_id: str):
     return (
         db.query(models.CalendarCredential)
         .filter(
-            models.CalendarCredential.business_id == business_id,
+            models.CalendarCredential.agency_id == agency_id,
             models.CalendarCredential.provider == "google",
         )
         .first()

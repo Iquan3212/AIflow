@@ -24,16 +24,16 @@ VALID_ACTIONS = [{"type": "send_notification", "config": {"event_type": "new_lea
 
 
 @pytest.fixture
-def business():
+def agency():
     db = SessionLocal()
-    biz = models.Business(name="Engine Test Co", slug=f"engine-test-{uuid.uuid4().hex[:10]}", contact_email="owner@enginetest.example")
+    biz = models.Agency(name="Engine Test Co", slug=f"engine-test-{uuid.uuid4().hex[:10]}", contact_email="owner@enginetest.example")
     db.add(biz)
     db.commit()
     db.refresh(biz)
     try:
         yield db, biz
     finally:
-        wf_ids = [w.id for w in db.query(models.Workflow).filter(models.Workflow.business_id == biz.id).all()]
+        wf_ids = [w.id for w in db.query(models.Workflow).filter(models.Workflow.agency_id == biz.id).all()]
         for wid in wf_ids:
             run_ids = [r.id for r in db.query(models.WorkflowRun).filter(models.WorkflowRun.workflow_id == wid).all()]
             for rid in run_ids:
@@ -43,23 +43,23 @@ def business():
                     )
                 ).delete(synchronize_session=False)
             db.query(models.WorkflowRun).filter(models.WorkflowRun.workflow_id == wid).delete()
-        db.query(models.Workflow).filter(models.Workflow.business_id == biz.id).delete()
-        db.query(models.GmailPendingAction).filter(models.GmailPendingAction.business_id == biz.id).delete()
-        db.query(models.Business).filter(models.Business.id == biz.id).delete()
+        db.query(models.Workflow).filter(models.Workflow.agency_id == biz.id).delete()
+        db.query(models.GmailPendingAction).filter(models.GmailPendingAction.agency_id == biz.id).delete()
+        db.query(models.Agency).filter(models.Agency.id == biz.id).delete()
         db.commit()
         db.close()
 
 
 def _make_workflow(db, biz, conditions=None, actions=None, trigger_type=models.WorkflowTriggerType.lead_created):
     return WorkflowService(db).create(
-        business_id=biz.id, name="Test Workflow", description=None,
+        agency_id=biz.id, name="Test Workflow", description=None,
         trigger_type=trigger_type, conditions=conditions or [], actions=actions or VALID_ACTIONS,
     )
 
 
 class TestBasicRun:
-    def test_successful_run_marks_run_and_step_succeeded(self, business):
-        db, biz = business
+    def test_successful_run_marks_run_and_step_succeeded(self, agency):
+        db, biz = agency
         wf = _make_workflow(db, biz)
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
             mock_exec.return_value = ActionOutcome(status="succeeded", result={"ok": True})
@@ -69,8 +69,8 @@ class TestBasicRun:
         assert len(run.steps) == 1
         assert run.steps[0].status == models.WorkflowStepStatus.succeeded
 
-    def test_conditions_not_met_skips_actions_entirely(self, business):
-        db, biz = business
+    def test_conditions_not_met_skips_actions_entirely(self, agency):
+        db, biz = agency
         wf = _make_workflow(db, biz, conditions=[{"field": "lead.status", "op": "eq", "value": "qualified"}])
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
             run = WorkflowEngine(db).run(wf, {"lead": {"status": "new"}}, trigger_event_id="evt-2")
@@ -78,8 +78,8 @@ class TestBasicRun:
         assert run.status == models.WorkflowRunStatus.succeeded
         assert run.steps == []
 
-    def test_action_failure_marks_run_and_step_failed_and_stops(self, business):
-        db, biz = business
+    def test_action_failure_marks_run_and_step_failed_and_stops(self, agency):
+        db, biz = agency
         wf = _make_workflow(db, biz, actions=VALID_ACTIONS * 2)  # two steps
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
             mock_exec.return_value = ActionOutcome(status="failed", error="boom")
@@ -91,8 +91,8 @@ class TestBasicRun:
         assert len(run.steps) == 1
         assert run.steps[0].status == models.WorkflowStepStatus.failed
 
-    def test_disabled_workflow_never_runs_via_fire_trigger(self, business):
-        db, biz = business
+    def test_disabled_workflow_never_runs_via_fire_trigger(self, agency):
+        db, biz = agency
         from app.services.workflows.triggers import fire_trigger
         wf = _make_workflow(db, biz)
         WorkflowService(db).set_status(wf.id, biz.id, models.WorkflowStatus.disabled)
@@ -105,8 +105,8 @@ class TestBasicRun:
 
 
 class TestIdempotency:
-    def test_the_same_trigger_event_id_never_creates_a_second_run(self, business):
-        db, biz = business
+    def test_the_same_trigger_event_id_never_creates_a_second_run(self, agency):
+        db, biz = agency
         wf = _make_workflow(db, biz)
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
             mock_exec.return_value = ActionOutcome(status="succeeded", result={})
@@ -118,8 +118,8 @@ class TestIdempotency:
         all_runs = db.query(models.WorkflowRun).filter(models.WorkflowRun.workflow_id == wf.id).all()
         assert len(all_runs) == 1
 
-    def test_fire_trigger_with_a_repeated_event_id_is_a_real_no_op(self, business):
-        db, biz = business
+    def test_fire_trigger_with_a_repeated_event_id_is_a_real_no_op(self, agency):
+        db, biz = agency
         from app.services.workflows.triggers import fire_trigger
         wf = _make_workflow(db, biz)
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
@@ -128,8 +128,8 @@ class TestIdempotency:
             fire_trigger(db, biz.id, models.WorkflowTriggerType.lead_created, {"lead": {}}, event_id="lead-123")
         assert mock_exec.call_count == 1
 
-    def test_a_different_event_id_creates_a_genuinely_new_run(self, business):
-        db, biz = business
+    def test_a_different_event_id_creates_a_genuinely_new_run(self, agency):
+        db, biz = agency
         wf = _make_workflow(db, biz)
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
             mock_exec.return_value = ActionOutcome(status="succeeded", result={})
@@ -140,8 +140,8 @@ class TestIdempotency:
 
 
 class TestGenericApprovalFlow:
-    def test_action_requiring_approval_pauses_before_executing(self, business):
-        db, biz = business
+    def test_action_requiring_approval_pauses_before_executing(self, agency):
+        db, biz = agency
         actions = [{"type": "send_notification", "config": VALID_ACTIONS[0]["config"], "requires_approval": True}]
         wf = _make_workflow(db, biz, actions=actions)
 
@@ -156,8 +156,8 @@ class TestGenericApprovalFlow:
         approval = db.query(models.ApprovalRequest).filter(models.ApprovalRequest.id == step.approval_request_id).first()
         assert approval.status == models.ApprovalRequestStatus.pending
 
-    def test_approving_executes_the_gated_action_exactly_once(self, business):
-        db, biz = business
+    def test_approving_executes_the_gated_action_exactly_once(self, agency):
+        db, biz = agency
         actions = [{"type": "send_notification", "config": VALID_ACTIONS[0]["config"], "requires_approval": True}]
         wf = _make_workflow(db, biz, actions=actions)
         with patch("app.services.workflows.engine.execute_action"):
@@ -172,8 +172,8 @@ class TestGenericApprovalFlow:
         assert mock_exec.call_count == 1  # executed exactly once, only after approval
         assert resumed.status == models.WorkflowRunStatus.succeeded
 
-    def test_rejecting_cancels_the_run_and_never_executes(self, business):
-        db, biz = business
+    def test_rejecting_cancels_the_run_and_never_executes(self, agency):
+        db, biz = agency
         actions = [{"type": "send_notification", "config": VALID_ACTIONS[0]["config"], "requires_approval": True}]
         wf = _make_workflow(db, biz, actions=actions)
         with patch("app.services.workflows.engine.execute_action"):
@@ -187,8 +187,8 @@ class TestGenericApprovalFlow:
         mock_exec.assert_not_called()
         assert resumed.status == models.WorkflowRunStatus.cancelled
 
-    def test_multi_step_workflow_continues_after_approval_of_an_earlier_step(self, business):
-        db, biz = business
+    def test_multi_step_workflow_continues_after_approval_of_an_earlier_step(self, agency):
+        db, biz = agency
         actions = [
             {"type": "send_notification", "config": VALID_ACTIONS[0]["config"], "requires_approval": True},
             {"type": "send_notification", "config": VALID_ACTIONS[0]["config"]},
@@ -214,7 +214,7 @@ def _make_pending_action(db, biz, status="pending"):
     is a real FK, so a fabricated non-UUID or dangling id can't be
     persisted; this is the minimal real row that satisfies it."""
     pending = models.GmailPendingAction(
-        business_id=biz.id, action_type="send_email",
+        agency_id=biz.id, action_type="send_email",
         to_address="x@example.com", subject="s", body="b", status=status,
     )
     db.add(pending)
@@ -224,8 +224,8 @@ def _make_pending_action(db, biz, status="pending"):
 
 
 class TestGmailNativeApprovalFlow:
-    def test_send_gmail_queued_for_approval_pauses_the_run(self, business):
-        db, biz = business
+    def test_send_gmail_queued_for_approval_pauses_the_run(self, agency):
+        db, biz = agency
         pending = _make_pending_action(db, biz)
         actions = [{"type": "send_gmail", "config": {"to": "x@example.com", "subject": "s", "body_template": "b"}}]
         wf = _make_workflow(db, biz, actions=actions)
@@ -237,8 +237,8 @@ class TestGmailNativeApprovalFlow:
         assert run.steps[0].gmail_pending_action_id == pending.id
         assert run.steps[0].approval_request_id is None  # NOT the generic mechanism - Gmail's own
 
-    def test_resume_after_gmail_sent_marks_step_succeeded_and_continues(self, business):
-        db, biz = business
+    def test_resume_after_gmail_sent_marks_step_succeeded_and_continues(self, agency):
+        db, biz = agency
         pending = _make_pending_action(db, biz)
         actions = [
             {"type": "send_gmail", "config": {"to": "x@example.com", "subject": "s", "body_template": "b"}},
@@ -261,8 +261,8 @@ class TestGmailNativeApprovalFlow:
         assert resumed.status == models.WorkflowRunStatus.succeeded
         assert len(resumed.steps) == 2
 
-    def test_resume_after_gmail_rejected_cancels_the_run(self, business):
-        db, biz = business
+    def test_resume_after_gmail_rejected_cancels_the_run(self, agency):
+        db, biz = agency
         pending = _make_pending_action(db, biz)
         actions = [{"type": "send_gmail", "config": {"to": "x@example.com", "subject": "s", "body_template": "b"}}]
         wf = _make_workflow(db, biz, actions=actions)
@@ -276,8 +276,8 @@ class TestGmailNativeApprovalFlow:
         resumed = WorkflowEngine(db).resume_after_gmail_decision(step)
         assert resumed.status == models.WorkflowRunStatus.cancelled
 
-    def test_resume_after_gmail_send_failed_marks_run_failed(self, business):
-        db, biz = business
+    def test_resume_after_gmail_send_failed_marks_run_failed(self, agency):
+        db, biz = agency
         pending = _make_pending_action(db, biz)
         actions = [{"type": "send_gmail", "config": {"to": "x@example.com", "subject": "s", "body_template": "b"}}]
         wf = _make_workflow(db, biz, actions=actions)
@@ -300,8 +300,8 @@ class TestStepTimestamps:
     otherwise the audit trail (Step 14) would show a still-pending step
     as already "completed"."""
 
-    def test_waiting_approval_step_has_no_completed_at(self, business):
-        db, biz = business
+    def test_waiting_approval_step_has_no_completed_at(self, agency):
+        db, biz = agency
         pending = _make_pending_action(db, biz)
         actions = [{"type": "send_gmail", "config": {"to": "x@example.com", "subject": "s", "body_template": "b"}}]
         wf = _make_workflow(db, biz, actions=actions)
@@ -310,16 +310,16 @@ class TestStepTimestamps:
             run = WorkflowEngine(db).run(wf, {"lead": {}}, trigger_event_id="ts-evt-1")
         assert run.steps[0].completed_at is None
 
-    def test_succeeded_step_has_a_completed_at(self, business):
-        db, biz = business
+    def test_succeeded_step_has_a_completed_at(self, agency):
+        db, biz = agency
         wf = _make_workflow(db, biz)
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
             mock_exec.return_value = ActionOutcome(status="succeeded", result={})
             run = WorkflowEngine(db).run(wf, {"lead": {}}, trigger_event_id="ts-evt-2")
         assert run.steps[0].completed_at is not None
 
-    def test_failed_step_has_a_completed_at(self, business):
-        db, biz = business
+    def test_failed_step_has_a_completed_at(self, agency):
+        db, biz = agency
         wf = _make_workflow(db, biz)
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
             mock_exec.return_value = ActionOutcome(status="failed", error="boom")
@@ -328,9 +328,9 @@ class TestStepTimestamps:
 
 
 class TestCrossTenantIsolation:
-    def test_trigger_for_business_a_never_runs_business_bs_workflow(self, business):
-        db, biz_a = business
-        biz_b = models.Business(name="Other Tenant Engine Test", slug=f"other-engine-{uuid.uuid4().hex[:10]}", contact_email="b@enginetest.example")
+    def test_trigger_for_agency_a_never_runs_agency_bs_workflow(self, agency):
+        db, biz_a = agency
+        biz_b = models.Agency(name="Other Tenant Engine Test", slug=f"other-engine-{uuid.uuid4().hex[:10]}", contact_email="b@enginetest.example")
         db.add(biz_b)
         db.commit()
         db.refresh(biz_b)
@@ -343,6 +343,6 @@ class TestCrossTenantIsolation:
             runs = db.query(models.WorkflowRun).filter(models.WorkflowRun.workflow_id == wf_b.id).all()
             assert runs == []
         finally:
-            db.query(models.Workflow).filter(models.Workflow.business_id == biz_b.id).delete()
-            db.query(models.Business).filter(models.Business.id == biz_b.id).delete()
+            db.query(models.Workflow).filter(models.Workflow.agency_id == biz_b.id).delete()
+            db.query(models.Agency).filter(models.Agency.id == biz_b.id).delete()
             db.commit()

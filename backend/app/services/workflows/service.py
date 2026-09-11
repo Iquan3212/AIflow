@@ -54,28 +54,28 @@ class WorkflowService:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_all(self, business_id: str) -> list[models.Workflow]:
+    def get_all(self, agency_id: str) -> list[models.Workflow]:
         return (
             self.db.query(models.Workflow)
-            .filter(models.Workflow.business_id == business_id)
+            .filter(models.Workflow.agency_id == agency_id)
             .order_by(models.Workflow.created_at.desc())
             .all()
         )
 
-    def get(self, workflow_id: str, business_id: str) -> models.Workflow | None:
+    def get(self, workflow_id: str, agency_id: str) -> models.Workflow | None:
         return (
             self.db.query(models.Workflow)
-            .filter(models.Workflow.id == workflow_id, models.Workflow.business_id == business_id)
+            .filter(models.Workflow.id == workflow_id, models.Workflow.agency_id == agency_id)
             .first()
         )
 
     def create(
-        self, business_id: str, name: str, description: str | None,
+        self, agency_id: str, name: str, description: str | None,
         trigger_type: models.WorkflowTriggerType, conditions: list[dict], actions: list[dict],
     ) -> models.Workflow:
         validate_workflow_config(trigger_type, conditions, actions)
         workflow = models.Workflow(
-            business_id=business_id, name=name, description=description,
+            agency_id=agency_id, name=name, description=description,
             trigger_type=trigger_type, conditions=conditions or [], actions=actions,
             status=models.WorkflowStatus.active,
         )
@@ -85,10 +85,10 @@ class WorkflowService:
         return workflow
 
     def update(
-        self, workflow_id: str, business_id: str, *, name=None, description=None,
+        self, workflow_id: str, agency_id: str, *, name=None, description=None,
         conditions=None, actions=None,
     ) -> models.Workflow | None:
-        workflow = self.get(workflow_id, business_id)
+        workflow = self.get(workflow_id, agency_id)
         if workflow is None:
             return None
 
@@ -108,8 +108,8 @@ class WorkflowService:
         self.db.refresh(workflow)
         return workflow
 
-    def set_status(self, workflow_id: str, business_id: str, status: models.WorkflowStatus) -> models.Workflow | None:
-        workflow = self.get(workflow_id, business_id)
+    def set_status(self, workflow_id: str, agency_id: str, status: models.WorkflowStatus) -> models.Workflow | None:
+        workflow = self.get(workflow_id, agency_id)
         if workflow is None:
             return None
         workflow.status = status
@@ -117,28 +117,28 @@ class WorkflowService:
         self.db.refresh(workflow)
         return workflow
 
-    def delete(self, workflow_id: str, business_id: str) -> bool:
-        workflow = self.get(workflow_id, business_id)
+    def delete(self, workflow_id: str, agency_id: str) -> bool:
+        workflow = self.get(workflow_id, agency_id)
         if workflow is None:
             return False
         self.db.delete(workflow)
         self.db.commit()
         return True
 
-    def get_runs(self, workflow_id: str, business_id: str) -> list[models.WorkflowRun]:
-        workflow = self.get(workflow_id, business_id)
+    def get_runs(self, workflow_id: str, agency_id: str) -> list[models.WorkflowRun]:
+        workflow = self.get(workflow_id, agency_id)
         if workflow is None:
             return []
         return (
             self.db.query(models.WorkflowRun)
-            .filter(models.WorkflowRun.workflow_id == workflow_id, models.WorkflowRun.business_id == business_id)
+            .filter(models.WorkflowRun.workflow_id == workflow_id, models.WorkflowRun.agency_id == agency_id)
             .order_by(models.WorkflowRun.started_at.desc())
             .all()
         )
 
-    def get_run(self, run_id: str, business_id: str) -> models.WorkflowRun | None:
+    def get_run(self, run_id: str, agency_id: str) -> models.WorkflowRun | None:
         return (
             self.db.query(models.WorkflowRun)
-            .filter(models.WorkflowRun.id == run_id, models.WorkflowRun.business_id == business_id)
+            .filter(models.WorkflowRun.id == run_id, models.WorkflowRun.agency_id == agency_id)
             .first()
         )

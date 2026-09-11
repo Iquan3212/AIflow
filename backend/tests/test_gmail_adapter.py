@@ -72,7 +72,7 @@ class TestMessageParsing:
         }
 
 
-class FakeBusiness:
+class FakeAgency:
     id = "biz-adapter-test"
 
 
@@ -98,7 +98,7 @@ class TestActionsWithMockedService:
             {"id": "m2", "threadId": "t2", "snippet": "s2", "payload": {"headers": []}},
         ]
         adapter = self._adapter_with_mock_service(mock_service)
-        results = adapter.search(FakeBusiness(), "invoice", max_results=5)
+        results = adapter.search(FakeAgency(), "invoice", max_results=5)
         assert [r["id"] for r in results] == ["m1", "m2"]
 
     def test_read_returns_full_message_with_body(self):
@@ -108,7 +108,7 @@ class TestActionsWithMockedService:
             "payload": {"headers": [{"name": "Subject", "value": "Hi"}], "mimeType": "text/plain", "body": {"data": b64("body text")}},
         }
         adapter = self._adapter_with_mock_service(mock_service)
-        result = adapter.read(FakeBusiness(), "m1")
+        result = adapter.read(FakeAgency(), "m1")
         assert result["subject"] == "Hi"
         assert result["body"] == "body text"
 
@@ -116,7 +116,7 @@ class TestActionsWithMockedService:
         mock_service = MagicMock()
         mock_service.users().drafts().create().execute.return_value = {"id": "draft1", "message": {"id": "msg1"}}
         adapter = self._adapter_with_mock_service(mock_service)
-        result = adapter.create_draft(FakeBusiness(), "customer@example.com", "Follow up", "Thanks for reaching out!")
+        result = adapter.create_draft(FakeAgency(), "customer@example.com", "Follow up", "Thanks for reaching out!")
         assert result == {"draft_id": "draft1", "message_id": "msg1"}
         _, kwargs = mock_service.users().drafts().create.call_args
         raw = kwargs["body"]["message"]["raw"]
@@ -129,7 +129,7 @@ class TestActionsWithMockedService:
         mock_service = MagicMock()
         mock_service.users().messages().send().execute.return_value = {"id": "sent1", "threadId": "t1"}
         adapter = self._adapter_with_mock_service(mock_service)
-        result = adapter.send(FakeBusiness(), "customer@example.com", "Re: invoice", "Here is the invoice.")
+        result = adapter.send(FakeAgency(), "customer@example.com", "Re: invoice", "Here is the invoice.")
         assert result == {"message_id": "sent1", "thread_id": "t1"}
 
 
@@ -139,4 +139,4 @@ class TestNotAvailable:
         db.query.return_value.filter.return_value.first.return_value = None
         adapter = GmailAdapter(db)
         with pytest.raises(GmailNotAvailableError):
-            adapter._credentials(FakeBusiness())
+            adapter._credentials(FakeAgency())

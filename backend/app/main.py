@@ -19,7 +19,8 @@ from app.routers import employee, workforce, analytics, drafts, support_tickets,
 
 from app.routers import (
     auth,
-    businesses,
+    buyer_auth,
+    agencies,
     leads,
     conversation,
     appointments,
@@ -97,7 +98,7 @@ class RequestContextMiddleware:
     there never passes back through `DualCORSMiddleware`'s `send` wrapper,
     so it carries no CORS headers - which a browser then refuses to expose
     to JavaScript at all, surfacing a real backend error (e.g. the
-    pre-existing `raise Exception("Business not found")` pattern used
+    pre-existing `raise Exception("Agency not found")` pattern used
     throughout this codebase, or any transient failure) as an opaque
     network error indistinguishable from the server being down. Root cause
     of the reported "Conversations page can't reach the server" bug.
@@ -201,7 +202,7 @@ def _is_public_widget_path(path: str) -> bool:
     WordPress site, Shopify store, static HTML page, anything (see
     ARCHITECTURE.md). These carry no bearer token or cookie, so unlike
     the dashboard API there is no fixed set of origins to allow-list:
-    every business using AIFlow embeds the widget on its own different
+    every agency using AIFlow embeds the widget on its own different
     domain. `GET /conversation/` (list conversations, no trailing
     segment) is deliberately excluded - that one requires a bearer token
     and must stay behind the restricted origin list below."""
@@ -276,7 +277,8 @@ app.add_middleware(
 
 # Register all routers (once each).
 app.include_router(auth.router)
-app.include_router(businesses.router)
+app.include_router(buyer_auth.router)
+app.include_router(agencies.router)
 app.include_router(leads.router)
 app.include_router(dashboard_router)
 app.include_router(conversation.router)

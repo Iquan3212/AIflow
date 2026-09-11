@@ -27,9 +27,9 @@ def tmp_storage_dir(monkeypatch):
 
 
 @pytest.fixture
-def business():
+def agency():
     db = SessionLocal()
-    biz = models.Business(
+    biz = models.Agency(
         name="Processing Test Co",
         slug=f"processing-test-{uuid.uuid4().hex[:10]}",
         contact_email="owner@processingtest.example",
@@ -40,19 +40,19 @@ def business():
     try:
         yield db, biz
     finally:
-        doc_ids = [d.id for d in db.query(models.KnowledgeDocument).filter(models.KnowledgeDocument.business_id == biz.id).all()]
+        doc_ids = [d.id for d in db.query(models.KnowledgeDocument).filter(models.KnowledgeDocument.agency_id == biz.id).all()]
         for did in doc_ids:
             delete_document_chunks(db, did)
-        db.query(models.KnowledgeDocument).filter(models.KnowledgeDocument.business_id == biz.id).delete()
-        db.query(models.Business).filter(models.Business.id == biz.id).delete()
+        db.query(models.KnowledgeDocument).filter(models.KnowledgeDocument.agency_id == biz.id).delete()
+        db.query(models.Agency).filter(models.Agency.id == biz.id).delete()
         db.commit()
         db.close()
 
 
-def _create_document(db, business_id, content: bytes, file_type="txt"):
-    storage_path, safe_name = storage.save_file(business_id, f"doc.{file_type}", content)
+def _create_document(db, agency_id, content: bytes, file_type="txt"):
+    storage_path, safe_name = storage.save_file(agency_id, f"doc.{file_type}", content)
     document = models.KnowledgeDocument(
-        business_id=business_id, title=safe_name, filename=safe_name, file_type=file_type,
+        agency_id=agency_id, title=safe_name, filename=safe_name, file_type=file_type,
         size_bytes=len(content), storage_path=storage_path,
         status=models.KnowledgeDocumentStatus.queued,
     )
@@ -77,9 +77,9 @@ class TestValidateUpload:
 
 
 class TestSuccessfulProcessing:
-    def test_a_real_txt_document_ends_up_ready_with_real_chunks(self, tmp_storage_dir, business):
-        db, biz = business
-        content = ("Refunds are processed within 5-7 business days.\n\n"
+    def test_a_real_txt_document_ends_up_ready_with_real_chunks(self, tmp_storage_dir, agency):
+        db, biz = agency
+        content = ("Refunds are processed within 5-7 agency days.\n\n"
                    "Delivery charges apply outside a 5km radius.").encode("utf-8")
         document = _create_document(db, biz.id, content)
 
@@ -97,8 +97,8 @@ class TestSuccessfulProcessing:
 
 
 class TestFailedProcessing:
-    def test_a_corrupt_pdf_ends_up_failed_with_a_real_error_never_fabricated_ready(self, tmp_storage_dir, business):
-        db, biz = business
+    def test_a_corrupt_pdf_ends_up_failed_with_a_real_error_never_fabricated_ready(self, tmp_storage_dir, agency):
+        db, biz = agency
         document = _create_document(db, biz.id, b"not a real pdf at all", file_type="pdf")
 
         process_document(document.id)
@@ -116,8 +116,8 @@ class TestFailedProcessing:
 
 
 class TestIdempotentReprocessing:
-    def test_retrying_a_successful_document_does_not_duplicate_chunks(self, tmp_storage_dir, business):
-        db, biz = business
+    def test_retrying_a_successful_document_does_not_duplicate_chunks(self, tmp_storage_dir, agency):
+        db, biz = agency
         content = b"Vegetarian options: paneer biryani, veg pulao, dal makhani."
         document = _create_document(db, biz.id, content)
 
@@ -133,8 +133,8 @@ class TestIdempotentReprocessing:
         assert len(chunks) == first_chunk_count  # not doubled
         assert document.chunk_count == first_chunk_count
 
-    def test_retrying_a_failed_document_after_a_fix_moves_it_to_ready(self, tmp_storage_dir, business):
-        db, biz = business
+    def test_retrying_a_failed_document_after_a_fix_moves_it_to_ready(self, tmp_storage_dir, agency):
+        db, biz = agency
         document = _create_document(db, biz.id, b"", file_type="txt")  # empty - will fail
 
         process_document(document.id)

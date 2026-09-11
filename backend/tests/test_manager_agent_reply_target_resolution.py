@@ -42,9 +42,9 @@ def _build_manager():
     registry = MagicMock()
     memory = MagicMock()
     memory.shared_context.return_value = {"facts": []}
-    business = MagicMock()
-    business.name = "Biryani House"
-    return ManagerAgent(registry=registry, memory=memory, business=business)
+    agency = MagicMock()
+    agency.name = "Biryani House"
+    return ManagerAgent(registry=registry, memory=memory, agency=agency)
 
 
 class TestSenderAddressExtraction:

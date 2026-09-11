@@ -1,5 +1,5 @@
 """
-Notification preferences: which (event, channel) combinations a business
+Notification preferences: which (event, channel) combinations an agency
 wants enabled. This module is the single source of truth for the canonical
 event/channel lists - the model (app.models.NotificationPreference), the
 API (app.routers.notifications), and every trigger site (appointment
@@ -10,10 +10,10 @@ Two audiences, two channel sets:
 - Customer events (appointment lifecycle) go to the customer's own contact
   info via NotificationDispatcher.notify_customer() - email/SMS/WhatsApp,
   matching the fallback chain that already exists there.
-- Owner events (new lead, support escalation) go to the business owner via
+- Owner events (new lead, support escalation) go to the agency owner via
   NotificationDispatcher.notify_owner() - email only for now, since that's
   the only channel with a real, stored "reach the owner" address
-  (Business.contact_email). WhatsApp/Instagram-to-owner would need an
+  (Agency.contact_email). WhatsApp/Instagram-to-owner would need an
   owner contact field that doesn't exist yet - not fabricated here.
 """
 
@@ -53,15 +53,15 @@ def channels_for_event(event_type: str) -> tuple[str, ...]:
     return OWNER_CHANNELS if event_type in OWNER_EVENTS else CUSTOMER_CHANNELS
 
 
-def get_preference_matrix(db: Session, business_id: str) -> list[dict]:
-    """Every valid (event, channel) pair for this business, with `enabled`
+def get_preference_matrix(db: Session, agency_id: str) -> list[dict]:
+    """Every valid (event, channel) pair for this agency, with `enabled`
     resolved against any stored override - missing rows default to True,
-    so a business that has never touched this page sees (and gets) exactly
+    so an agency that has never touched this page sees (and gets) exactly
     today's always-on behavior."""
     overrides = {
         (row.event_type, row.channel): row.enabled
         for row in db.query(models.NotificationPreference).filter(
-            models.NotificationPreference.business_id == business_id
+            models.NotificationPreference.agency_id == agency_id
         )
     }
     matrix = []
@@ -76,13 +76,13 @@ def get_preference_matrix(db: Session, business_id: str) -> list[dict]:
     return matrix
 
 
-def is_enabled(db: Session, business_id: str, event_type: str, channel: str) -> bool:
+def is_enabled(db: Session, agency_id: str, event_type: str, channel: str) -> bool:
     if channel not in channels_for_event(event_type):
         return False
     row = (
         db.query(models.NotificationPreference)
         .filter(
-            models.NotificationPreference.business_id == business_id,
+            models.NotificationPreference.agency_id == agency_id,
             models.NotificationPreference.event_type == event_type,
             models.NotificationPreference.channel == channel,
         )
@@ -91,7 +91,7 @@ def is_enabled(db: Session, business_id: str, event_type: str, channel: str) -> 
     return row.enabled if row is not None else True
 
 
-def set_preferences(db: Session, business_id: str, updates: list[dict]) -> list[dict]:
+def set_preferences(db: Session, agency_id: str, updates: list[dict]) -> list[dict]:
     """Upserts each {event_type, channel, enabled} entry. Validates against
     the canonical lists above - an unknown event/channel or a channel not
     valid for that event raises ValueError rather than silently creating a
@@ -106,7 +106,7 @@ def set_preferences(db: Session, business_id: str, updates: list[dict]) -> list[
         row = (
             db.query(models.NotificationPreference)
             .filter(
-                models.NotificationPreference.business_id == business_id,
+                models.NotificationPreference.agency_id == agency_id,
                 models.NotificationPreference.event_type == event_type,
                 models.NotificationPreference.channel == channel,
             )
@@ -114,10 +114,10 @@ def set_preferences(db: Session, business_id: str, updates: list[dict]) -> list[
         )
         if row is None:
             row = models.NotificationPreference(
-                business_id=business_id, event_type=event_type, channel=channel,
+                agency_id=agency_id, event_type=event_type, channel=channel,
             )
             db.add(row)
         row.enabled = bool(update["enabled"])
 
     db.commit()
-    return get_preference_matrix(db, business_id)
+    return get_preference_matrix(db, agency_id)

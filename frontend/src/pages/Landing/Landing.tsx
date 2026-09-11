@@ -146,14 +146,14 @@ export default function Landing() {
                             className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] border border-white/10 px-3.5 py-1.5 text-xs font-medium text-slate-300"
                         >
                             <span className="w-1.5 h-1.5 rounded-full bg-flare-500" />
-                            An AI Workforce for growing businesses
+                            An AI Workforce for growing agencies
                         </motion.span>
 
                         <motion.h1
                             {...reveal(reduced, 0.05)}
                             className="font-display text-5xl sm:text-6xl xl:text-[4.5rem] font-semibold tracking-tight text-white mt-7 leading-[1.02]"
                         >
-                            Your business,
+                            Your agency,
                             <br />
                             <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-300 via-brand-200 to-white">
                                 run by an AI Workforce.
@@ -236,7 +236,7 @@ export default function Landing() {
                             className="lg:col-span-2 lg:row-span-2 rounded-3xl bg-ink-950 text-white p-8 sm:p-10 flex flex-col justify-between"
                         >
                             <h2 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight leading-tight">
-                                Running a business means operations pile up faster than your team can keep up.
+                                Running an agency means operations pile up faster than your team can keep up.
                             </h2>
                             <p className="text-slate-400 text-sm mt-8 max-w-md">
                                 A slow reply is often the difference between a customer and a missed sale — and
@@ -303,7 +303,7 @@ export default function Landing() {
                         <div className="hidden sm:block absolute top-6 left-0 right-0 h-px bg-slate-200" aria-hidden="true" />
                         <div className="grid sm:grid-cols-4 gap-10 sm:gap-6">
                             {[
-                                { title: "Connect your business", body: "Sign up and tell AIFlow about your services, tone, and hours." },
+                                { title: "Connect your agency", body: "Sign up and tell AIFlow about your services, tone, and hours." },
                                 { title: "Configure your Workforce", body: "Manager AI is ready immediately, grounded in your data." },
                                 { title: "Connect your channels", body: "Bring in website chat, WhatsApp, and Instagram as needed." },
                                 { title: "Stay in control", body: "Review conversations and leads — the AI never acts unsupervised." },
@@ -353,7 +353,7 @@ export default function Landing() {
                             { icon: CalendarClock, title: "Appointments", body: "Real availability checks before booking or rescheduling." },
                             { icon: LifeBuoy, title: "Support tickets", body: "Every issue logged as a trackable ticket." },
                             { icon: FileText, title: "AI-drafted content", body: "Quotations and campaign copy, ready to review." },
-                            { icon: BarChart3, title: "Business analytics", body: "Ask about your real leads and activity, in plain language." },
+                            { icon: BarChart3, title: "Agency analytics", body: "Ask about your real leads and activity, in plain language." },
                         ].map((item, i) => (
                             <motion.div
                                 key={item.title}
@@ -419,7 +419,7 @@ export default function Landing() {
                     <motion.div {...reveal(reduced)}>
                         <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">Why it matters</p>
                         <h2 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight mt-4 mb-9">
-                            Built around business outcomes, not technology.
+                            Built around agency outcomes, not technology.
                         </h2>
 
                         <ul className="space-y-4">
@@ -429,7 +429,7 @@ export default function Landing() {
                                 "Reduce repetitive work for your team",
                                 "Never miss a follow-up",
                                 "Coordinate every customer touchpoint in one place",
-                                "Understand your business with real, current data",
+                                "Understand your agency with real, current data",
                             ].map((item, i) => (
                                 <motion.li
                                     key={item}
@@ -471,8 +471,8 @@ export default function Landing() {
                     <div className="grid sm:grid-cols-2 gap-5 mt-12">
                         {[
                             { icon: Eye, title: "Full visibility", body: "Every conversation, lead, and appointment is reviewable from your dashboard." },
-                            { icon: Database, title: "Grounded in your data", body: "Answers come from your configured business information — never invented details." },
-                            { icon: KeyRound, title: "Business-specific context", body: "Each business's data, conversations, and configuration stay isolated to that business." },
+                            { icon: Database, title: "Grounded in your data", body: "Answers come from your configured agency information — never invented details." },
+                            { icon: KeyRound, title: "Agency-specific context", body: "Each agency's data, conversations, and configuration stay isolated to that agency." },
                             { icon: ShieldCheck, title: "Built-in safeguards", body: "Guardrails keep AI Workforce replies on-topic and resistant to manipulation attempts." },
                         ].map((item, i) => (
                             <motion.div
@@ -530,7 +530,7 @@ export default function Landing() {
                         <div className="lg:col-span-2">
                             <Logo size="sm" />
                             <p className="text-sm text-slate-500 mt-4 max-w-xs leading-relaxed">
-                                An AI Workforce for growing businesses — coordinated conversations, leads,
+                                An AI Workforce for growing agencies — coordinated conversations, leads,
                                 appointments, support and analytics.
                             </p>
                         </div>

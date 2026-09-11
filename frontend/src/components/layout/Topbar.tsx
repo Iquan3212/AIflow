@@ -3,10 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { ChevronDown, LogOut, Menu } from "lucide-react";
 
 import { useAuth } from "../../context/AuthContext";
-import { useBusiness } from "../../context/BusinessContext";
+import { useAgency } from "../../context/AgencyContext";
 
 export default function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
-    const { business, loading } = useBusiness();
+    const { agency, loading } = useAgency();
     const { logout } = useAuth();
     const navigate = useNavigate();
 
@@ -29,7 +29,7 @@ export default function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
         navigate("/");
     }
 
-    const initial = business?.name?.charAt(0)?.toUpperCase() ?? "?";
+    const initial = agency?.name?.charAt(0)?.toUpperCase() ?? "?";
 
     return (
         <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-4 md:px-6 shrink-0">
@@ -43,7 +43,7 @@ export default function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
             </button>
 
             <div className="hidden md:block text-sm text-slate-500">
-                {loading ? "Loading business…" : business?.name}
+                {loading ? "Loading agency…" : agency?.name}
             </div>
 
             <div className="relative" ref={menuRef}>
@@ -58,7 +58,7 @@ export default function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
                         {loading ? "…" : initial}
                     </span>
                     <span className="hidden sm:block text-sm font-medium text-slate-700 max-w-[10rem] truncate">
-                        {loading ? "" : business?.name}
+                        {loading ? "" : agency?.name}
                     </span>
                     <ChevronDown size={16} className="text-slate-400" />
                 </button>
@@ -70,7 +70,7 @@ export default function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
                     >
                         <div className="px-3.5 py-2.5 border-b border-slate-100">
                             <p className="text-xs text-slate-400">Plan</p>
-                            <p className="text-sm font-medium text-slate-700">{business?.plan?.toUpperCase() ?? "—"}</p>
+                            <p className="text-sm font-medium text-slate-700">{agency?.plan?.toUpperCase() ?? "—"}</p>
                         </div>
                         <button
                             role="menuitem"

@@ -171,7 +171,7 @@ export default function Knowledge() {
         <AppShell>
             <PageHeader
                 title="Knowledge Base"
-                description="Upload business documents (menus, policies, FAQs) so your AI Workforce can answer customer questions grounded in real, sourced content."
+                description="Upload agency documents (menus, policies, FAQs) so your AI Workforce can answer customer questions grounded in real, sourced content."
                 actions={
                     <>
                         <input

@@ -1,5 +1,5 @@
 """
-Google OAuth 2.0 dance for connecting a business's Google Calendar.
+Google OAuth 2.0 dance for connecting an agency's Google Calendar.
 
 The consent-URL build, code->token exchange, and token refresh are all done with
 stdlib urllib so no Google library is required just to connect. The actual
@@ -7,7 +7,7 @@ Calendar API calls (in services/calendar/google_calendar.py) use the Google
 client library, which is an optional dependency you install when you go live.
 
 State handling: Google's redirect back to us is unauthenticated, so we sign the
-connecting business's id into the OAuth `state` param as a short-lived JWT and
+connecting agency's id into the OAuth `state` param as a short-lived JWT and
 verify it on the callback.
 """
 
@@ -37,9 +37,9 @@ def is_google_configured() -> bool:
     return bool(settings.google_client_id and settings.google_client_secret and settings.google_redirect_uri)
 
 
-def make_state(business_id: str) -> str:
+def make_state(agency_id: str) -> str:
     payload = {
-        "business_id": business_id,
+        "agency_id": agency_id,
         "purpose": "google_calendar_oauth",
         "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
     }
@@ -52,13 +52,13 @@ def read_state(state: str) -> str | None:
         if payload.get("purpose") != "google_calendar_oauth":
             logger.warning("integration.google_oauth.wrong_state_purpose", extra={"ctx": {"event": "integration.google_oauth.wrong_state_purpose"}})
             return None
-        return payload.get("business_id")
+        return payload.get("agency_id")
     except Exception:
         logger.warning("integration.google_oauth.invalid_state", extra={"ctx": {"event": "integration.google_oauth.invalid_state"}})
         return None
 
 
-def build_consent_url(business_id: str) -> str:
+def build_consent_url(agency_id: str) -> str:
     params = {
         "client_id": settings.google_client_id,
         "redirect_uri": settings.google_redirect_uri,
@@ -67,7 +67,7 @@ def build_consent_url(business_id: str) -> str:
         "access_type": "offline",     # so we get a refresh_token
         "prompt": "consent",
         "include_granted_scopes": "true",
-        "state": make_state(business_id),
+        "state": make_state(agency_id),
     }
     return f"{AUTH_URI}?{urllib.parse.urlencode(params)}"
 

@@ -1,6 +1,6 @@
 """
 WorkflowService CRUD + validate_workflow_config() - against the real dev
-database, real throwaway businesses (same convention as
+database, real throwaway agencies (same convention as
 test_gmail_service.py). Zero LLM tokens.
 
 Run: python3 -m pytest tests/test_workflow_service_and_validation.py -q   (from backend/)
@@ -16,10 +16,10 @@ from app.services.workflows.service import WorkflowService, WorkflowValidationEr
 
 
 @pytest.fixture
-def two_businesses():
+def two_agencies():
     db = SessionLocal()
-    biz_a = models.Business(name="Workflow Test A", slug=f"wf-test-a-{uuid.uuid4().hex[:10]}", contact_email="a@wftest.example")
-    biz_b = models.Business(name="Workflow Test B", slug=f"wf-test-b-{uuid.uuid4().hex[:10]}", contact_email="b@wftest.example")
+    biz_a = models.Agency(name="Workflow Test A", slug=f"wf-test-a-{uuid.uuid4().hex[:10]}", contact_email="a@wftest.example")
+    biz_b = models.Agency(name="Workflow Test B", slug=f"wf-test-b-{uuid.uuid4().hex[:10]}", contact_email="b@wftest.example")
     db.add_all([biz_a, biz_b])
     db.commit()
     db.refresh(biz_a)
@@ -28,11 +28,11 @@ def two_businesses():
         yield db, biz_a, biz_b
     finally:
         for biz in (biz_a, biz_b):
-            wf_ids = [w.id for w in db.query(models.Workflow).filter(models.Workflow.business_id == biz.id).all()]
+            wf_ids = [w.id for w in db.query(models.Workflow).filter(models.Workflow.agency_id == biz.id).all()]
             for wid in wf_ids:
                 db.query(models.WorkflowRun).filter(models.WorkflowRun.workflow_id == wid).delete()
-            db.query(models.Workflow).filter(models.Workflow.business_id == biz.id).delete()
-            db.query(models.Business).filter(models.Business.id == biz.id).delete()
+            db.query(models.Workflow).filter(models.Workflow.agency_id == biz.id).delete()
+            db.query(models.Agency).filter(models.Agency.id == biz.id).delete()
         db.commit()
         db.close()
 
@@ -80,11 +80,11 @@ class TestValidation:
 
 
 class TestCRUD:
-    def test_create_get_update_delete(self, two_businesses):
-        db, biz_a, _ = two_businesses
+    def test_create_get_update_delete(self, two_agencies):
+        db, biz_a, _ = two_agencies
         service = WorkflowService(db)
         wf = service.create(
-            business_id=biz_a.id, name="Test Workflow", description="desc",
+            agency_id=biz_a.id, name="Test Workflow", description="desc",
             trigger_type=models.WorkflowTriggerType.lead_created,
             conditions=[], actions=VALID_ACTIONS,
         )
@@ -100,21 +100,21 @@ class TestCRUD:
         assert service.delete(wf.id, biz_a.id) is True
         assert service.get(wf.id, biz_a.id) is None
 
-    def test_create_with_invalid_config_raises(self, two_businesses):
-        db, biz_a, _ = two_businesses
+    def test_create_with_invalid_config_raises(self, two_agencies):
+        db, biz_a, _ = two_agencies
         service = WorkflowService(db)
         with pytest.raises(WorkflowValidationError):
             service.create(
-                business_id=biz_a.id, name="Bad", description=None,
+                agency_id=biz_a.id, name="Bad", description=None,
                 trigger_type=models.WorkflowTriggerType.lead_created,
                 conditions=[], actions=[{"type": "not_real", "config": {}}],
             )
 
-    def test_enable_disable(self, two_businesses):
-        db, biz_a, _ = two_businesses
+    def test_enable_disable(self, two_agencies):
+        db, biz_a, _ = two_agencies
         service = WorkflowService(db)
         wf = service.create(
-            business_id=biz_a.id, name="Toggle Test", description=None,
+            agency_id=biz_a.id, name="Toggle Test", description=None,
             trigger_type=models.WorkflowTriggerType.lead_created,
             conditions=[], actions=VALID_ACTIONS,
         )
@@ -125,43 +125,43 @@ class TestCRUD:
 
 
 class TestTenantIsolation:
-    def test_business_a_cannot_get_business_bs_workflow(self, two_businesses):
-        db, biz_a, biz_b = two_businesses
+    def test_agency_a_cannot_get_agency_bs_workflow(self, two_agencies):
+        db, biz_a, biz_b = two_agencies
         service = WorkflowService(db)
         wf = service.create(
-            business_id=biz_a.id, name="A's workflow", description=None,
+            agency_id=biz_a.id, name="A's workflow", description=None,
             trigger_type=models.WorkflowTriggerType.lead_created,
             conditions=[], actions=VALID_ACTIONS,
         )
         assert service.get(wf.id, biz_b.id) is None
 
-    def test_business_a_cannot_update_business_bs_workflow(self, two_businesses):
-        db, biz_a, biz_b = two_businesses
+    def test_agency_a_cannot_update_agency_bs_workflow(self, two_agencies):
+        db, biz_a, biz_b = two_agencies
         service = WorkflowService(db)
         wf = service.create(
-            business_id=biz_a.id, name="A's workflow", description=None,
+            agency_id=biz_a.id, name="A's workflow", description=None,
             trigger_type=models.WorkflowTriggerType.lead_created,
             conditions=[], actions=VALID_ACTIONS,
         )
         assert service.update(wf.id, biz_b.id, name="hijacked") is None
         assert service.get(wf.id, biz_a.id).name == "A's workflow"
 
-    def test_business_a_cannot_delete_business_bs_workflow(self, two_businesses):
-        db, biz_a, biz_b = two_businesses
+    def test_agency_a_cannot_delete_agency_bs_workflow(self, two_agencies):
+        db, biz_a, biz_b = two_agencies
         service = WorkflowService(db)
         wf = service.create(
-            business_id=biz_a.id, name="A's workflow", description=None,
+            agency_id=biz_a.id, name="A's workflow", description=None,
             trigger_type=models.WorkflowTriggerType.lead_created,
             conditions=[], actions=VALID_ACTIONS,
         )
         assert service.delete(wf.id, biz_b.id) is False
         assert service.get(wf.id, biz_a.id) is not None
 
-    def test_get_all_only_returns_own_business(self, two_businesses):
-        db, biz_a, biz_b = two_businesses
+    def test_get_all_only_returns_own_agency(self, two_agencies):
+        db, biz_a, biz_b = two_agencies
         service = WorkflowService(db)
-        service.create(business_id=biz_a.id, name="A1", description=None, trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=VALID_ACTIONS)
-        service.create(business_id=biz_b.id, name="B1", description=None, trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=VALID_ACTIONS)
+        service.create(agency_id=biz_a.id, name="A1", description=None, trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=VALID_ACTIONS)
+        service.create(agency_id=biz_b.id, name="B1", description=None, trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=VALID_ACTIONS)
         names_a = [w.name for w in service.get_all(biz_a.id)]
         names_b = [w.name for w in service.get_all(biz_b.id)]
         assert names_a == ["A1"]

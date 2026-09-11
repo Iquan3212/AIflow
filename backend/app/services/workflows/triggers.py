@@ -12,7 +12,7 @@ actions here are the same kind of already-synchronous operation
 right after the real state change commits, needs no new infrastructure.
 
 fire_trigger() is deliberately best-effort and exception-safe: a bug in
-one business's misconfigured workflow, or a transient Gmail/notification
+one agency's misconfigured workflow, or a transient Gmail/notification
 failure, must NEVER prevent the real lead/appointment/ticket from having
 already been saved - that already happened before this is ever called.
 """
@@ -28,12 +28,12 @@ from app.services.workflows.engine import WorkflowEngine
 logger = get_logger(__name__)
 
 
-def fire_trigger(db: Session, business_id: str, trigger_type: models.WorkflowTriggerType, trigger_data: dict, event_id: str) -> None:
+def fire_trigger(db: Session, agency_id: str, trigger_type: models.WorkflowTriggerType, trigger_data: dict, event_id: str) -> None:
     try:
         workflows = (
             db.query(models.Workflow)
             .filter(
-                models.Workflow.business_id == business_id,
+                models.Workflow.agency_id == agency_id,
                 models.Workflow.trigger_type == trigger_type,
                 models.Workflow.status == models.WorkflowStatus.active,
             )
@@ -41,7 +41,7 @@ def fire_trigger(db: Session, business_id: str, trigger_type: models.WorkflowTri
         )
     except Exception:
         logger.exception("workflow.trigger_lookup_failed", extra={"ctx": {
-            "event": "workflow.trigger_lookup_failed", "business_id": business_id, "trigger_type": trigger_type.value,
+            "event": "workflow.trigger_lookup_failed", "agency_id": agency_id, "trigger_type": trigger_type.value,
         }})
         return
 
@@ -52,7 +52,7 @@ def fire_trigger(db: Session, business_id: str, trigger_type: models.WorkflowTri
         except Exception:
             db.rollback()
             logger.exception("workflow.run_failed_unexpectedly", extra={"ctx": {
-                "event": "workflow.run_failed_unexpectedly", "workflow_id": workflow.id, "business_id": business_id,
+                "event": "workflow.run_failed_unexpectedly", "workflow_id": workflow.id, "agency_id": agency_id,
             }})
 
 

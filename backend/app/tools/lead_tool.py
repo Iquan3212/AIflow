@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 class LeadTool:
     """Persists a CRM lead extracted from natural-language text. Called by
     the Sales employee via ToolRouter, so its signature matches ToolRouter's
-    calling convention: execute(message, db, business, conversation, lead, **kwargs).
+    calling convention: execute(message, db, agency, conversation, lead, **kwargs).
     """
 
     def __init__(self, db: Session):
@@ -23,14 +23,14 @@ class LeadTool:
         self,
         message: str,
         db: Session = None,
-        business: models.Business = None,
+        agency: models.Agency = None,
         conversation=None,
         lead: models.Lead = None,
         **kwargs,
     ) -> dict:
         db = db or self.db
-        if business is None:
-            return {"ok": False, "error": "missing_business"}
+        if agency is None:
+            return {"ok": False, "error": "missing_agency"}
 
         info = extract_lead_information(message)
         name = info.get("name")
@@ -44,7 +44,7 @@ class LeadTool:
 
         target = lead
         if target is None:
-            query = db.query(models.Lead).filter(models.Lead.business_id == business.id)
+            query = db.query(models.Lead).filter(models.Lead.agency_id == agency.id)
             if phone:
                 target = query.filter(models.Lead.phone == phone).first()
             if target is None and email:
@@ -54,7 +54,7 @@ class LeadTool:
 
         created = False
         if target is None:
-            target = models.Lead(business_id=business.id, status="new")
+            target = models.Lead(agency_id=agency.id, status="new")
             db.add(target)
             created = True
 
@@ -77,8 +77,8 @@ class LeadTool:
             # real, already-committed lead.
             try:
                 NotificationDispatcher().notify_owner(
-                    db=db, business=business, event_type=notif_prefs.NEW_LEAD,
-                    subject=f"New lead — {business.name}",
+                    db=db, agency=agency, event_type=notif_prefs.NEW_LEAD,
+                    subject=f"New lead — {agency.name}",
                     body=(
                         f"A new lead came in: {target.name or 'unnamed'}"
                         f" ({target.phone or target.email or 'no contact info'})."
@@ -87,11 +87,11 @@ class LeadTool:
                 )
             except Exception:
                 logger.exception("notification.new_lead_failed", extra={"ctx": {
-                    "event": "notification.new_lead_failed", "business_id": business.id, "lead_id": target.id,
+                    "event": "notification.new_lead_failed", "agency_id": agency.id, "lead_id": target.id,
                 }})
 
             fire_trigger(
-                db, business.id, models.WorkflowTriggerType.lead_created,
+                db, agency.id, models.WorkflowTriggerType.lead_created,
                 lead_created_data(target), event_id=str(target.id),
             )
 

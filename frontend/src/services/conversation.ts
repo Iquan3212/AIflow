@@ -29,7 +29,7 @@ export interface SendMessageResponse {
 
 export async function getConversations(): Promise<Conversation[]> {
 
-    // Auth-based now: the backend returns the authenticated business's
+    // Auth-based now: the backend returns the authenticated agency's
     // conversations from the token, so no slug is passed from the client.
     const response = await api.get<Conversation[]>("/conversation/");
 
@@ -39,7 +39,7 @@ export async function getConversations(): Promise<Conversation[]> {
 
 export async function sendMessage(
     message: string,
-    businessSlug: string,
+    agencySlug: string,
     conversationId?: string,
 ): Promise<SendMessageResponse> {
 
@@ -47,7 +47,7 @@ export async function sendMessage(
         "/conversation/send",
         {
 
-            business_slug: businessSlug,
+            agency_slug: agencySlug,
 
             visitor_id: getVisitorId(),
 

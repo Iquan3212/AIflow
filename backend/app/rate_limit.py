@@ -3,10 +3,10 @@ Rate limiting for the public, unauthenticated endpoints.
 
 First sub-phase of the roadmap's "Production hardening" candidate: the
 public chat endpoint (POST /conversation/send) has no auth at all - anyone
-who knows a business slug can drive unlimited LLM calls against it - and
+who knows an agency slug can drive unlimited LLM calls against it - and
 the auth endpoints (login/signup) are the standard brute-force/spam-account
 targets. Everything else in the API already requires a bearer token, so
-per-business/per-user throttling can wait for a later hardening pass; this
+per-agency/per-user throttling can wait for a later hardening pass; this
 targets exactly the gap ARCHITECTURE.md already flagged.
 
 Keyed by client IP via slowapi's default `get_remote_address`. State is

@@ -4,11 +4,11 @@ from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
-from app.deps import get_current_business
+from app.deps import get_current_agency
 from app.rate_limit import limiter, CHAT_RATE_LIMIT
 from app.services.shared.conversation_service import (
     process_message,
-    get_business_conversations,
+    get_agency_conversations,
 )
 
 router = APIRouter(prefix="/conversation", tags=["Conversation"])
@@ -18,7 +18,7 @@ compat_router = APIRouter(tags=["Conversation"])
 
 
 class ChatRequest(BaseModel):
-    business_slug: str
+    agency_slug: str
     visitor_id: str
     conversation_id: str | None = None
     message: str
@@ -26,18 +26,18 @@ class ChatRequest(BaseModel):
 
 @router.get("/", response_model=list[schemas.ConversationSummaryOut])
 def get_conversations(
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    """Owner-only: list this business's conversations. Requires the auth token —
+    """Owner-only: list this agency's conversations. Requires the auth token —
     previously this was public by slug, which exposed every customer chat."""
-    return get_business_conversations(db=db, business_slug=business.slug)
+    return get_agency_conversations(db=db, agency_slug=agency.slug)
 
 
 def _send_message_impl(chat: ChatRequest, db: Session):
     return process_message(
         db=db,
-        business_slug=chat.business_slug,
+        agency_slug=chat.agency_slug,
         visitor_id=chat.visitor_id,
         conversation_id=chat.conversation_id,
         message=chat.message,
@@ -55,14 +55,14 @@ def send_message(
     return _send_message_impl(chat, db)
 
 
-@router.get("/{business_slug}/welcome")
-def welcome_message(business_slug: str, db: Session = Depends(get_db)):
-    business = db.query(models.Business).filter(models.Business.slug == business_slug).first()
-    if business is None:
-        return {"business_name": "", "welcome_message": "Hi! How can I help you today?"}
-    config = business.chatbot_config
+@router.get("/{agency_slug}/welcome")
+def welcome_message(agency_slug: str, db: Session = Depends(get_db)):
+    agency = db.query(models.Agency).filter(models.Agency.slug == agency_slug).first()
+    if agency is None:
+        return {"agency_name": "", "welcome_message": "Hi! How can I help you today?"}
+    config = agency.chatbot_config
     return {
-        "business_name": business.name,
+        "agency_name": agency.name,
         "welcome_message": config.welcome_message if config else "Hi! How can I help you today?",
     }
 
@@ -73,6 +73,6 @@ def legacy_send_message(request: Request, chat: ChatRequest, db: Session = Depen
     return _send_message_impl(chat, db)
 
 
-@compat_router.get("/chat/{business_slug}/welcome")
-def legacy_welcome_message(business_slug: str, db: Session = Depends(get_db)):
-    return welcome_message(business_slug, db)
+@compat_router.get("/chat/{agency_slug}/welcome")
+def legacy_welcome_message(agency_slug: str, db: Session = Depends(get_db)):
+    return welcome_message(agency_slug, db)

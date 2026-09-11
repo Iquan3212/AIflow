@@ -15,13 +15,13 @@ class EmployeeService:
 
     def chat(
         self,
-        business_id,
+        agency_id,
         message,
         conversation_id=None,
     ):
 
         return self.agent.process(
-            business_id=business_id,
+            agency_id=agency_id,
             conversation_id=conversation_id,
             message=message,
         )
@@ -44,5 +44,5 @@ class EmployeeService:
             "fallback_provider": llm_status["fallback_provider"],
         }
 
-    def history(self, business_id, conversation_id=None):
-        return self.agent.history(business_id, conversation_id)
+    def history(self, agency_id, conversation_id=None):
+        return self.agent.history(agency_id, conversation_id)

@@ -1,5 +1,5 @@
 """
-Dashboard-facing appointment endpoints (all require the business's auth token).
+Dashboard-facing appointment endpoints (all require the agency's auth token).
 Customer-facing booking happens through the chat tools, not here.
 """
 
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
-from app.deps import get_current_business
+from app.deps import get_current_agency
 from app.services.scheduling.appointment_service import AppointmentService
 from app.services.scheduling.datetime_utils import to_local
 
@@ -19,16 +19,16 @@ router = APIRouter(prefix="/appointments", tags=["Appointments"])
 
 @router.get("/", response_model=list[schemas.AppointmentOut])
 def list_appointments(
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    return AppointmentService(db).repo.get_all(business.id)
+    return AppointmentService(db).repo.get_all(agency.id)
 
 
 @router.get("/availability", response_model=schemas.AvailabilityOut)
 def get_availability(
     date_local: str,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
     try:
@@ -38,14 +38,14 @@ def get_availability(
         raise HTTPException(status_code=400, detail="date_local must be YYYY-MM-DD")
 
     service = AppointmentService(db)
-    slots = service.list_slots(business, day)
+    slots = service.list_slots(agency, day)
     return schemas.AvailabilityOut(
         date_local=date_local,
-        timezone=business.timezone,
+        timezone=agency.timezone,
         slots=[
             schemas.SlotOut(
-                start_local_iso=to_local(s, business.timezone).strftime("%Y-%m-%dT%H:%M"),
-                label=_label(s, business.timezone),
+                start_local_iso=to_local(s, agency.timezone).strftime("%Y-%m-%dT%H:%M"),
+                label=_label(s, agency.timezone),
             )
             for s in slots
         ],
@@ -55,11 +55,11 @@ def get_availability(
 @router.post("/", response_model=schemas.AppointmentOut)
 def create_appointment(
     payload: schemas.AppointmentCreate,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
     outcome = AppointmentService(db).book(
-        business,
+        agency,
         start_local_iso=payload.start_local_iso,
         customer_name=payload.customer_name,
         customer_phone=payload.customer_phone,
@@ -78,10 +78,10 @@ def create_appointment(
 def reschedule_appointment(
     appointment_id: str,
     payload: schemas.AppointmentReschedule,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    outcome = AppointmentService(db).reschedule(business, appointment_id, payload.new_start_local_iso)
+    outcome = AppointmentService(db).reschedule(agency, appointment_id, payload.new_start_local_iso)
     if not outcome.ok:
         code = 404 if outcome.reason == "not_found" else 409
         raise HTTPException(status_code=code, detail={"reason": outcome.reason,
@@ -93,10 +93,10 @@ def reschedule_appointment(
 @router.delete("/{appointment_id}")
 def cancel_appointment(
     appointment_id: str,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    outcome = AppointmentService(db).cancel(business, appointment_id)
+    outcome = AppointmentService(db).cancel(agency, appointment_id)
     if not outcome.ok:
         raise HTTPException(status_code=404, detail=outcome.message)
     return {"message": outcome.message}
@@ -106,10 +106,10 @@ def cancel_appointment(
 
 @router.get("/settings/hours", response_model=list[schemas.BusinessHoursItem])
 def get_hours(
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    AppointmentService(db).ensure_defaults(business)
+    AppointmentService(db).ensure_defaults(agency)
     return [
         schemas.BusinessHoursItem(
             weekday=h.weekday,
@@ -117,48 +117,48 @@ def get_hours(
             open_time=h.open_time.strftime("%H:%M") if h.open_time else None,
             close_time=h.close_time.strftime("%H:%M") if h.close_time else None,
         )
-        for h in sorted(business.business_hours, key=lambda x: x.weekday)
+        for h in sorted(agency.business_hours, key=lambda x: x.weekday)
     ]
 
 
 @router.put("/settings/hours", response_model=list[schemas.BusinessHoursItem])
 def update_hours(
     payload: schemas.BusinessHoursUpdate,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    AppointmentService(db).ensure_defaults(business)
-    by_weekday = {h.weekday: h for h in business.business_hours}
+    AppointmentService(db).ensure_defaults(agency)
+    by_weekday = {h.weekday: h for h in agency.business_hours}
     for item in payload.hours:
         row = by_weekday.get(item.weekday)
         if row is None:
-            row = models.BusinessHours(business_id=business.id, weekday=item.weekday)
+            row = models.BusinessHours(agency_id=agency.id, weekday=item.weekday)
             db.add(row)
         row.is_open = item.is_open
         row.open_time = _parse_hhmm(item.open_time)
         row.close_time = _parse_hhmm(item.close_time)
     db.commit()
-    db.refresh(business)
-    return get_hours(business, db)
+    db.refresh(agency)
+    return get_hours(agency, db)
 
 
 @router.get("/settings/rules", response_model=schemas.SchedulingSettingsOut)
 def get_rules(
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    AppointmentService(db).ensure_defaults(business)
-    return business.scheduling_settings
+    AppointmentService(db).ensure_defaults(agency)
+    return agency.scheduling_settings
 
 
 @router.put("/settings/rules", response_model=schemas.SchedulingSettingsOut)
 def update_rules(
     payload: schemas.SchedulingSettingsUpdate,
-    business: models.Business = Depends(get_current_business),
+    agency: models.Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    AppointmentService(db).ensure_defaults(business)
-    s = business.scheduling_settings
+    AppointmentService(db).ensure_defaults(agency)
+    s = agency.scheduling_settings
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(s, field, value)
     db.commit()
