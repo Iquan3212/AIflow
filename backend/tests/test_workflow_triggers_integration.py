@@ -20,6 +20,7 @@ from app.services.lead_service import LeadService
 from app.services.scheduling.appointment_service import AppointmentService
 from app.services.workflows.actions import ActionOutcome
 from app.services.workflows.service import WorkflowService
+from app.services.scheduling.tools import ToolDispatcher
 from app.tools.lead_tool import LeadTool
 from app.tools.support_ticket_tool import SupportTicketTool
 
@@ -43,6 +44,7 @@ def agency():
         db.query(models.Appointment).filter(models.Appointment.agency_id == biz.id).delete()
         db.query(models.SupportTicket).filter(models.SupportTicket.agency_id == biz.id).delete()
         db.query(models.Lead).filter(models.Lead.agency_id == biz.id).delete()
+        db.query(models.Conversation).filter(models.Conversation.agency_id == biz.id).delete()
         db.query(models.Agency).filter(models.Agency.id == biz.id).delete()
         db.commit()
         db.close()
@@ -98,6 +100,136 @@ class TestLeadToolFiresLeadCreated:
 
         assert result["ok"] is True
         mock_exec.assert_called_once()
+
+    def test_lead_tool_fires_workflow_for_preexisting_empty_conversation_lead(self, agency):
+        """Regression: conversation_service._get_or_create_lead always
+        creates an empty Lead row up front and passes it in as `lead=`
+        on every turn of a real customer conversation, so `target is
+        None` is never true for that channel. Before this fix, the
+        lead_created workflow (and the 'new lead' owner notification)
+        silently never fired for any real buyer inquiry via the website/
+        WhatsApp/Instagram widget - only for the dashboard's manual lead
+        creation. What matters is the lead becoming identifiable for the
+        first time, not the row being freshly inserted."""
+        db, biz = agency
+        WorkflowService(db).create(
+            agency_id=biz.id, name="On lead via conversation", description=None,
+            trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=VALID_ACTIONS,
+        )
+        empty_lead = models.Lead(agency_id=biz.id, status="new")
+        db.add(empty_lead)
+        db.commit()
+        db.refresh(empty_lead)
+
+        with patch("app.services.lead_ai_service.chat_completion") as mock_chat, \
+             patch("app.services.workflows.engine.execute_action") as mock_exec:
+            import json
+            mock_chat.return_value.content = json.dumps({
+                "buying_intent": True, "name": "Rahul", "phone": "9845011223", "email": None,
+                "service_interested": "3BHK in Whitefield", "budget": "1.4-1.5cr",
+            })
+            mock_exec.return_value = ActionOutcome(status="succeeded", result={})
+            result = LeadTool(db).execute(
+                message="I'm Rahul, looking for a 3BHK in Whitefield, budget 1.4-1.5cr",
+                db=db, agency=biz, lead=empty_lead,
+            )
+
+        assert result["ok"] is True
+        assert result["created"] is False  # the row already existed
+        mock_exec.assert_called_once()  # but the workflow still fired
+
+    def test_lead_tool_does_not_refire_on_a_later_update_to_an_already_identified_lead(self, agency):
+        """Once a conversation's lead has already been identified, a
+        later save_lead_info call that only adds more detail must not
+        refire lead_created again."""
+        db, biz = agency
+        WorkflowService(db).create(
+            agency_id=biz.id, name="On lead via conversation", description=None,
+            trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=VALID_ACTIONS,
+        )
+        identified_lead = models.Lead(agency_id=biz.id, status="new", name="Rahul", phone="9845011223")
+        db.add(identified_lead)
+        db.commit()
+        db.refresh(identified_lead)
+
+        with patch("app.services.lead_ai_service.chat_completion") as mock_chat, \
+             patch("app.services.workflows.engine.execute_action") as mock_exec:
+            import json
+            mock_chat.return_value.content = json.dumps({
+                "buying_intent": True, "name": None, "phone": None, "email": None,
+                "service_interested": "3BHK in Whitefield", "budget": "1.4-1.5cr",
+            })
+            mock_exec.return_value = ActionOutcome(status="succeeded", result={})
+            result = LeadTool(db).execute(
+                message="Budget is 1.4-1.5cr for a 3BHK in Whitefield",
+                db=db, agency=biz, lead=identified_lead,
+            )
+
+        assert result["ok"] is True
+        mock_exec.assert_not_called()
+
+
+class TestWidgetSaveLeadInfoFiresLeadCreated:
+    """This is the ACTUAL code path a real customer message on the
+    website/WhatsApp/Instagram widget goes through - app.services.
+    scheduling.tools.ToolDispatcher._save_lead_info, not app.tools.
+    lead_tool.LeadTool. Before this fix, this handler never called
+    NotificationDispatcher.notify_owner() or fire_trigger() at all, so
+    every real buyer inquiry through the widget silently skipped both
+    the 'new lead' owner notification and every lead_created workflow -
+    the primary lead-acquisition channel this whole product exists for."""
+
+    def test_widget_save_lead_info_fires_the_workflow_on_first_identification(self, agency):
+        db, biz = agency
+        WorkflowService(db).create(
+            agency_id=biz.id, name="On lead via widget", description=None,
+            trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=VALID_ACTIONS,
+        )
+        conversation = models.Conversation(agency_id=biz.id, visitor_id="visitor-1", channel="website")
+        db.add(conversation)
+        db.commit()
+        db.refresh(conversation)
+        empty_lead = models.Lead(agency_id=biz.id, conversation_id=conversation.id, status="new")
+        db.add(empty_lead)
+        db.commit()
+        db.refresh(empty_lead)
+
+        with patch("app.services.workflows.engine.execute_action") as mock_exec:
+            mock_exec.return_value = ActionOutcome(status="succeeded", result={})
+            result_json = ToolDispatcher(db, biz, conversation, empty_lead).run(
+                "save_lead_info",
+                {"name": "Rahul", "phone": "9845011223", "service_interested": "3BHK in Whitefield"},
+            )
+
+        import json
+        result = json.loads(result_json)
+        assert result["ok"] is True
+        mock_exec.assert_called_once()  # the workflow fired on first identification
+
+    def test_widget_save_lead_info_does_not_refire_once_already_identified(self, agency):
+        db, biz = agency
+        WorkflowService(db).create(
+            agency_id=biz.id, name="On lead via widget", description=None,
+            trigger_type=models.WorkflowTriggerType.lead_created, conditions=[], actions=VALID_ACTIONS,
+        )
+        conversation = models.Conversation(agency_id=biz.id, visitor_id="visitor-2", channel="website")
+        db.add(conversation)
+        db.commit()
+        db.refresh(conversation)
+        identified_lead = models.Lead(
+            agency_id=biz.id, conversation_id=conversation.id, status="new", name="Rahul", phone="9845011223",
+        )
+        db.add(identified_lead)
+        db.commit()
+        db.refresh(identified_lead)
+
+        with patch("app.services.workflows.engine.execute_action") as mock_exec:
+            mock_exec.return_value = ActionOutcome(status="succeeded", result={})
+            ToolDispatcher(db, biz, conversation, identified_lead).run(
+                "save_lead_info", {"budget": "1.4-1.5cr"},
+            )
+
+        mock_exec.assert_not_called()
 
 
 class TestAppointmentServiceFiresAppointmentEvents:

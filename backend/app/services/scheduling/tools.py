@@ -14,8 +14,11 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.logging_config import get_logger
+from app.services.notifications.dispatcher import NotificationDispatcher
+from app.services.notifications import preferences as notif_prefs
 from app.services.scheduling.appointment_service import AppointmentService
 from app.services.scheduling.datetime_utils import to_local, humanize, now_utc, get_tz
+from app.services.workflows.triggers import fire_trigger, lead_created_data
 
 logger = get_logger(__name__)
 
@@ -122,6 +125,17 @@ class ToolDispatcher:
     # ---- handlers -----------------------------------------------------------
 
     def _save_lead_info(self, args: dict) -> str:
+        # conversation_service._get_or_create_lead always creates an empty
+        # Lead row up front for every new conversation, before the model
+        # ever calls this tool - so "the lead becomes identifiable for the
+        # first time" (not "the row was just inserted") is what should
+        # fire the new-lead owner notification and the lead_created
+        # workflow trigger. Without this check, neither ever fires for any
+        # real buyer inquiry through the website/WhatsApp/Instagram widget
+        # (see app/tools/lead_tool.py for the equivalent dashboard-side
+        # logic this mirrors).
+        was_unidentified = not any([self.lead.name, self.lead.phone, self.lead.email])
+
         changed = []
         for field in ("name", "phone", "email", "service_interested", "budget"):
             val = args.get(field)
@@ -131,6 +145,29 @@ class ToolDispatcher:
         if changed:
             self.db.commit()
             self.db.refresh(self.lead)
+
+        newly_identified = was_unidentified and any([self.lead.name, self.lead.phone, self.lead.email])
+        if newly_identified:
+            try:
+                NotificationDispatcher().notify_owner(
+                    db=self.db, agency=self.agency, event_type=notif_prefs.NEW_LEAD,
+                    subject=f"New lead — {self.agency.name}",
+                    body=(
+                        f"A new lead came in: {self.lead.name or 'unnamed'}"
+                        f" ({self.lead.phone or self.lead.email or 'no contact info'})."
+                        f" Interested in: {self.lead.service_interested or 'not specified'}."
+                    ),
+                )
+            except Exception:
+                logger.exception("notification.new_lead_failed", extra={"ctx": {
+                    "event": "notification.new_lead_failed", "agency_id": self.agency.id, "lead_id": self.lead.id,
+                }})
+
+            fire_trigger(
+                self.db, self.agency.id, models.WorkflowTriggerType.lead_created,
+                lead_created_data(self.lead), event_id=str(self.lead.id),
+            )
+
         return json.dumps({"ok": True, "saved": changed})
 
     def _check_availability(self, args: dict) -> str:

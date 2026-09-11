@@ -52,6 +52,17 @@ class LeadTool:
             if target is None and name:
                 target = query.filter(models.Lead.name == name).first()
 
+        # A conversation's Lead row is created empty up front (see
+        # conversation_service._get_or_create_lead) and passed in here as
+        # `lead` on every turn, so `target is None` alone would never be
+        # true for the customer-conversation channel - the "new lead"
+        # owner notification and lead_created workflow trigger would then
+        # never fire for any real buyer inquiry from the website/WhatsApp/
+        # Instagram widget. What actually matters is whether this is the
+        # first time the lead became identifiable, not whether the row
+        # itself was just inserted.
+        was_unidentified = target is None or not any([target.name, target.phone, target.email])
+
         created = False
         if target is None:
             target = models.Lead(agency_id=agency.id, status="new")
@@ -72,7 +83,8 @@ class LeadTool:
         db.commit()
         db.refresh(target)
 
-        if created:
+        newly_identified = was_unidentified and any([target.name, target.phone, target.email])
+        if created or newly_identified:
             # Best-effort: a notification failure must never undo or mask a
             # real, already-committed lead.
             try:
