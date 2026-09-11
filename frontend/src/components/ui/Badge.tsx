@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-export type BadgeTone = "neutral" | "success" | "warning" | "danger" | "info" | "brand";
+export type BadgeTone = "neutral" | "success" | "warning" | "danger" | "info" | "brand" | "flare";
 
 const TONE_CLASSES: Record<BadgeTone, string> = {
     neutral: "bg-slate-100 text-slate-700",
@@ -9,6 +9,7 @@ const TONE_CLASSES: Record<BadgeTone, string> = {
     danger: "bg-red-50 text-red-700",
     info: "bg-sky-50 text-sky-700",
     brand: "bg-brand-50 text-brand-700",
+    flare: "bg-flare-50 text-flare-600",
 };
 
 export default function Badge({
@@ -22,7 +23,7 @@ export default function Badge({
 }) {
     return (
         <span
-            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${TONE_CLASSES[tone]} ${className}`}
+            className={`inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-medium ${TONE_CLASSES[tone]} ${className}`}
         >
             {children}
         </span>

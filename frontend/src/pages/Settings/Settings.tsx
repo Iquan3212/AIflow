@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Trash2 } from "lucide-react";
+import { Check, Trash2, Building2, Sparkles, Plug, Bell, ShieldCheck } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import AppShell from "../../components/layout/AppShell";
 import PageHeader from "../../components/ui/PageHeader";
@@ -860,27 +861,43 @@ function SecurityTab() {
     );
 }
 
+const TAB_META: Record<Tab, { description: string; icon: LucideIcon }> = {
+    Agency: { description: "Name, industry, timezone, and public profile.", icon: Building2 },
+    AI: { description: "Chatbot persona, services, and lead questions.", icon: Sparkles },
+    Integrations: { description: "Gmail, WhatsApp, and Instagram connections.", icon: Plug },
+    Notifications: { description: "Who gets notified, and on which channel.", icon: Bell },
+    Security: { description: "Sessions and account protection.", icon: ShieldCheck },
+};
+
 export default function Settings() {
     const [tab, setTab] = useState<Tab>("Agency");
 
     return (
         <AppShell>
-            <PageHeader title="Settings" description="Configure your agency profile, AI behavior, and account security." />
+            <PageHeader eyebrow="Control center" title="Settings" description="Configure your agency profile, AI behavior, integrations, and security." />
 
-            <div className="flex gap-1 border-b border-slate-200 mb-6 overflow-x-auto" role="tablist">
-                {TABS.map((t) => (
-                    <button
-                        key={t}
-                        role="tab"
-                        aria-selected={tab === t}
-                        onClick={() => setTab(t)}
-                        className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px ${
-                            tab === t ? "border-brand-600 text-brand-600" : "border-transparent text-slate-500 hover:text-slate-700"
-                        }`}
-                    >
-                        {t}
-                    </button>
-                ))}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6" role="tablist" aria-label="Settings sections">
+                {TABS.map((t) => {
+                    const { description, icon: Icon } = TAB_META[t];
+                    const active = tab === t;
+                    return (
+                        <button
+                            key={t}
+                            role="tab"
+                            aria-selected={active}
+                            onClick={() => setTab(t)}
+                            className={`text-left rounded-2xl border p-4 transition-all ${
+                                active ? "bg-ink-950 border-ink-950 text-white shadow-lifted" : "bg-white border-slate-200/80 hover:border-slate-300"
+                            }`}
+                        >
+                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${active ? "bg-white/10 text-flare-400" : "bg-brand-50 text-brand-600"}`}>
+                                <Icon size={17} aria-hidden="true" />
+                            </div>
+                            <p className={`text-sm font-semibold ${active ? "text-white" : "text-ink-950"}`}>{t}</p>
+                            <p className={`text-xs mt-0.5 leading-snug ${active ? "text-slate-300" : "text-slate-500"}`}>{description}</p>
+                        </button>
+                    );
+                })}
             </div>
 
             {tab === "Agency" && <AgencyTab />}

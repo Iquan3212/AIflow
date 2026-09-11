@@ -26,8 +26,8 @@ export default function Logo({ variant = "dark", size = "md", wordmark = true }:
                 />
                 <defs>
                     <linearGradient id="aiflow-logo-gradient" x1="0" y1="0" x2="48" y2="46" gradientUnits="userSpaceOnUse">
-                        <stop stopColor="#a565ff" />
-                        <stop offset="1" stopColor="#6516c9" />
+                        <stop stopColor="#5a8770" />
+                        <stop offset="1" stopColor="#204133" />
                     </linearGradient>
                 </defs>
             </svg>

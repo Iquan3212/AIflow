@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+    ArrowRight,
     CheckCircle2,
     ChevronDown,
     ChevronUp,
     Loader2,
     Play,
     Plus,
+    ShieldCheck,
     Trash2,
     Workflow as WorkflowIcon,
+    Zap,
     XCircle,
 } from "lucide-react";
 
@@ -128,6 +131,43 @@ const TEMPLATES: Array<{
         ],
     },
 ];
+
+/** Trigger → Condition(s) → Action(s) → Approval, as a real step strip -
+ * every node reflects this workflow's own actual configuration, nothing
+ * invented (an action with no requires_approval never shows an Approval
+ * step, since none happens). */
+function FlowSteps({ workflow }: { workflow: Workflow }) {
+    const needsApproval = workflow.actions.some((a) => a.requires_approval);
+    return (
+        <div className="flex items-center gap-1.5 flex-wrap text-xs font-medium">
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-brand-50 text-brand-700 px-2.5 py-1.5">
+                <Zap size={12} aria-hidden="true" /> {TRIGGER_LABELS[workflow.trigger_type]}
+            </span>
+            {workflow.conditions.length > 0 && (
+                <>
+                    <ArrowRight size={12} className="text-slate-300 shrink-0" aria-hidden="true" />
+                    <span className="rounded-lg bg-stone-100 text-slate-600 px-2.5 py-1.5">
+                        {workflow.conditions.length} condition{workflow.conditions.length === 1 ? "" : "s"}
+                    </span>
+                </>
+            )}
+            {workflow.actions.map((action, i) => (
+                <span key={i} className="contents">
+                    <ArrowRight size={12} className="text-slate-300 shrink-0" aria-hidden="true" />
+                    <span className="rounded-lg bg-stone-100 text-slate-600 px-2.5 py-1.5">{ACTION_LABELS[action.type]}</span>
+                </span>
+            ))}
+            {needsApproval && (
+                <>
+                    <ArrowRight size={12} className="text-slate-300 shrink-0" aria-hidden="true" />
+                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-flare-50 text-flare-600 px-2.5 py-1.5">
+                        <ShieldCheck size={12} aria-hidden="true" /> Approval
+                    </span>
+                </>
+            )}
+        </div>
+    );
+}
 
 function emptyAction(): WorkflowAction {
     return { type: "send_notification", config: { event_type: "new_lead", audience: "owner", subject: "", body_template: "" } };
@@ -464,83 +504,80 @@ export default function Workflows() {
                 </Card>
             )}
 
-            <Card className="overflow-hidden">
-                {workflows === null && !error && <LoadingState label="Loading workflows…" />}
-                {workflows !== null && workflows.length === 0 && (
+            {workflows === null && !error && <LoadingState label="Loading workflows…" />}
+            {workflows !== null && workflows.length === 0 && (
+                <Card>
                     <EmptyState
                         icon={<WorkflowIcon size={32} />}
                         title="No workflows yet"
                         description="Use a quick start template above, or create your own: pick a trigger, add conditions, and choose what happens automatically."
                         action={<Button size="sm" onClick={() => setShowForm(true)}><Plus size={15} aria-hidden="true" />Create your first workflow</Button>}
                     />
-                )}
-                {workflows !== null && workflows.length > 0 && (
-                    <ul className="divide-y divide-slate-100">
-                        {workflows.map((workflow) => {
-                            const isBusy = busyIds.has(workflow.id);
-                            const runs = expandedRuns[workflow.id];
-                            const isExpanded = runs !== undefined;
-                            return (
-                                <li key={workflow.id} className="p-4">
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div className="min-w-0">
-                                            <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                                <p className="text-sm font-medium text-slate-800">{workflow.name}</p>
-                                                <Badge tone={STATUS_TONE[workflow.status]}>{workflow.status}</Badge>
-                                            </div>
-                                            <p className="text-xs text-slate-500 mb-1">{TRIGGER_LABELS[workflow.trigger_type]}</p>
-                                            {workflow.description && <p className="text-xs text-slate-400">{workflow.description}</p>}
-                                            <p className="text-xs text-slate-400 mt-1">
-                                                {workflow.actions.length} action{workflow.actions.length === 1 ? "" : "s"}
-                                                {workflow.conditions.length > 0 && ` · ${workflow.conditions.length} condition${workflow.conditions.length === 1 ? "" : "s"}`}
-                                            </p>
+                </Card>
+            )}
+            {workflows !== null && workflows.length > 0 && (
+                <div className="space-y-3">
+                    {workflows.map((workflow) => {
+                        const isBusy = busyIds.has(workflow.id);
+                        const runs = expandedRuns[workflow.id];
+                        const isExpanded = runs !== undefined;
+                        return (
+                            <Card key={workflow.id} className="p-5">
+                                <div className="flex items-start justify-between gap-4 mb-3">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                            <p className="text-sm font-semibold text-ink-950">{workflow.name}</p>
+                                            <Badge tone={STATUS_TONE[workflow.status]}>{workflow.status}</Badge>
                                         </div>
-                                        <div className="flex items-center gap-1 shrink-0">
-                                            <button
-                                                onClick={() => handleToggleHistory(workflow)}
-                                                className="text-slate-400 hover:text-brand-600 p-1.5"
-                                                title="View execution history"
-                                            >
-                                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                            </button>
-                                            <button
-                                                onClick={() => handleToggle(workflow)}
-                                                disabled={isBusy}
-                                                className="text-slate-400 hover:text-brand-600 disabled:opacity-40 p-1.5"
-                                                title={workflow.status === "active" ? "Disable" : "Enable"}
-                                            >
-                                                {isBusy ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
-                                            </button>
-                                            <button onClick={() => handleDelete(workflow)} disabled={isBusy} className="text-slate-400 hover:text-red-600 disabled:opacity-40 p-1.5">
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
+                                        {workflow.description && <p className="text-xs text-slate-500">{workflow.description}</p>}
                                     </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        <button
+                                            onClick={() => handleToggleHistory(workflow)}
+                                            className="text-slate-400 hover:text-brand-600 p-1.5 rounded-lg hover:bg-slate-100"
+                                            title="View execution history"
+                                        >
+                                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                        </button>
+                                        <button
+                                            onClick={() => handleToggle(workflow)}
+                                            disabled={isBusy}
+                                            className="text-slate-400 hover:text-brand-600 disabled:opacity-40 p-1.5 rounded-lg hover:bg-slate-100"
+                                            title={workflow.status === "active" ? "Disable" : "Enable"}
+                                        >
+                                            {isBusy ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+                                        </button>
+                                        <button onClick={() => handleDelete(workflow)} disabled={isBusy} className="text-slate-400 hover:text-red-600 disabled:opacity-40 p-1.5 rounded-lg hover:bg-red-50">
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                </div>
 
-                                    {isExpanded && (
-                                        <div className="mt-3 rounded-lg bg-slate-50 p-3">
-                                            {runs && runs.length === 0 && <p className="text-xs text-slate-400">No runs yet.</p>}
-                                            {runs && runs.length > 0 && (
-                                                <ul className="space-y-2">
-                                                    {runs.map((run) => (
-                                                        <li key={run.id} className="text-xs">
-                                                            <div className="flex items-center gap-2">
-                                                                <Badge tone={RUN_STATUS_TONE[run.status]}>{run.status}</Badge>
-                                                                <span className="text-slate-400">{run.started_at ? new Date(run.started_at).toLocaleString() : ""}</span>
-                                                            </div>
-                                                            {run.error && <p className="text-red-600 mt-0.5">{run.error}</p>}
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            )}
-                                        </div>
-                                    )}
-                                </li>
-                            );
-                        })}
-                    </ul>
-                )}
-            </Card>
+                                <FlowSteps workflow={workflow} />
+
+                                {isExpanded && (
+                                    <div className="mt-4 rounded-xl bg-stone-100 p-3.5">
+                                        {runs && runs.length === 0 && <p className="text-xs text-slate-400">No runs yet.</p>}
+                                        {runs && runs.length > 0 && (
+                                            <ul className="space-y-2">
+                                                {runs.map((run) => (
+                                                    <li key={run.id} className="text-xs">
+                                                        <div className="flex items-center gap-2">
+                                                            <Badge tone={RUN_STATUS_TONE[run.status]}>{run.status}</Badge>
+                                                            <span className="text-slate-400">{run.started_at ? new Date(run.started_at).toLocaleString() : ""}</span>
+                                                        </div>
+                                                        {run.error && <p className="text-red-600 mt-0.5">{run.error}</p>}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </div>
+                                )}
+                            </Card>
+                        );
+                    })}
+                </div>
+            )}
         </AppShell>
     );
 }

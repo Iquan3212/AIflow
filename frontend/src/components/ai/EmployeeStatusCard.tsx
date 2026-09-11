@@ -14,21 +14,35 @@ const ROLE_ICONS: Record<string, LucideIcon> = {
     marketing: Megaphone,
 };
 
+/** A distinct accent per role (order matches the real registry:
+ * app/routers/workforce.py) so the roster reads as a team of specialists,
+ * not seven copies of one template — while every card still shares the
+ * same structure/typography, one design system throughout. */
+const ROLE_ACCENT: Record<string, string> = {
+    sales: "text-brand-600 bg-brand-50",
+    receptionist: "text-sky-600 bg-sky-50",
+    support: "text-amber-600 bg-amber-50",
+    finance: "text-flare-600 bg-flare-50",
+    analytics: "text-violet-600 bg-violet-50",
+    marketing: "text-rose-600 bg-rose-50",
+};
+
 export default function EmployeeStatusCard({ employee, highlight = false }: { employee: EmployeeInfo; highlight?: boolean }) {
     const Icon = ROLE_ICONS[employee.id] ?? Users2;
+    const accent = ROLE_ACCENT[employee.id] ?? "text-brand-600 bg-brand-50";
 
     return (
         <div
             className={`rounded-2xl p-5 transition-all duration-200 ${
                 highlight
-                    ? "bg-ink-900 text-white shadow-lifted"
+                    ? "bg-ink-950 text-white shadow-lifted"
                     : "bg-white border border-slate-200/80 shadow-soft hover:shadow-card hover:border-slate-300"
             }`}
         >
             <div className="flex items-center gap-3">
                 <div
                     className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
-                        highlight ? "bg-white/10 text-brand-300" : "bg-brand-50 text-brand-600"
+                        highlight ? "bg-white/10 text-flare-400" : accent
                     }`}
                 >
                     <Icon size={20} aria-hidden="true" />
@@ -62,7 +76,7 @@ export default function EmployeeStatusCard({ employee, highlight = false }: { em
                     {employee.tools.map((t) => (
                         <span
                             key={t}
-                            className={`text-xs rounded-full px-2.5 py-1 ${
+                            className={`text-xs rounded-md px-2.5 py-1 ${
                                 highlight ? "bg-white/10 text-slate-300" : "bg-slate-100 text-slate-600"
                             }`}
                         >

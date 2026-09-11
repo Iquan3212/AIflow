@@ -16,8 +16,14 @@ import Workflows from "./pages/Workflows/Workflows";
 
 import ProtectedLayout from "./layouts/ProtectedLayout";
 import PublicOnlyLayout from "./layouts/PublicOnlyLayout";
+import BuyerProtectedLayout from "./layouts/BuyerProtectedLayout";
+import BuyerPublicOnlyLayout from "./layouts/BuyerPublicOnlyLayout";
 import Manager from "./pages/Manager/Manager";
 import WorkforceUI from "./pages/Workforce/WorkforceUI";
+import Discover from "./pages/Discover/Discover";
+import BuyerLogin from "./pages/Buyer/BuyerLogin";
+import BuyerRegister from "./pages/Buyer/BuyerRegister";
+import BuyerHome from "./pages/Buyer/BuyerHome";
 
 export default function App() {
     return (
@@ -29,6 +35,18 @@ export default function App() {
                     <Route path="/" element={<Landing />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/register" element={<Register />} />
+                </Route>
+
+                {/* Buyer marketplace — genuinely separate auth/session from the
+                    agency dashboard above (see BuyerAuthContext), so an agency
+                    session never grants buyer routes or vice versa. */}
+                <Route path="/discover" element={<Discover />} />
+                <Route element={<BuyerPublicOnlyLayout />}>
+                    <Route path="/buyer/login" element={<BuyerLogin />} />
+                    <Route path="/buyer/register" element={<BuyerRegister />} />
+                </Route>
+                <Route element={<BuyerProtectedLayout />}>
+                    <Route path="/buyer/home" element={<BuyerHome />} />
                 </Route>
 
                 {/* Protected routes — redirect to /login if signed out */}

@@ -91,7 +91,7 @@ export default function Analytics() {
 
     return (
         <AppShell>
-            <PageHeader title="Analytics" description="Real counts and trends from your agency data, over the last 14 days." />
+            <PageHeader title="Analytics" description="Real counts and trends from your agency's leads, site visits, and conversations, over the last 14 days." />
 
             {!data && !error && <LoadingState label="Loading analytics…" />}
             {error && <ErrorState message={error} onRetry={load} />}
@@ -100,7 +100,7 @@ export default function Analytics() {
                 <div className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                         <StatCard label="Total leads" value={data.total_leads} icon={<Users size={18} />} />
-                        <StatCard label="Total appointments" value={data.total_appointments} icon={<CalendarClock size={18} />} />
+                        <StatCard label="Total site visits" value={data.total_appointments} icon={<CalendarClock size={18} />} />
                         <StatCard label="Total conversations" value={data.total_conversations} icon={<MessageCircle size={18} />} />
                         <StatCard
                             label="Lead conversion rate"
@@ -111,8 +111,8 @@ export default function Analytics() {
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <TrendCard title="Leads per day" data={data.leads_per_day} color="#4f46e5" />
-                        <TrendCard title="Appointments per day" data={data.appointments_per_day} color="#0ea5e9" />
+                        <TrendCard title="Leads per day" data={data.leads_per_day} color="#2a5240" />
+                        <TrendCard title="Site visits per day" data={data.appointments_per_day} color="#a67a37" />
                     </div>
 
                     <Card className="p-5">
@@ -125,7 +125,7 @@ export default function Analytics() {
                                         <XAxis dataKey="date" tickFormatter={formatDay} fontSize={12} />
                                         <YAxis allowDecimals={false} fontSize={12} width={28} />
                                         <Tooltip labelFormatter={(d) => new Date(d as string).toLocaleDateString()} />
-                                        <Line dataKey="count" stroke="#16a34a" strokeWidth={2} dot={false} />
+                                        <Line dataKey="count" stroke="#2a5240" strokeWidth={2.5} dot={false} />
                                     </LineChart>
                                 </ResponsiveContainer>
                             </div>
@@ -136,7 +136,7 @@ export default function Analytics() {
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <StatusBreakdown title="Leads by status" data={data.leads_by_status} />
-                        <StatusBreakdown title="Appointments by status" data={data.appointments_by_status} />
+                        <StatusBreakdown title="Site visits by status" data={data.appointments_by_status} />
                     </div>
                 </div>
             )}

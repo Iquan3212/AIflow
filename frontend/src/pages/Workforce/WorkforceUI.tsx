@@ -16,7 +16,7 @@ export default function WorkforceUI() {
       <PageHeader
         eyebrow="AI Workforce"
         title="Your coordinated AI Workforce"
-        description="Manager AI reads every conversation and delegates to the specialist best equipped to handle it."
+        description="Manager AI reads every conversation and delegates to the specialist best equipped to handle it. Roles are general-purpose today — real-estate-specialized personas aren't built yet."
       />
 
       {loading && <LoadingState label="Loading workforce…" />}

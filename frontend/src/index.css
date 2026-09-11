@@ -2,52 +2,97 @@
 
 /* ==========================================================================
    AIFlow design system — tokens
+   Real-estate operating system, not a generic SaaS dashboard: an
+   architectural palette (deep pine + warm stone + brass), an editorial
+   display serif for headings, and a restrained radius/shadow system that
+   reads as "premium property brand" rather than "startup admin template."
+
    Tailwind v4 reads @theme and generates matching utilities automatically
    (e.g. --color-brand-600 → bg-brand-600 / text-brand-600 / border-brand-600).
    Keep this file the single source of truth for color/typography/shadow/
-   radius so every page and primitive stays visually consistent.
+   radius so every page and primitive stays visually consistent — pages
+   should compose these tokens, never invent their own one-off colors.
    ========================================================================== */
 @theme {
-    --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
-    --font-display: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+    --font-sans: "Figtree", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-display: "Fraunces", ui-serif, Georgia, serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-    /* Brand accent — matches the existing AIFlow favicon mark's violet,
-       so the wordmark/icon and the rest of the UI read as one brand. */
-    --color-brand-50: #f6f0ff;
-    --color-brand-100: #ede1ff;
-    --color-brand-200: #dcc4ff;
-    --color-brand-300: #c39dff;
-    --color-brand-400: #a565ff;
-    --color-brand-500: #8b3bff;
-    --color-brand-600: #7c1ff0;
-    --color-brand-700: #6516c9;
-    --color-brand-800: #5313a3;
-    --color-brand-900: #421184;
-    --color-brand-950: #2b0a5c;
+    /* Brand — deep pine, an architectural green rather than a startup
+       violet/blue. Reads as "grounded, established, premium property,"
+       not "AI SaaS." Used for primary actions, active nav state, and the
+       agency-side accent throughout. */
+    --color-brand-50: #eef3f0;
+    --color-brand-100: #d7e4dc;
+    --color-brand-200: #b0c9bb;
+    --color-brand-300: #83a894;
+    --color-brand-400: #5a8770;
+    --color-brand-500: #3c6b53;
+    --color-brand-600: #2a5240;
+    --color-brand-700: #204133;
+    --color-brand-800: #1a352a;
+    --color-brand-900: #142a21;
+    --color-brand-950: #0d1c16;
 
-    /* Secondary accent — a warm flare used sparingly (a highlighted card,
-       a stat, a hover glow) so the whole product isn't monotone violet. */
-    --color-flare-300: #ffcf8a;
-    --color-flare-400: #ffb454;
-    --color-flare-500: #ff9d2e;
-    --color-flare-600: #f5810a;
+    /* Flare — warm brass/gold, a luxury-property signage tone. Used
+       sparingly: AI match scores, a highlighted stat, a premium badge —
+       never as a second competing UI accent. */
+    --color-flare-50: #faf3e7;
+    --color-flare-300: #e9cd9a;
+    --color-flare-400: #d9b26c;
+    --color-flare-500: #c2954a;
+    --color-flare-600: #a67a37;
 
-    /* Deep ink surface — used for the marketing site, sidebar, and dark sections */
-    --color-ink-950: #05060d;
-    --color-ink-900: #0b0d18;
-    --color-ink-800: #121424;
-    --color-ink-700: #1b1e33;
-    --color-ink-600: #262a45;
+    /* Ink — warm near-black, biased toward the brand green rather than a
+       cold blue-black, used for dark sections (hero, top nav, footer)
+       and as the primary text color on light surfaces. */
+    --color-ink-950: #0f120f;
+    --color-ink-900: #171b17;
+    --color-ink-800: #212620;
+    --color-ink-700: #2d332c;
+    --color-ink-600: #3c433a;
 
-    --shadow-soft: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
-    --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.03), 0 8px 24px -8px rgb(15 23 42 / 0.10);
-    --shadow-lifted: 0 20px 48px -16px rgb(15 23 42 / 0.22), 0 4px 12px -4px rgb(15 23 42 / 0.08);
-    --shadow-glow: 0 0 0 1px rgb(124 31 240 / 0.15), 0 16px 48px -12px rgb(124 31 240 / 0.4);
-    --shadow-flare: 0 16px 40px -12px rgb(245 129 10 / 0.35);
+    /* Stone — the warm neutral ground, replacing generic cool slate-gray.
+       This is the paper/plaster tone the whole light-mode UI sits on. */
+    --color-stone-50: #faf9f6;
+    --color-stone-100: #f3f1ea;
+    --color-stone-200: #e7e3d8;
+    --color-stone-300: #d6d1c1;
+    --color-stone-400: #b3ab96;
+    --color-stone-500: #8f8570;
+    --color-stone-600: #6c6455;
+    --color-stone-700: #514b40;
+    --color-stone-800: #38342c;
+    --color-stone-900: #24211c;
 
-    --radius-xl: 1rem;
-    --radius-2xl: 1.5rem;
-    --radius-3xl: 2.25rem;
+    --shadow-soft: 0 1px 2px 0 rgb(15 18 15 / 0.05), 0 1px 3px 0 rgb(15 18 15 / 0.06);
+    --shadow-card: 0 1px 2px 0 rgb(15 18 15 / 0.04), 0 10px 28px -10px rgb(15 18 15 / 0.14);
+    --shadow-lifted: 0 24px 56px -18px rgb(15 18 15 / 0.28), 0 6px 16px -6px rgb(15 18 15 / 0.10);
+    --shadow-glow: 0 0 0 1px rgb(42 82 64 / 0.18), 0 18px 48px -14px rgb(42 82 64 / 0.38);
+    --shadow-flare: 0 16px 40px -14px rgb(166 122 55 / 0.4);
+
+    --radius-xl: 0.875rem;
+    --radius-2xl: 1.25rem;
+    --radius-3xl: 1.75rem;
+
+    --ease-spatial: cubic-bezier(0.22, 1, 0.36, 1);
+
+    /* Every existing page still uses Tailwind's built-in `slate-*` scale
+       for neutral text/borders/surfaces (dozens of call sites). Rather
+       than hand-edit every className, redirect the scale itself to the
+       same warm stone values above — "slate" and "stone" render
+       identically from here on, so the whole app's neutral palette
+       shifts from cool gray to warm stone in one place. */
+    --color-slate-50: #faf9f6;
+    --color-slate-100: #f3f1ea;
+    --color-slate-200: #e7e3d8;
+    --color-slate-300: #d6d1c1;
+    --color-slate-400: #b3ab96;
+    --color-slate-500: #8f8570;
+    --color-slate-600: #6c6455;
+    --color-slate-700: #514b40;
+    --color-slate-800: #38342c;
+    --color-slate-900: #24211c;
 }
 
 html,
@@ -58,8 +103,8 @@ body,
 }
 
 body {
-    background: #f7f7fb;
-    color: #12142e;
+    background: var(--color-stone-100);
+    color: var(--color-ink-950);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -68,13 +113,38 @@ body {
 h1, h2, h3, h4 {
     font-family: var(--font-display);
     letter-spacing: -0.01em;
+    text-wrap: balance;
 }
 
-/* Faint dot-grid texture for dark sections - an editorial detail instead
-   of a flat gradient blob, used sparingly (hero/CTA backdrops only). */
+.font-mono-data {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Faint architectural grid texture for dark sections — a considered
+   detail (like a site-plan grid) instead of a flat gradient blob, used
+   sparingly (hero/footer backdrops only). */
 .bg-dot-grid {
-    background-image: radial-gradient(rgb(255 255 255 / 0.12) 1px, transparent 1px);
-    background-size: 22px 22px;
+    background-image: radial-gradient(rgb(255 255 255 / 0.10) 1px, transparent 1px);
+    background-size: 24px 24px;
+}
+
+@keyframes menuOpen {
+    from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Perspective stage for property-card hover tilt — see PropertyCard/
+   floating panel usage. Kept as a utility so any card can opt in. */
+.tilt-stage {
+    perspective: 1200px;
+}
+.tilt-card {
+    transition: transform 0.35s var(--ease-spatial), box-shadow 0.35s var(--ease-spatial);
+    transform-style: preserve-3d;
+}
+.tilt-card:hover {
+    transform: perspective(1200px) rotateX(2deg) rotateY(-2deg) translateY(-4px);
 }
 
 /* Respect reduced-motion preferences globally, per accessibility requirements. */
@@ -85,6 +155,9 @@ h1, h2, h3, h4 {
         transition-duration: 0.001ms !important;
         scroll-behavior: auto !important;
     }
+    .tilt-card:hover {
+        transform: none;
+    }
 }
 
 ::selection {
@@ -92,12 +165,12 @@ h1, h2, h3, h4 {
     color: var(--color-brand-950);
 }
 
-/* Thin, unobtrusive scrollbar for panels (conversation lists, sidebars) */
+/* Thin, unobtrusive scrollbar for panels (conversation lists, menus) */
 .thin-scrollbar::-webkit-scrollbar {
     width: 6px;
     height: 6px;
 }
 .thin-scrollbar::-webkit-scrollbar-thumb {
-    background: rgb(15 23 42 / 0.15);
+    background: rgb(15 18 15 / 0.15);
     border-radius: 999px;
 }

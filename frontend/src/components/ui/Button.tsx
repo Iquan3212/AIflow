@@ -32,13 +32,15 @@ const SIZE_CLASSES: Record<Size, string> = {
     lg: "text-base px-7 py-3.5 gap-2.5",
 };
 
+/** Restrained radius, not a pill — a premium property brand reads as
+ * architectural/solid rather than bubbly consumer-app. */
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     ({ variant = "primary", size = "md", loading, disabled, className = "", children, ...props }, ref) => {
         return (
             <button
                 ref={ref}
                 disabled={disabled || loading}
-                className={`inline-flex items-center justify-center rounded-full font-semibold tracking-tight transition-all duration-200
+                className={`inline-flex items-center justify-center rounded-[0.6rem] font-semibold tracking-tight transition-all duration-200
                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500
                     disabled:cursor-not-allowed active:scale-[0.98]
                     ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`}

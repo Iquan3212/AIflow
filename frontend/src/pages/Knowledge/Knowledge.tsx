@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
 import {
     BookOpen,
     FileText,
@@ -7,6 +7,7 @@ import {
     Search,
     Trash2,
     Upload,
+    UploadCloud,
 } from "lucide-react";
 
 import AppShell from "../../components/layout/AppShell";
@@ -62,6 +63,7 @@ export default function Knowledge() {
     const [error, setError] = useState<string | null>(null);
     const [uploading, setUploading] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
+    const [dragActive, setDragActive] = useState(false);
     const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -132,6 +134,13 @@ export default function Knowledge() {
         }
     }
 
+    function handleDrop(e: DragEvent<HTMLDivElement>) {
+        e.preventDefault();
+        setDragActive(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file) void handleFileChosen(file);
+    }
+
     async function handleRetry(document: KnowledgeDocument) {
         try {
             const updated = await withBusy(document.id, () => retryKnowledgeDocument(document.id));
@@ -153,7 +162,7 @@ export default function Knowledge() {
         }
     }
 
-    async function handleSearch(e: React.FormEvent) {
+    async function handleSearch(e: FormEvent) {
         e.preventDefault();
         if (!query.trim()) return;
         setSearching(true);
@@ -170,28 +179,40 @@ export default function Knowledge() {
     return (
         <AppShell>
             <PageHeader
+                eyebrow="Document intelligence"
                 title="Knowledge Base"
-                description="Upload agency documents (menus, policies, FAQs) so your AI Workforce can answer customer questions grounded in real, sourced content."
-                actions={
-                    <>
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".pdf,.docx,.txt"
-                            className="hidden"
-                            onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) void handleFileChosen(file);
-                                e.target.value = "";
-                            }}
-                        />
-                        <Button onClick={() => fileInputRef.current?.click()} loading={uploading}>
-                            <Upload size={16} aria-hidden="true" />
-                            Upload document
-                        </Button>
-                    </>
-                }
+                description="Upload project overviews, pricing guides, RERA information, and policies so your AI Workforce answers grounded in real, sourced content."
             />
+
+            {/* Floating drag-and-drop upload zone */}
+            <div
+                onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={handleDrop}
+                className={`rounded-2xl border-2 border-dashed p-8 mb-6 text-center transition-colors ${
+                    dragActive ? "border-brand-500 bg-brand-50" : "border-slate-200 bg-white hover:border-slate-300"
+                }`}
+            >
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.txt"
+                    className="hidden"
+                    onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void handleFileChosen(file);
+                        e.target.value = "";
+                    }}
+                />
+                <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mx-auto mb-3">
+                    <UploadCloud size={22} aria-hidden="true" />
+                </div>
+                <p className="text-sm font-medium text-ink-950">Drag a document here, or</p>
+                <Button size="sm" className="mt-3" onClick={() => fileInputRef.current?.click()} loading={uploading}>
+                    <Upload size={15} aria-hidden="true" /> Browse files
+                </Button>
+                <p className="text-xs text-slate-400 mt-2">PDF, DOCX, or TXT — up to 15 MB</p>
+            </div>
 
             {uploadError && (
                 <Card className="p-4 mb-4 border-red-200 bg-red-50">
@@ -199,93 +220,76 @@ export default function Knowledge() {
                 </Card>
             )}
 
-            <Card className="overflow-hidden mb-6">
-                {documents === null && !error && <LoadingState label="Loading documents…" />}
-                {error && <ErrorState message={error} onRetry={load} />}
-                {documents !== null && !error && documents.length === 0 && (
+            {documents === null && !error && <LoadingState label="Loading documents…" />}
+            {error && <ErrorState message={error} onRetry={load} />}
+            {documents !== null && !error && documents.length === 0 && (
+                <Card className="mb-6">
                     <EmptyState
                         icon={<BookOpen size={32} />}
                         title="No documents yet"
-                        description="Upload a menu, pricing sheet, delivery policy, or FAQ (PDF, DOCX, or TXT) to get started."
-                        action={
-                            <Button size="sm" onClick={() => fileInputRef.current?.click()}>
-                                <Upload size={15} aria-hidden="true" />
-                                Upload your first document
-                            </Button>
-                        }
+                        description="Upload a project overview, pricing guide, or FAQ (PDF, DOCX, or TXT) to get started."
                     />
-                )}
-                {documents !== null && !error && documents.length > 0 && (
-                    <ul className="divide-y divide-slate-100">
-                        {documents.map((document) => {
-                            const isBusy = busyIds.has(document.id);
-                            return (
-                                <li key={document.id} className="p-4">
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div className="min-w-0 flex items-start gap-3">
-                                            <div className="w-9 h-9 rounded-xl bg-slate-50 text-slate-400 flex items-center justify-center shrink-0 mt-0.5">
-                                                <FileText size={16} aria-hidden="true" />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <p className="text-sm font-medium text-slate-800 truncate">{document.title}</p>
-                                                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                                    <Badge tone={STATUS_TONE[document.status]}>
-                                                        {STATUS_LABEL[document.status]}
-                                                    </Badge>
-                                                    <span className="text-xs text-slate-400 uppercase">{document.file_type}</span>
-                                                    <span className="text-xs text-slate-400">{formatBytes(document.size_bytes)}</span>
-                                                    {document.status === "ready" && (
-                                                        <span className="text-xs text-slate-400">
-                                                            {document.chunk_count} chunk{document.chunk_count === 1 ? "" : "s"}
-                                                        </span>
-                                                    )}
-                                                    <span className="text-xs text-slate-400">
-                                                        {new Date(document.created_at).toLocaleString()}
-                                                    </span>
-                                                </div>
-                                                {document.status === "failed" && document.error && (
-                                                    <p className="text-xs text-red-600 mt-1.5">{document.error}</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-1 shrink-0">
-                                            {document.status === "failed" && (
-                                                <button
-                                                    onClick={() => handleRetry(document)}
-                                                    disabled={isBusy}
-                                                    aria-label="Retry processing"
-                                                    title="Retry processing"
-                                                    className="text-slate-400 hover:text-brand-600 disabled:opacity-40 p-1.5"
-                                                >
-                                                    {isBusy ? (
-                                                        <Loader2 size={16} className="animate-spin" />
-                                                    ) : (
-                                                        <RefreshCw size={16} />
-                                                    )}
-                                                </button>
-                                            )}
-                                            <button
-                                                onClick={() => handleDelete(document)}
-                                                disabled={isBusy}
-                                                aria-label="Delete document"
-                                                title="Delete document"
-                                                className="text-slate-400 hover:text-red-600 disabled:opacity-40 p-1.5"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
+                </Card>
+            )}
+            {documents !== null && !error && documents.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                    {documents.map((document) => {
+                        const isBusy = busyIds.has(document.id);
+                        return (
+                            <Card key={document.id} interactive className="p-5 flex flex-col gap-3">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                                        <FileText size={18} aria-hidden="true" />
                                     </div>
-                                </li>
-                            );
-                        })}
-                    </ul>
-                )}
-            </Card>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        {document.status === "failed" && (
+                                            <button
+                                                onClick={() => handleRetry(document)}
+                                                disabled={isBusy}
+                                                aria-label="Retry processing"
+                                                title="Retry processing"
+                                                className="text-slate-400 hover:text-brand-600 disabled:opacity-40 p-1.5 rounded-lg hover:bg-slate-100"
+                                            >
+                                                {isBusy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => handleDelete(document)}
+                                            disabled={isBusy}
+                                            aria-label="Delete document"
+                                            title="Delete document"
+                                            className="text-slate-400 hover:text-red-600 disabled:opacity-40 p-1.5 rounded-lg hover:bg-red-50"
+                                        >
+                                            <Trash2 size={15} />
+                                        </button>
+                                    </div>
+                                </div>
 
-            <Card className="p-5">
-                <h2 className="text-sm font-semibold text-slate-800 mb-1">Search knowledge</h2>
-                <p className="text-xs text-slate-500 mb-3">
-                    Preview what your AI Workforce would retrieve for a given question - no reply is generated, so this
+                                <p className="text-sm font-medium text-ink-950 leading-snug break-words">{document.title}</p>
+
+                                <div className="flex items-center gap-2 flex-wrap mt-auto pt-1">
+                                    <Badge tone={STATUS_TONE[document.status]}>{STATUS_LABEL[document.status]}</Badge>
+                                    <span className="text-xs text-slate-400 uppercase font-mono-data">{document.file_type}</span>
+                                    <span className="text-xs text-slate-400 font-mono-data">{formatBytes(document.size_bytes)}</span>
+                                </div>
+                                {document.status === "ready" && (
+                                    <p className="text-xs text-slate-400 font-mono-data">
+                                        {document.chunk_count} chunk{document.chunk_count === 1 ? "" : "s"} indexed
+                                    </p>
+                                )}
+                                {document.status === "failed" && document.error && (
+                                    <p className="text-xs text-red-600">{document.error}</p>
+                                )}
+                            </Card>
+                        );
+                    })}
+                </div>
+            )}
+
+            <Card className="p-6">
+                <h2 className="text-sm font-semibold text-slate-800 mb-1 flex items-center gap-2"><Search size={15} /> Search knowledge</h2>
+                <p className="text-xs text-slate-500 mb-4">
+                    Preview what your AI Workforce would retrieve for a given question — no reply is generated, so this
                     doesn't use any AI credits.
                 </p>
                 <form onSubmit={handleSearch} className="flex gap-2 mb-4">
@@ -294,7 +298,7 @@ export default function Knowledge() {
                         <input
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
-                            placeholder="e.g. What is the price of mutton biryani?"
+                            placeholder="e.g. What is the refund policy if possession is delayed?"
                             className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2 text-sm outline-none focus:border-brand-500"
                         />
                     </div>
@@ -310,10 +314,10 @@ export default function Knowledge() {
                 {searchResults !== null && searchResults.length > 0 && (
                     <ul className="space-y-3">
                         {searchResults.map((result) => (
-                            <li key={result.chunk_id} className="rounded-lg border border-slate-100 p-3">
+                            <li key={result.chunk_id} className="rounded-xl bg-stone-100 p-4">
                                 <div className="flex items-center justify-between gap-2 mb-1.5">
                                     <span className="text-xs font-medium text-slate-600">{result.document_name}</span>
-                                    <span className="text-xs text-slate-400">{(result.score * 100).toFixed(0)}% match</span>
+                                    <span className="text-xs text-brand-600 font-mono-data">{(result.score * 100).toFixed(0)}% match</span>
                                 </div>
                                 <p className="text-sm text-slate-700 whitespace-pre-wrap">{result.content}</p>
                             </li>

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
 import {
     Calendar,
     Clock,
@@ -10,10 +9,19 @@ import {
     Link2,
     Unlink,
     AlertTriangle,
+    User,
 } from "lucide-react";
 
 import { useAgency } from "../../context/AgencyContext";
 import AppShell from "../../components/layout/AppShell";
+import PageHeader from "../../components/ui/PageHeader";
+import Card from "../../components/ui/Card";
+import Badge from "../../components/ui/Badge";
+import type { BadgeTone } from "../../components/ui/Badge";
+import Button from "../../components/ui/Button";
+import Modal from "../../components/ui/Modal";
+import Input, { Label } from "../../components/ui/Input";
+import { LoadingState, EmptyState } from "../../components/ui/States";
 import {
     listAppointments,
     getAvailability,
@@ -34,9 +42,16 @@ import {
     type GoogleStatus,
 } from "../../services/appointments";
 
-import "./Appointments.css";
-
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+const STATUS_TONE: Record<string, BadgeTone> = {
+    scheduled: "info",
+    confirmed: "success",
+    rescheduled: "warning",
+    completed: "success",
+    cancelled: "danger",
+    no_show: "danger",
+};
 
 function todayISO(): string {
     return new Date().toISOString().slice(0, 10);
@@ -63,6 +78,43 @@ function fmt(utcIso: string, tz: string): string {
     }
 }
 
+function GoogleCard({ google, onConnect, onDisconnect }: {
+    google: GoogleStatus | null; onConnect: () => void; onDisconnect: () => void;
+}) {
+    return (
+        <Card className="p-5 flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4">
+                <div className="w-11 h-11 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                    <Calendar size={20} aria-hidden="true" />
+                </div>
+                <div>
+                    <p className="font-semibold text-ink-950">Google Calendar</p>
+                    <p className="text-sm text-slate-500">
+                        {google?.connected
+                            ? "Connected — new site visits sync automatically."
+                            : "Sync every site visit to your Google Calendar automatically."}
+                    </p>
+                </div>
+            </div>
+            {!google?.available && (
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg px-3 py-1.5">
+                    <AlertTriangle size={13} /> Not configured on server
+                </span>
+            )}
+            {google?.available && google?.connected && (
+                <Button variant="secondary" size="sm" onClick={onDisconnect}>
+                    <Unlink size={15} /> Disconnect
+                </Button>
+            )}
+            {google?.available && !google?.connected && (
+                <Button size="sm" onClick={onConnect}>
+                    <Link2 size={15} /> Connect
+                </Button>
+            )}
+        </Card>
+    );
+}
+
 export default function Appointments() {
     const tz = useTz();
 
@@ -70,7 +122,6 @@ export default function Appointments() {
     const [loading, setLoading] = useState(true);
     const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
 
-    // booking panel
     const [date, setDate] = useState(todayISO());
     const [slots, setSlots] = useState<Slot[]>([]);
     const [loadingSlots, setLoadingSlots] = useState(false);
@@ -78,15 +129,12 @@ export default function Appointments() {
     const [form, setForm] = useState({ name: "", phone: "", email: "", service: "" });
     const [booking, setBooking] = useState(false);
 
-    // settings
     const [hours, setHours] = useState<BusinessHoursItem[]>([]);
     const [rules, setRules] = useState<SchedulingRules | null>(null);
     const [savingSettings, setSavingSettings] = useState(false);
 
-    // google
     const [google, setGoogle] = useState<GoogleStatus | null>(null);
 
-    // reschedule modal
     const [rescheduleFor, setRescheduleFor] = useState<Appointment | null>(null);
     const [rescheduleValue, setRescheduleValue] = useState("");
 
@@ -96,8 +144,7 @@ export default function Appointments() {
     }
 
     async function refreshAppointments() {
-        const data = await listAppointments();
-        setAppointments(data);
+        setAppointments(await listAppointments());
     }
 
     useEffect(() => {
@@ -116,7 +163,6 @@ export default function Appointments() {
             }
         })();
 
-        // Feedback after returning from the Google OAuth redirect.
         const params = new URLSearchParams(window.location.search);
         const cal = params.get("calendar");
         if (cal === "connected") flash("ok", "Google Calendar connected.");
@@ -129,11 +175,7 @@ export default function Appointments() {
         const now = Date.now();
         const active = appointments.filter((a) => a.status !== "cancelled");
         const upcoming = active.filter((a) => new Date(a.scheduled_at).getTime() >= now);
-        const todayCount = active.filter((a) => {
-            const d = new Date(a.scheduled_at);
-            const t = new Date();
-            return d.toDateString() === t.toDateString();
-        }).length;
+        const todayCount = active.filter((a) => new Date(a.scheduled_at).toDateString() === new Date().toDateString()).length;
         const cancelled = appointments.filter((a) => a.status === "cancelled").length;
         return { upcoming: upcoming.length, today: todayCount, cancelled, total: appointments.length };
     }, [appointments]);
@@ -154,9 +196,8 @@ export default function Appointments() {
 
     async function submitBooking() {
         if (!selectedSlot) return flash("err", "Pick a time slot first.");
-        if (!form.name.trim()) return flash("err", "Customer name is required.");
-        if (!form.phone.trim() && !form.email.trim())
-            return flash("err", "Add a phone or email.");
+        if (!form.name.trim()) return flash("err", "Buyer name is required.");
+        if (!form.phone.trim() && !form.email.trim()) return flash("err", "Add a phone or email.");
         setBooking(true);
         try {
             await bookAppointment({
@@ -166,12 +207,12 @@ export default function Appointments() {
                 customer_email: form.email.trim() || undefined,
                 service: form.service.trim() || undefined,
             });
-            flash("ok", "Appointment booked.");
+            flash("ok", "Site visit booked.");
             setForm({ name: "", phone: "", email: "", service: "" });
             setSelectedSlot(null);
             await Promise.all([refreshAppointments(), loadSlots()]);
-        } catch (e: any) {
-            const detail = e?.response?.data?.detail;
+        } catch (e) {
+            const detail = (e as { response?: { data?: { detail?: { message?: string } } } })?.response?.data?.detail;
             flash("err", detail?.message || "That slot is no longer available.");
         } finally {
             setBooking(false);
@@ -182,21 +223,21 @@ export default function Appointments() {
         if (!rescheduleFor || !rescheduleValue) return;
         try {
             await rescheduleAppointment(rescheduleFor.id, rescheduleValue);
-            flash("ok", "Appointment rescheduled.");
+            flash("ok", "Site visit rescheduled.");
             setRescheduleFor(null);
             setRescheduleValue("");
             await refreshAppointments();
-        } catch (e: any) {
-            const detail = e?.response?.data?.detail;
+        } catch (e) {
+            const detail = (e as { response?: { data?: { detail?: { message?: string } } } })?.response?.data?.detail;
             flash("err", detail?.message || "Couldn't reschedule to that time.");
         }
     }
 
     async function doCancel(a: Appointment) {
-        if (!window.confirm(`Cancel the appointment for ${a.customer_name || "this customer"}?`)) return;
+        if (!window.confirm(`Cancel the site visit for ${a.customer_name || "this buyer"}?`)) return;
         try {
             await cancelAppointment(a.id);
-            flash("ok", "Appointment cancelled.");
+            flash("ok", "Site visit cancelled.");
             await refreshAppointments();
         } catch {
             flash("err", "Couldn't cancel.");
@@ -218,10 +259,10 @@ export default function Appointments() {
 
     async function connectGoogle() {
         try {
-            const url = await getGoogleConnectUrl();
-            window.location.href = url;
-        } catch (e: any) {
-            flash("err", e?.response?.data?.detail || "Google is not configured on the server.");
+            window.location.href = await getGoogleConnectUrl();
+        } catch (e) {
+            const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+            flash("err", detail || "Google is not configured on the server.");
         }
     }
 
@@ -235,61 +276,65 @@ export default function Appointments() {
         }
     }
 
-    if (loading) return <AppShell><div className="appt-loading">Loading appointments…</div></AppShell>;
+    if (loading) return <AppShell><LoadingState label="Loading site visits…" /></AppShell>;
 
     return (
         <AppShell>
-        <div className="appt-page">
-            <div className="page-title">
-                <h1>Appointments</h1>
-                <p>Your AI receptionist books, reschedules, and reminds — manage it all here.</p>
+            <PageHeader
+                eyebrow="Operations"
+                title="Site Visits"
+                description="Your AI receptionist books, reschedules, and reminds buyers — manage it all here."
+            />
+
+            {toast && (
+                <div
+                    role="status"
+                    className={`fixed top-20 right-6 z-40 rounded-xl px-4 py-3 text-sm font-medium shadow-lifted ${
+                        toast.kind === "ok" ? "bg-brand-600 text-white" : "bg-red-600 text-white"
+                    }`}
+                >
+                    {toast.msg}
+                </div>
+            )}
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+                <Card className="p-5"><p className="text-xs text-slate-500">Upcoming</p><p className="font-display text-3xl font-medium text-ink-950 mt-1 flex items-center gap-2"><Clock size={18} className="text-brand-500" />{stats.upcoming}</p></Card>
+                <Card className="p-5"><p className="text-xs text-slate-500">Today</p><p className="font-display text-3xl font-medium text-ink-950 mt-1 flex items-center gap-2"><Calendar size={18} className="text-flare-500" />{stats.today}</p></Card>
+                <Card className="p-5"><p className="text-xs text-slate-500">Total booked</p><p className="font-display text-3xl font-medium text-ink-950 mt-1 flex items-center gap-2"><CheckCircle2 size={18} className="text-slate-400" />{stats.total}</p></Card>
+                <Card className="p-5"><p className="text-xs text-slate-500">Cancelled</p><p className="font-display text-3xl font-medium text-ink-950 mt-1 flex items-center gap-2"><XCircle size={18} className="text-red-400" />{stats.cancelled}</p></Card>
             </div>
 
-            {toast && <div className={`appt-toast ${toast.kind}`}>{toast.msg}</div>}
-
-            {/* stats */}
-            <div className="appt-stats">
-                <StatCard icon={<Clock size={18} />} label="Upcoming" value={stats.upcoming} tone="blue" />
-                <StatCard icon={<Calendar size={18} />} label="Today" value={stats.today} tone="green" />
-                <StatCard icon={<CheckCircle2 size={18} />} label="Total booked" value={stats.total} tone="slate" />
-                <StatCard icon={<XCircle size={18} />} label="Cancelled" value={stats.cancelled} tone="red" />
+            <div className="mb-5">
+                <GoogleCard google={google} onConnect={connectGoogle} onDisconnect={disconnect} />
             </div>
 
-            {/* google calendar */}
-            <GoogleCard google={google} onConnect={connectGoogle} onDisconnect={disconnect} />
+            <div className="grid lg:grid-cols-2 gap-5 mb-5">
+                <Card className="p-6">
+                    <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-2 mb-4"><Plus size={16} /> Book a site visit</h2>
 
-            <div className="appt-grid">
-                {/* booking */}
-                <section className="appt-card">
-                    <h2 className="appt-card-title"><Plus size={18} /> Book an appointment</h2>
-
-                    <div className="appt-row">
-                        <label className="appt-label">
-                            Date
-                            <input
-                                type="date"
-                                value={date}
-                                min={todayISO()}
-                                onChange={(e) => setDate(e.target.value)}
-                                className="appt-input"
-                            />
-                        </label>
-                        <button className="appt-btn ghost" onClick={loadSlots} disabled={loadingSlots}>
+                    <div className="flex items-end gap-3 mb-4">
+                        <div className="flex-1">
+                            <Label htmlFor="visit-date">Date</Label>
+                            <Input id="visit-date" type="date" value={date} min={todayISO()} onChange={(e) => setDate(e.target.value)} />
+                        </div>
+                        <Button variant="secondary" onClick={loadSlots} disabled={loadingSlots}>
                             {loadingSlots ? "Loading…" : "Check availability"}
-                        </button>
+                        </Button>
                     </div>
 
                     {slots.length > 0 && (
-                        <div className="slot-grid">
+                        <div className="grid grid-cols-4 gap-2 mb-4">
                             {slots.map((s) => {
                                 const time = s.start_local_iso.slice(11);
                                 const active = selectedSlot?.start_local_iso === s.start_local_iso;
                                 return (
                                     <button
                                         key={s.start_local_iso}
-                                        className={`slot-chip ${active ? "active" : ""}`}
                                         onClick={() => setSelectedSlot(s)}
                                         title={s.label}
+                                        className={`text-sm font-medium rounded-lg py-2 transition-colors ${
+                                            active ? "bg-brand-600 text-white" : "bg-stone-100 text-ink-950 hover:bg-stone-200"
+                                        }`}
                                     >
                                         {time}
                                     </button>
@@ -299,273 +344,137 @@ export default function Appointments() {
                     )}
 
                     {selectedSlot && (
-                        <div className="appt-booking-form">
-                            <div className="selected-banner">
-                                Selected: <strong>{selectedSlot.label}</strong>
+                        <div className="space-y-3 rounded-xl bg-stone-100 p-4">
+                            <p className="text-sm text-ink-950">Selected: <strong>{selectedSlot.label}</strong></p>
+                            <Input placeholder="Buyer name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                            <div className="grid grid-cols-2 gap-3">
+                                <Input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                                <Input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
                             </div>
-                            <input
-                                className="appt-input"
-                                placeholder="Customer name *"
-                                value={form.name}
-                                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                            />
-                            <div className="appt-row">
-                                <input
-                                    className="appt-input"
-                                    placeholder="Phone"
-                                    value={form.phone}
-                                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                                />
-                                <input
-                                    className="appt-input"
-                                    placeholder="Email"
-                                    value={form.email}
-                                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                                />
-                            </div>
-                            <input
-                                className="appt-input"
-                                placeholder="Service (optional)"
-                                value={form.service}
-                                onChange={(e) => setForm({ ...form, service: e.target.value })}
-                            />
-                            <button className="appt-btn primary" onClick={submitBooking} disabled={booking}>
-                                {booking ? "Booking…" : "Confirm booking"}
-                            </button>
+                            <Input placeholder="Property / service (optional)" value={form.service} onChange={(e) => setForm({ ...form, service: e.target.value })} />
+                            <Button onClick={submitBooking} loading={booking} className="w-full">Confirm site visit</Button>
                         </div>
                     )}
-                </section>
+                </Card>
 
-                {/* settings */}
-                <section className="appt-card">
-                    <h2 className="appt-card-title"><Clock size={18} /> Availability settings</h2>
+                <Card className="p-6">
+                    <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-2 mb-4"><Clock size={16} /> Availability settings</h2>
 
-                    <div className="hours-editor">
-                        {hours
-                            .slice()
-                            .sort((a, b) => a.weekday - b.weekday)
-                            .map((h) => (
-                                <div className="hours-row" key={h.weekday}>
-                                    <span className="hours-day">{WEEKDAYS[h.weekday]}</span>
-                                    <label className="switch">
-                                        <input
-                                            type="checkbox"
-                                            checked={h.is_open}
-                                            onChange={(e) =>
-                                                setHours((prev) =>
-                                                    prev.map((x) =>
-                                                        x.weekday === h.weekday ? { ...x, is_open: e.target.checked } : x
-                                                    )
-                                                )
-                                            }
-                                        />
-                                        <span className="slider" />
-                                    </label>
+                    <div className="space-y-2 mb-5">
+                        {hours.slice().sort((a, b) => a.weekday - b.weekday).map((h) => (
+                            <div key={h.weekday} className="flex items-center gap-3">
+                                <span className="w-9 text-xs font-medium text-slate-500">{WEEKDAYS[h.weekday]}</span>
+                                <label className="relative inline-flex items-center cursor-pointer shrink-0">
                                     <input
-                                        type="time"
-                                        className="appt-input tiny"
-                                        disabled={!h.is_open}
-                                        value={h.open_time || "10:00"}
-                                        onChange={(e) =>
-                                            setHours((prev) =>
-                                                prev.map((x) =>
-                                                    x.weekday === h.weekday ? { ...x, open_time: e.target.value } : x
-                                                )
-                                            )
-                                        }
+                                        type="checkbox"
+                                        checked={h.is_open}
+                                        onChange={(e) => setHours((prev) => prev.map((x) => (x.weekday === h.weekday ? { ...x, is_open: e.target.checked } : x)))}
+                                        className="sr-only peer"
                                     />
-                                    <span className="hours-dash">–</span>
-                                    <input
-                                        type="time"
-                                        className="appt-input tiny"
-                                        disabled={!h.is_open}
-                                        value={h.close_time || "18:00"}
-                                        onChange={(e) =>
-                                            setHours((prev) =>
-                                                prev.map((x) =>
-                                                    x.weekday === h.weekday ? { ...x, close_time: e.target.value } : x
-                                                )
-                                            )
-                                        }
-                                    />
-                                </div>
-                            ))}
+                                    <div className="w-9 h-5 bg-slate-200 rounded-full peer peer-checked:bg-brand-600 transition-colors" />
+                                    <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4" />
+                                </label>
+                                <input
+                                    type="time"
+                                    disabled={!h.is_open}
+                                    value={h.open_time || "10:00"}
+                                    onChange={(e) => setHours((prev) => prev.map((x) => (x.weekday === h.weekday ? { ...x, open_time: e.target.value } : x)))}
+                                    className="text-xs rounded-lg border border-slate-200 px-2 py-1 disabled:opacity-40 outline-none focus:border-brand-500"
+                                />
+                                <span className="text-slate-300">–</span>
+                                <input
+                                    type="time"
+                                    disabled={!h.is_open}
+                                    value={h.close_time || "18:00"}
+                                    onChange={(e) => setHours((prev) => prev.map((x) => (x.weekday === h.weekday ? { ...x, close_time: e.target.value } : x)))}
+                                    className="text-xs rounded-lg border border-slate-200 px-2 py-1 disabled:opacity-40 outline-none focus:border-brand-500"
+                                />
+                            </div>
+                        ))}
                     </div>
 
                     {rules && (
-                        <div className="rules-grid">
-                            <NumField label="Slot (min)" value={rules.slot_duration_minutes}
-                                onChange={(v) => setRules({ ...rules, slot_duration_minutes: v })} />
-                            <NumField label="Buffer (min)" value={rules.buffer_minutes}
-                                onChange={(v) => setRules({ ...rules, buffer_minutes: v })} />
-                            <NumField label="Min notice (min)" value={rules.min_notice_minutes}
-                                onChange={(v) => setRules({ ...rules, min_notice_minutes: v })} />
-                            <NumField label="Max advance (days)" value={rules.max_advance_days}
-                                onChange={(v) => setRules({ ...rules, max_advance_days: v })} />
+                        <div className="grid grid-cols-2 gap-3 mb-5">
+                            {([
+                                ["Slot (min)", "slot_duration_minutes"],
+                                ["Buffer (min)", "buffer_minutes"],
+                                ["Min notice (min)", "min_notice_minutes"],
+                                ["Max advance (days)", "max_advance_days"],
+                            ] as const).map(([label, key]) => (
+                                <div key={key}>
+                                    <Label htmlFor={key}>{label}</Label>
+                                    <Input
+                                        id={key}
+                                        type="number"
+                                        min={0}
+                                        value={rules[key]}
+                                        onChange={(e) => setRules({ ...rules, [key]: parseInt(e.target.value || "0", 10) })}
+                                    />
+                                </div>
+                            ))}
                         </div>
                     )}
 
-                    <button className="appt-btn primary" onClick={saveSettings} disabled={savingSettings}>
-                        {savingSettings ? "Saving…" : "Save settings"}
-                    </button>
-                </section>
+                    <Button onClick={saveSettings} loading={savingSettings} variant="secondary" className="w-full">Save settings</Button>
+                </Card>
             </div>
 
-            {/* appointments table */}
-            <section className="appt-card">
-                <div className="appt-card-head">
-                    <h2 className="appt-card-title"><Calendar size={18} /> All appointments</h2>
-                    <button className="appt-btn ghost sm" onClick={() => refreshAppointments()}>
-                        <RefreshCw size={14} /> Refresh
-                    </button>
+            <Card className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><Calendar size={16} /> All site visits</h2>
+                    <Button variant="ghost" size="sm" onClick={() => refreshAppointments()}><RefreshCw size={14} /> Refresh</Button>
                 </div>
 
-                <table className="appt-table">
-                    <thead>
-                        <tr>
-                            <th>Customer</th>
-                            <th>Service</th>
-                            <th>When ({tz})</th>
-                            <th>Source</th>
-                            <th>Status</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
+                {appointments.length === 0 ? (
+                    <EmptyState icon={<Calendar size={28} />} title="No site visits yet" description="Bookings from your AI receptionist will appear here." />
+                ) : (
+                    <ul className="divide-y divide-slate-100">
                         {appointments.map((a) => (
-                            <tr key={a.id}>
-                                <td>
-                                    <div className="cust">
-                                        <strong>{a.customer_name || "—"}</strong>
-                                        <span>{a.customer_phone || a.customer_email || ""}</span>
+                            <li key={a.id} className="py-3.5 flex items-center gap-4 flex-wrap">
+                                <div className="w-9 h-9 rounded-full bg-stone-100 text-slate-400 flex items-center justify-center shrink-0">
+                                    <User size={16} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-medium text-ink-950 truncate">{a.customer_name || "—"}</p>
+                                    <p className="text-xs text-slate-500 truncate">
+                                        {a.service || "No property specified"} · {fmt(a.scheduled_at, tz)}
+                                    </p>
+                                </div>
+                                <Badge tone="neutral" className="hidden sm:inline-flex">{a.source}</Badge>
+                                <Badge tone={STATUS_TONE[a.status] ?? "neutral"}>{a.status.replace("_", " ")}</Badge>
+                                {a.status !== "cancelled" && (
+                                    <div className="flex items-center gap-1">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => { setRescheduleFor(a); setRescheduleValue(a.scheduled_at.slice(0, 16)); }}
+                                        >
+                                            Reschedule
+                                        </Button>
+                                        <Button variant="ghost" size="sm" className="!text-red-600 hover:!bg-red-50" onClick={() => doCancel(a)}>
+                                            Cancel
+                                        </Button>
                                     </div>
-                                </td>
-                                <td>{a.service || "—"}</td>
-                                <td>{fmt(a.scheduled_at, tz)}</td>
-                                <td><span className="source-tag">{a.source}</span></td>
-                                <td><span className={`appt-status ${a.status}`}>{a.status}</span></td>
-                                <td className="actions">
-                                    {a.status !== "cancelled" && (
-                                        <>
-                                            <button
-                                                className="link-btn"
-                                                onClick={() => {
-                                                    setRescheduleFor(a);
-                                                    setRescheduleValue(a.scheduled_at.slice(0, 16));
-                                                }}
-                                            >
-                                                Reschedule
-                                            </button>
-                                            <button className="link-btn danger" onClick={() => doCancel(a)}>
-                                                Cancel
-                                            </button>
-                                        </>
-                                    )}
-                                </td>
-                            </tr>
+                                )}
+                            </li>
                         ))}
-                        {appointments.length === 0 && (
-                            <tr>
-                                <td colSpan={6} className="empty">No appointments yet.</td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </section>
+                    </ul>
+                )}
+            </Card>
 
-            {/* reschedule modal */}
             {rescheduleFor && (
-                <div className="modal-overlay" onClick={() => setRescheduleFor(null)}>
-                    <div className="modal" onClick={(e) => e.stopPropagation()}>
-                        <h3>Reschedule appointment</h3>
-                        <p className="modal-sub">
-                            {rescheduleFor.customer_name} — currently {fmt(rescheduleFor.scheduled_at, tz)}
-                        </p>
-                        <label className="appt-label">
-                            New time ({tz})
-                            <input
-                                type="datetime-local"
-                                className="appt-input"
-                                value={rescheduleValue}
-                                onChange={(e) => setRescheduleValue(e.target.value)}
-                            />
-                        </label>
-                        <div className="modal-actions">
-                            <button className="appt-btn ghost" onClick={() => setRescheduleFor(null)}>Cancel</button>
-                            <button className="appt-btn primary" onClick={doReschedule}>Save new time</button>
-                        </div>
+                <Modal title="Reschedule site visit" onClose={() => setRescheduleFor(null)}>
+                    <p className="text-sm text-slate-500 mb-4">
+                        {rescheduleFor.customer_name} — currently {fmt(rescheduleFor.scheduled_at, tz)}
+                    </p>
+                    <Label htmlFor="reschedule-time">{`New time (${tz})`}</Label>
+                    <Input id="reschedule-time" type="datetime-local" value={rescheduleValue} onChange={(e) => setRescheduleValue(e.target.value)} />
+                    <div className="flex justify-end gap-2 mt-5">
+                        <Button variant="secondary" onClick={() => setRescheduleFor(null)}>Cancel</Button>
+                        <Button onClick={doReschedule}>Save new time</Button>
                     </div>
-                </div>
+                </Modal>
             )}
-        </div>
         </AppShell>
-    );
-}
-
-function StatCard({ icon, label, value, tone }: {
-    icon: ReactNode; label: string; value: number; tone: string;
-}) {
-    return (
-        <div className={`appt-stat ${tone}`}>
-            <div className="appt-stat-icon">{icon}</div>
-            <div>
-                <div className="appt-stat-value">{value}</div>
-                <div className="appt-stat-label">{label}</div>
-            </div>
-        </div>
-    );
-}
-
-function NumField({ label, value, onChange }: {
-    label: string; value: number; onChange: (v: number) => void;
-}) {
-    return (
-        <label className="appt-label">
-            {label}
-            <input
-                type="number"
-                className="appt-input"
-                value={value}
-                min={0}
-                onChange={(e) => onChange(parseInt(e.target.value || "0", 10))}
-            />
-        </label>
-    );
-}
-
-function GoogleCard({ google, onConnect, onDisconnect }: {
-    google: GoogleStatus | null; onConnect: () => void; onDisconnect: () => void;
-}) {
-    return (
-        <div className="google-card">
-            <div className="google-left">
-                <div className="google-icon"><Calendar size={20} /></div>
-                <div>
-                    <div className="google-title">Google Calendar</div>
-                    <div className="google-sub">
-                        {google?.connected
-                            ? "Connected — new bookings sync to your calendar."
-                            : "Sync every booking to your Google Calendar automatically."}
-                    </div>
-                </div>
-            </div>
-            <div className="google-right">
-                {!google?.available && (
-                    <span className="google-hint">
-                        <AlertTriangle size={14} /> Not configured on server
-                    </span>
-                )}
-                {google?.available && google?.connected && (
-                    <button className="appt-btn ghost" onClick={onDisconnect}>
-                        <Unlink size={15} /> Disconnect
-                    </button>
-                )}
-                {google?.available && !google?.connected && (
-                    <button className="appt-btn primary" onClick={onConnect}>
-                        <Link2 size={15} /> Connect
-                    </button>
-                )}
-            </div>
-        </div>
     );
 }

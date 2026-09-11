@@ -7,9 +7,7 @@ import {
     MessageSquare,
     Users,
     CalendarClock,
-    LifeBuoy,
     BarChart3,
-    FileText,
     Globe,
     ShieldCheck,
     KeyRound,
@@ -18,6 +16,9 @@ import {
     Menu,
     X,
     Bot,
+    BookOpen,
+    Workflow,
+    Building2,
 } from "lucide-react";
 
 import Logo from "../../components/brand/Logo";
@@ -25,9 +26,9 @@ import WorkforceDiagram from "../../components/brand/WorkforceDiagram";
 import Button from "../../components/ui/Button";
 
 const NAV_LINKS = [
+    { href: "#discovery", label: "Property Discovery" },
     { href: "#workforce", label: "AI Workforce" },
-    { href: "#features", label: "Features" },
-    { href: "#how-it-works", label: "How It Works" },
+    { href: "#operations", label: "Operations" },
     { href: "#channels", label: "Channels" },
 ];
 
@@ -78,7 +79,7 @@ export default function Landing() {
                                 <a
                                     key={link.href}
                                     href={link.href}
-                                    className="text-sm font-medium text-slate-600 hover:text-ink-950 hover:bg-ink-950/5 rounded-full px-3.5 py-2 transition-colors"
+                                    className="text-sm font-medium text-slate-600 hover:text-ink-950 hover:bg-ink-950/5 rounded-lg px-3.5 py-2 transition-colors"
                                 >
                                     {link.label}
                                 </a>
@@ -87,10 +88,10 @@ export default function Landing() {
 
                         <div className="hidden md:flex items-center gap-2">
                             <Link to="/login" className="text-sm font-semibold text-slate-700 hover:text-ink-950 px-3.5 py-2 transition-colors">
-                                Sign In
+                                Agency Sign In
                             </Link>
                             <Link to="/register">
-                                <Button size="sm">Get Started</Button>
+                                <Button size="sm">For Agencies</Button>
                             </Link>
                         </div>
 
@@ -119,10 +120,10 @@ export default function Landing() {
                             ))}
                             <div className="border-t border-slate-100 mt-2 pt-3 flex flex-col gap-2">
                                 <Link to="/login" onClick={() => setMobileOpen(false)}>
-                                    <Button variant="secondary" className="w-full">Sign In</Button>
+                                    <Button variant="secondary" className="w-full">Agency Sign In</Button>
                                 </Link>
                                 <Link to="/register" onClick={() => setMobileOpen(false)}>
-                                    <Button className="w-full">Get Started</Button>
+                                    <Button className="w-full">For Agencies</Button>
                                 </Link>
                             </div>
                         </div>
@@ -130,12 +131,12 @@ export default function Landing() {
                 </header>
             </div>
 
-            {/* ================= HERO — asymmetric, not centered/stacked ================= */}
+            {/* ================= HERO ================= */}
             <section className="relative bg-ink-950 pt-36 pb-28 sm:pt-44 sm:pb-40">
                 <div className="absolute inset-0 bg-dot-grid opacity-60" aria-hidden="true" />
                 <div
                     className="absolute inset-0 pointer-events-none"
-                    style={{ background: "radial-gradient(55% 45% at 15% 15%, rgba(139,59,255,0.35) 0%, rgba(5,6,13,0) 65%)" }}
+                    style={{ background: "radial-gradient(55% 45% at 15% 15%, rgba(42,82,64,0.55) 0%, rgba(15,18,15,0) 65%)" }}
                     aria-hidden="true"
                 />
 
@@ -146,45 +147,44 @@ export default function Landing() {
                             className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] border border-white/10 px-3.5 py-1.5 text-xs font-medium text-slate-300"
                         >
                             <span className="w-1.5 h-1.5 rounded-full bg-flare-500" />
-                            An AI Workforce for growing agencies
+                            An AI-powered real estate marketplace + agency OS
                         </motion.span>
 
                         <motion.h1
                             {...reveal(reduced, 0.05)}
-                            className="font-display text-5xl sm:text-6xl xl:text-[4.5rem] font-semibold tracking-tight text-white mt-7 leading-[1.02]"
+                            className="font-display text-5xl sm:text-6xl xl:text-[4.4rem] font-medium tracking-tight text-white mt-7 leading-[1.05]"
                         >
-                            Your agency,
+                            Where properties
                             <br />
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-300 via-brand-200 to-white">
-                                run by an AI Workforce.
-                            </span>
+                            meet intelligence.
                         </motion.h1>
 
                         <motion.p
                             {...reveal(reduced, 0.1)}
                             className="text-lg text-slate-400 mt-7 max-w-lg leading-relaxed"
                         >
-                            Not one generic chatbot — a coordinated team of specialized AI employees
-                            handling conversations, leads, appointments, support and analytics.
+                            Discover properties with AI. Help agencies convert inquiries into
+                            site visits and bookings — one coordinated Workforce, grounded in your
+                            own listings and data.
                         </motion.p>
 
                         <motion.div {...reveal(reduced, 0.15)} className="flex flex-wrap items-center gap-3 mt-10">
-                            <Link to="/register">
-                                <Button size="lg">
-                                    Start Free <ArrowRight size={18} />
+                            <Link to="/discover">
+                                <Button size="lg" variant="flare">
+                                    Explore Properties <ArrowRight size={18} />
                                 </Button>
                             </Link>
-                            <a href="#how-it-works">
+                            <Link to="/register">
                                 <Button size="lg" variant="secondary" className="!bg-white/[0.06] !text-white !border-white/15 hover:!border-white/30">
-                                    See How It Works
+                                    For Agencies
                                 </Button>
-                            </a>
+                            </Link>
                         </motion.div>
 
                         <motion.div {...reveal(reduced, 0.2)} className="flex items-center gap-6 mt-14 text-slate-500 text-xs font-medium">
-                            <span>No credit card required</span>
+                            <span>Buyer accounts are free</span>
                             <span className="w-1 h-1 rounded-full bg-slate-700" />
-                            <span>Free to start</span>
+                            <span>No credit card required for agencies</span>
                         </motion.div>
                     </div>
 
@@ -192,10 +192,10 @@ export default function Landing() {
                         depth, not a fabricated product screenshot */}
                     <motion.div
                         {...reveal(reduced, 0.15)}
-                        className="relative lg:justify-self-end w-full max-w-md lg:rotate-2"
+                        className="relative lg:justify-self-end w-full max-w-md lg:rotate-2 tilt-stage"
                     >
-                        <div className="absolute -inset-6 bg-brand-500/20 blur-3xl rounded-full" aria-hidden="true" />
-                        <div className="relative bg-ink-900 border border-white/10 rounded-3xl shadow-lifted p-5 sm:p-6">
+                        <div className="absolute -inset-6 bg-brand-500/25 blur-3xl rounded-full" aria-hidden="true" />
+                        <div className="relative bg-ink-900 border border-white/10 rounded-3xl shadow-lifted p-5 sm:p-6 tilt-card">
                             <div className="flex items-center gap-1.5 mb-5">
                                 <span className="w-2.5 h-2.5 rounded-full bg-white/15" />
                                 <span className="w-2.5 h-2.5 rounded-full bg-white/15" />
@@ -223,62 +223,61 @@ export default function Landing() {
                 </div>
             </section>
 
-            {/* ================= PROBLEM — bento, not a uniform 4-col grid ================= */}
-            <section className="py-24 sm:py-32 bg-white">
+            {/* ================= AI PROPERTY DISCOVERY ================= */}
+            <section id="discovery" className="py-24 sm:py-32 bg-white scroll-mt-24">
                 <div className="max-w-6xl mx-auto px-5 sm:px-8">
-                    <motion.p {...reveal(reduced)} className="text-xs font-semibold uppercase tracking-wide text-brand-600">
-                        The problem
-                    </motion.p>
-
-                    <div className="grid lg:grid-cols-3 gap-5 mt-6">
-                        <motion.div
-                            {...reveal(reduced, 0.05)}
-                            className="lg:col-span-2 lg:row-span-2 rounded-3xl bg-ink-950 text-white p-8 sm:p-10 flex flex-col justify-between"
-                        >
-                            <h2 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight leading-tight">
-                                Running an agency means operations pile up faster than your team can keep up.
+                    <div className="grid lg:grid-cols-[0.9fr_1.1fr] gap-14 items-center">
+                        <motion.div {...reveal(reduced)}>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">AI property discovery</p>
+                            <h2 className="font-display text-3xl sm:text-4xl font-medium tracking-tight mt-4 leading-tight">
+                                Ask a question, get an answer grounded in the agency's own listings.
                             </h2>
-                            <p className="text-slate-400 text-sm mt-8 max-w-md">
-                                A slow reply is often the difference between a customer and a missed sale — and
-                                every channel your customers use adds one more inbox to watch.
+                            <p className="text-slate-500 mt-5 leading-relaxed">
+                                Every buyer conversation is answered from the agency's real Knowledge
+                                Base — project details, pricing, RERA information, refund policy —
+                                never a fabricated fact or an invented price.
                             </p>
+                            <a href="#workforce" className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:text-brand-700 mt-7">
+                                See how the Workforce handles it <ArrowUpRight size={15} />
+                            </a>
                         </motion.div>
 
-                        {[
-                            { title: "Leads go cold", body: "Silence loses sales." },
-                            { title: "Customers wait", body: "Messages pile up after hours." },
-                            { title: "Scheduling is manual", body: "No single source of truth." },
-                            { title: "Data lives everywhere", body: "Scattered across tools." },
-                        ].map((item, i) => (
-                            <motion.div
-                                key={item.title}
-                                {...reveal(reduced, 0.1 + i * 0.05)}
-                                className="rounded-3xl border border-slate-200/80 p-6 flex flex-col justify-between"
-                            >
-                                <p className="font-display font-semibold text-ink-950">{item.title}</p>
-                                <p className="text-sm text-slate-500 mt-3">{item.body}</p>
-                            </motion.div>
-                        ))}
+                        <motion.div {...reveal(reduced, 0.1)} className="rounded-3xl bg-stone-100 border border-slate-200/80 p-6 sm:p-8">
+                            <div className="flex justify-end mb-3">
+                                <div className="max-w-[80%] rounded-2xl rounded-br-sm bg-brand-600 text-white px-4 py-2.5 text-sm">
+                                    Do you have a 3BHK under 1.5 crore in Whitefield?
+                                </div>
+                            </div>
+                            <div className="flex justify-start">
+                                <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-white border border-slate-200 px-4 py-3 text-sm text-ink-950 shadow-soft">
+                                    <p>Yes — Unit U-SR-1203 at Skyline Residences is a 3BHK, 1,450 sq.ft,
+                                    available at ₹1,45,00,000. Would you like to schedule a site visit?</p>
+                                    <p className="text-[11px] text-slate-400 mt-2 flex items-center gap-1.5">
+                                        <BookOpen size={12} aria-hidden="true" /> Sourced from Project_Overview.txt
+                                    </p>
+                                </div>
+                            </div>
+                        </motion.div>
                     </div>
                 </div>
             </section>
 
-            {/* ================= AI WORKFORCE — text beside a floating diagram window ================= */}
+            {/* ================= AI WORKFORCE ================= */}
             <section id="workforce" className="py-24 sm:py-32 bg-slate-50 scroll-mt-24">
                 <div className="max-w-7xl mx-auto px-5 sm:px-8">
                     <div className="grid lg:grid-cols-[0.85fr_1.15fr] gap-14 items-center">
                         <motion.div {...reveal(reduced)}>
-                            <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">The AI Workforce</p>
-                            <h2 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight mt-4 leading-tight">
-                                One Manager. Six specialists.
+                            <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">The agency AI Workforce</p>
+                            <h2 className="font-display text-3xl sm:text-4xl font-medium tracking-tight mt-4 leading-tight">
+                                One Manager. Six specialists. Every inquiry, handled.
                             </h2>
                             <p className="text-slate-500 mt-5 leading-relaxed">
-                                A Manager AI reads every conversation, decides which specialist should handle
-                                it, and coordinates the reply — so customers always get a focused answer
-                                instead of a generic one.
+                                A Manager AI reads every conversation, decides which specialist should
+                                handle it, and coordinates the reply — turning a buyer's first question
+                                into a qualified lead, then a scheduled site visit.
                             </p>
-                            <a href="#features" className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:text-brand-700 mt-7">
-                                Explore what each role does <ArrowUpRight size={15} />
+                            <a href="#operations" className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:text-brand-700 mt-7">
+                                See the operating system behind it <ArrowUpRight size={15} />
                             </a>
                         </motion.div>
 
@@ -289,45 +288,13 @@ export default function Landing() {
                 </div>
             </section>
 
-            {/* ================= HOW IT WORKS — stepped timeline ================= */}
-            <section id="how-it-works" className="py-24 sm:py-32 bg-white scroll-mt-24">
-                <div className="max-w-5xl mx-auto px-5 sm:px-8">
-                    <motion.div {...reveal(reduced)} className="max-w-xl">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">How it works</p>
-                        <h2 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight mt-4">
-                            Set up your AI Workforce in minutes.
-                        </h2>
-                    </motion.div>
-
-                    <div className="relative mt-16">
-                        <div className="hidden sm:block absolute top-6 left-0 right-0 h-px bg-slate-200" aria-hidden="true" />
-                        <div className="grid sm:grid-cols-4 gap-10 sm:gap-6">
-                            {[
-                                { title: "Connect your agency", body: "Sign up and tell AIFlow about your services, tone, and hours." },
-                                { title: "Configure your Workforce", body: "Manager AI is ready immediately, grounded in your data." },
-                                { title: "Connect your channels", body: "Bring in website chat, WhatsApp, and Instagram as needed." },
-                                { title: "Stay in control", body: "Review conversations and leads — the AI never acts unsupervised." },
-                            ].map((item, i) => (
-                                <motion.div key={item.title} {...reveal(reduced, i * 0.07)} className="relative">
-                                    <div className="w-12 h-12 rounded-full bg-ink-950 text-white font-display font-semibold flex items-center justify-center text-sm relative z-10">
-                                        {i + 1}
-                                    </div>
-                                    <p className="font-display font-semibold text-ink-950 mt-4">{item.title}</p>
-                                    <p className="text-sm text-slate-500 mt-2 leading-relaxed">{item.body}</p>
-                                </motion.div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            {/* ================= FEATURES — bento grid, mixed sizes ================= */}
-            <section id="features" className="py-24 sm:py-32 bg-slate-50 scroll-mt-24">
+            {/* ================= OPERATIONS — bento grid ================= */}
+            <section id="operations" className="py-24 sm:py-32 bg-white scroll-mt-24">
                 <div className="max-w-6xl mx-auto px-5 sm:px-8">
                     <motion.div {...reveal(reduced)} className="max-w-xl">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">What's included</p>
-                        <h2 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight mt-4">
-                            Everything your AI Workforce needs to get real work done.
+                        <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">The agency operating system</p>
+                        <h2 className="font-display text-3xl sm:text-4xl font-medium tracking-tight mt-4">
+                            From first message to a booked site visit.
                         </h2>
                     </motion.div>
 
@@ -336,24 +303,23 @@ export default function Landing() {
                             {...reveal(reduced, 0.05)}
                             className="lg:col-span-2 lg:row-span-2 rounded-3xl bg-ink-950 text-white p-8 flex flex-col justify-between"
                         >
-                            <div className="w-11 h-11 rounded-xl bg-white/10 text-brand-300 flex items-center justify-center">
+                            <div className="w-11 h-11 rounded-xl bg-white/10 text-flare-400 flex items-center justify-center">
                                 <MessageSquare size={20} aria-hidden="true" />
                             </div>
                             <div>
-                                <p className="font-display text-xl font-semibold">Customer conversations</p>
+                                <p className="font-display text-xl font-medium">Lead conversion</p>
                                 <p className="text-sm text-slate-400 mt-2 leading-relaxed max-w-xs">
-                                    Every message — from any channel — lands in one unified conversation
-                                    history your whole team can see.
+                                    Every real buyer inquiry — name, budget, property preference — is
+                                    captured as a genuine, reviewable lead your team can see and act on.
                                 </p>
                             </div>
                         </motion.div>
 
                         {[
-                            { icon: Users, title: "Lead management", body: "Sales AI captures interest as real, reviewable leads." },
-                            { icon: CalendarClock, title: "Appointments", body: "Real availability checks before booking or rescheduling." },
-                            { icon: LifeBuoy, title: "Support tickets", body: "Every issue logged as a trackable ticket." },
-                            { icon: FileText, title: "AI-drafted content", body: "Quotations and campaign copy, ready to review." },
-                            { icon: BarChart3, title: "Agency analytics", body: "Ask about your real leads and activity, in plain language." },
+                            { icon: CalendarClock, title: "Site visits", body: "Real availability checks before scheduling, rescheduling, or cancelling a visit." },
+                            { icon: Workflow, title: "Controlled workflows", body: "Automations that fire on real events — a new lead, a booked visit — with owner approval where it matters." },
+                            { icon: Users, title: "Buyer profiles", body: "Preferences, conversations, and visit history in one place." },
+                            { icon: BarChart3, title: "Agency analytics", body: "Ask about your real leads, visits, and activity, in plain language." },
                         ].map((item, i) => (
                             <motion.div
                                 key={item.title}
@@ -378,12 +344,13 @@ export default function Landing() {
                     <div className="grid lg:grid-cols-2 gap-14 items-center">
                         <motion.div {...reveal(reduced)}>
                             <p className="text-xs font-semibold uppercase tracking-wide text-brand-300">Multi-channel, one conversation</p>
-                            <h2 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight mt-4 leading-tight">
-                                Wherever a customer reaches out, your Workforce is there.
+                            <h2 className="font-display text-3xl sm:text-4xl font-medium tracking-tight mt-4 leading-tight">
+                                Wherever a buyer reaches out, your Workforce is there.
                             </h2>
                             <p className="text-slate-400 mt-5 leading-relaxed max-w-md">
-                                Website chat, WhatsApp, and Instagram all feed into the same conversation and
-                                the same Manager AI — context is never lost between channels.
+                                Website chat, WhatsApp, and Instagram all feed into the same
+                                conversation and the same Manager AI — and Gmail keeps the follow-up
+                                email loop connected, with your approval before anything sends.
                             </p>
                         </motion.div>
 
@@ -394,13 +361,13 @@ export default function Landing() {
                                         key={ch}
                                         className="inline-flex items-center gap-2 rounded-full bg-white/[0.06] border border-white/10 px-4 py-2 text-sm font-medium"
                                     >
-                                        <Globe size={14} className="text-brand-300" aria-hidden="true" />
+                                        <Globe size={14} className="text-flare-400" aria-hidden="true" />
                                         {ch}
                                     </span>
                                 ))}
                             </div>
                             <div className="h-7 w-px bg-white/15" aria-hidden="true" />
-                            <div className="inline-flex items-center gap-2 rounded-full bg-brand-500/15 border border-brand-400/30 px-4 py-2 text-sm font-medium text-brand-200">
+                            <div className="inline-flex items-center gap-2 rounded-full bg-brand-500/20 border border-brand-400/30 px-4 py-2 text-sm font-medium text-brand-200">
                                 Unified conversation
                             </div>
                             <div className="h-7 w-px bg-white/15" aria-hidden="true" />
@@ -413,67 +380,22 @@ export default function Landing() {
                 </div>
             </section>
 
-            {/* ================= BENEFITS — checklist + stat panel, not uniform cards ================= */}
-            <section className="py-24 sm:py-32 bg-white">
-                <div className="max-w-6xl mx-auto px-5 sm:px-8 grid lg:grid-cols-[1fr_0.8fr] gap-14 items-start">
-                    <motion.div {...reveal(reduced)}>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">Why it matters</p>
-                        <h2 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight mt-4 mb-9">
-                            Built around agency outcomes, not technology.
-                        </h2>
-
-                        <ul className="space-y-4">
-                            {[
-                                "Respond to customers faster, around the clock",
-                                "Capture more leads instead of losing them to silence",
-                                "Reduce repetitive work for your team",
-                                "Never miss a follow-up",
-                                "Coordinate every customer touchpoint in one place",
-                                "Understand your agency with real, current data",
-                            ].map((item, i) => (
-                                <motion.li
-                                    key={item}
-                                    {...reveal(reduced, i * 0.04)}
-                                    className="flex items-start gap-3 pb-4 border-b border-slate-100 last:border-0"
-                                >
-                                    <span className="w-6 h-6 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold">
-                                        ✓
-                                    </span>
-                                    <p className="text-[15px] font-medium text-slate-700">{item}</p>
-                                </motion.li>
-                            ))}
-                        </ul>
-                    </motion.div>
-
-                    <motion.div {...reveal(reduced, 0.1)} className="rounded-3xl bg-flare-500 p-8 sm:p-10 sticky top-24">
-                        <p className="font-display text-5xl font-semibold text-ink-950 tracking-tight">7</p>
-                        <p className="text-ink-950/80 font-medium mt-1">specialized AI employees, coordinated by one Manager</p>
-                        <div className="h-px bg-ink-950/15 my-6" />
-                        <p className="font-display text-5xl font-semibold text-ink-950 tracking-tight">3</p>
-                        <p className="text-ink-950/80 font-medium mt-1">channels feeding one unified conversation</p>
-                        <div className="h-px bg-ink-950/15 my-6" />
-                        <p className="font-display text-5xl font-semibold text-ink-950 tracking-tight">1</p>
-                        <p className="text-ink-950/80 font-medium mt-1">dashboard to see and control it all</p>
-                    </motion.div>
-                </div>
-            </section>
-
-            {/* ================= TRUST / CONTROL — bento ================= */}
+            {/* ================= TRUST / CONTROL ================= */}
             <section className="py-24 sm:py-32 bg-slate-50">
                 <div className="max-w-6xl mx-auto px-5 sm:px-8">
                     <motion.div {...reveal(reduced)} className="max-w-xl">
                         <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">Control, not blind autonomy</p>
-                        <h2 className="font-display text-3xl sm:text-4xl font-semibold tracking-tight mt-4">
-                            Your AI Workforce acts on real data — and you stay in control.
+                        <h2 className="font-display text-3xl sm:text-4xl font-medium tracking-tight mt-4">
+                            Your Workforce acts on real listings — and you stay in control.
                         </h2>
                     </motion.div>
 
                     <div className="grid sm:grid-cols-2 gap-5 mt-12">
                         {[
-                            { icon: Eye, title: "Full visibility", body: "Every conversation, lead, and appointment is reviewable from your dashboard." },
-                            { icon: Database, title: "Grounded in your data", body: "Answers come from your configured agency information — never invented details." },
-                            { icon: KeyRound, title: "Agency-specific context", body: "Each agency's data, conversations, and configuration stay isolated to that agency." },
-                            { icon: ShieldCheck, title: "Built-in safeguards", body: "Guardrails keep AI Workforce replies on-topic and resistant to manipulation attempts." },
+                            { icon: Eye, title: "Full visibility", body: "Every conversation, lead, and site visit is reviewable from the agency dashboard." },
+                            { icon: Database, title: "Grounded in your listings", body: "Answers come from your configured Knowledge Base — never invented prices or availability." },
+                            { icon: KeyRound, title: "Agency-specific data", body: "Each agency's inventory, conversations, and configuration stay isolated to that agency." },
+                            { icon: ShieldCheck, title: "Built-in safeguards", body: "Guardrails keep replies on-topic and resistant to manipulation attempts." },
                         ].map((item, i) => (
                             <motion.div
                                 key={item.title}
@@ -493,31 +415,38 @@ export default function Landing() {
                 </div>
             </section>
 
-            {/* ================= FINAL CTA ================= */}
+            {/* ================= DUAL AUDIENCE CTA ================= */}
             <section className="relative overflow-hidden bg-ink-950 py-28 sm:py-36">
                 <div className="absolute inset-0 bg-dot-grid opacity-50" aria-hidden="true" />
                 <div
                     className="absolute inset-0 pointer-events-none"
-                    style={{ background: "radial-gradient(50% 60% at 50% 100%, rgba(139,59,255,0.3) 0%, rgba(5,6,13,0) 70%)" }}
+                    style={{ background: "radial-gradient(50% 60% at 50% 100%, rgba(42,82,64,0.5) 0%, rgba(15,18,15,0) 70%)" }}
                     aria-hidden="true"
                 />
-                <div className="relative max-w-3xl mx-auto px-5 sm:px-8 text-center">
-                    <motion.h2 {...reveal(reduced)} className="font-display text-4xl sm:text-6xl font-semibold tracking-tight text-white">
-                        Build your AI Workforce.
+                <div className="relative max-w-4xl mx-auto px-5 sm:px-8 text-center">
+                    <motion.h2 {...reveal(reduced)} className="font-display text-4xl sm:text-6xl font-medium tracking-tight text-white">
+                        Two sides. One platform.
                     </motion.h2>
-                    <motion.p {...reveal(reduced, 0.05)} className="text-slate-400 mt-5 text-lg">
-                        Free to start. No credit card required.
+                    <motion.p {...reveal(reduced, 0.05)} className="text-slate-400 mt-5 text-lg max-w-2xl mx-auto">
+                        A free discovery experience for buyers, and a coordinated operating
+                        system for agencies — grounded in the same real data either way.
                     </motion.p>
-                    <motion.div {...reveal(reduced, 0.1)} className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-9">
-                        <Link to="/register" className="w-full sm:w-auto">
-                            <Button size="lg" variant="flare" className="w-full sm:w-auto">
-                                Start Free <ArrowRight size={18} />
-                            </Button>
+                    <motion.div {...reveal(reduced, 0.1)} className="grid sm:grid-cols-2 gap-4 mt-12 max-w-xl mx-auto">
+                        <Link to="/discover" className="group rounded-2xl bg-white/[0.06] border border-white/15 hover:border-flare-400/50 p-6 text-left transition-colors">
+                            <Building2 size={20} className="text-flare-400" aria-hidden="true" />
+                            <p className="font-display font-medium text-white mt-3">I'm a buyer</p>
+                            <p className="text-sm text-slate-400 mt-1">Explore properties</p>
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-flare-400 mt-3 group-hover:gap-1.5 transition-all">
+                                Start browsing <ArrowRight size={13} />
+                            </span>
                         </Link>
-                        <Link to="/login" className="w-full sm:w-auto">
-                            <Button size="lg" variant="secondary" className="w-full sm:w-auto !bg-white/[0.06] !text-white !border-white/15 hover:!border-white/30">
-                                Sign In
-                            </Button>
+                        <Link to="/register" className="group rounded-2xl bg-white text-ink-950 p-6 text-left shadow-glow transition-transform hover:-translate-y-0.5">
+                            <Bot size={20} className="text-brand-600" aria-hidden="true" />
+                            <p className="font-display font-medium mt-3">I run an agency</p>
+                            <p className="text-sm text-slate-600 mt-1">Set up your AI Workforce</p>
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 mt-3 group-hover:gap-1.5 transition-all">
+                                Start free <ArrowRight size={13} />
+                            </span>
                         </Link>
                     </motion.div>
                 </div>
@@ -530,8 +459,9 @@ export default function Landing() {
                         <div className="lg:col-span-2">
                             <Logo size="sm" />
                             <p className="text-sm text-slate-500 mt-4 max-w-xs leading-relaxed">
-                                An AI Workforce for growing agencies — coordinated conversations, leads,
-                                appointments, support and analytics.
+                                An AI-powered real estate marketplace and agency operating system —
+                                property discovery for buyers, coordinated conversations, leads, site
+                                visits and analytics for agencies.
                             </p>
                         </div>
                         <div>
@@ -550,13 +480,18 @@ export default function Landing() {
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Account</p>
                             <ul className="space-y-2.5">
                                 <li>
+                                    <Link to="/discover" className="text-sm text-slate-600 hover:text-ink-950 transition-colors">
+                                        Buyer: Explore properties
+                                    </Link>
+                                </li>
+                                <li>
                                     <Link to="/login" className="text-sm text-slate-600 hover:text-ink-950 transition-colors">
-                                        Sign In
+                                        Agency: Sign in
                                     </Link>
                                 </li>
                                 <li>
                                     <Link to="/register" className="text-sm text-slate-600 hover:text-ink-950 transition-colors">
-                                        Start Free
+                                        Agency: Start free
                                     </Link>
                                 </li>
                             </ul>
