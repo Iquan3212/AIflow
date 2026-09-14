@@ -200,6 +200,11 @@ class Buyer(Base):
         back_populates="buyer",
         cascade="all, delete-orphan",
     )
+    saved_properties = relationship(
+        "BuyerSavedProperty",
+        back_populates="buyer",
+        cascade="all, delete-orphan",
+    )
 
 
 class BuyerSession(Base):
@@ -1192,5 +1197,38 @@ class PropertyMedia(Base):
             "(project_id IS NOT NULL AND property_id IS NULL) OR (project_id IS NULL AND property_id IS NOT NULL)",
             name="ck_property_media_exactly_one_parent",
         ),
+    )
+
+
+# =====================================================================
+# BUYER MARKETPLACE — SAVED PROPERTIES (Phase 8)
+# =====================================================================
+
+class BuyerSavedProperty(Base):
+    """A buyer's bookmark on a Property - global to the buyer (not
+    agency-scoped, matching Buyer itself), so the same saved-properties
+    list spans every agency on the marketplace. A DB UniqueConstraint on
+    (buyer_id, property_id) is what actually prevents a duplicate save,
+    not just a service-layer check - the service layer still checks
+    first so a repeat "save" call is a harmless idempotent no-op rather
+    than a 500 from a constraint violation. Every query in
+    app/services/marketplace/saved_property_service.py filters by
+    buyer_id, the same structural tenant-isolation discipline every
+    other per-owner table in this codebase already uses - buyer A must
+    never be able to read or delete buyer B's row."""
+
+    __tablename__ = "buyer_saved_properties"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    buyer_id = Column(UUID(as_uuid=False), ForeignKey("buyers.id", ondelete="CASCADE"), nullable=False, index=True)
+    property_id = Column(UUID(as_uuid=False), ForeignKey("properties.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    buyer = relationship("Buyer", back_populates="saved_properties")
+    property = relationship("Property")
+
+    __table_args__ = (
+        UniqueConstraint("buyer_id", "property_id", name="uq_buyer_saved_property"),
     )
 

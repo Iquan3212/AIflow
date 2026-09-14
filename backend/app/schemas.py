@@ -820,12 +820,25 @@ class PropertyOut(BaseModel):
     updated_at: datetime
 
 
+class MarketplaceMediaOut(BaseModel):
+    """Public-safe media metadata - deliberately NOT PropertyMediaOut,
+    which carries agency_id (fine for the agency dashboard, a leak on any
+    public marketplace surface). Used by PropertyPublicOut and every
+    Phase 8 marketplace response instead."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    media_type: str
+    file_type: str
+    sort_order: int
+
+
 class PropertyPublicOut(BaseModel):
-    """The subset of Property fields safe to expose on a future public/
-    buyer-facing endpoint (Phase 8) - deliberately excludes agency_id,
-    internal_notes, and any other agency-private field (Step 26 of the
-    Phase 7 spec). Not wired to any route yet in this phase; defined now
-    so Phase 8 doesn't have to redesign the response shape."""
+    """The subset of Property fields safe to expose on a public/
+    buyer-facing endpoint (Phase 8's marketplace router) - deliberately
+    excludes agency_id, internal_notes, rera_number, and any other
+    agency-private field (Step 26 of the Phase 7 spec this was defined
+    for)."""
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -844,7 +857,7 @@ class PropertyPublicOut(BaseModel):
     possession_date: date | None
     is_available: bool
     description: str | None
-    media: list[PropertyMediaOut] = Field(default_factory=list)
+    media: list[MarketplaceMediaOut] = Field(default_factory=list)
 
 
 class PropertyListFilters(BaseModel):
@@ -861,3 +874,128 @@ class PropertyListFilters(BaseModel):
     locality: str | None = None
     floor: int | None = None
     facing: str | None = None
+
+
+# =====================================================
+# BUYER MARKETPLACE (Phase 8)
+# =====================================================
+#
+# Every response shape here is buyer-facing and cross-agency - none of
+# them ever include agency_id, internal_notes, or unit-level rera_number
+# (see PropertyPublicOut above, and MarketplacePropertyOut which extends
+# it). Project-level rera_number IS included deliberately: an Indian
+# RERA registration number's entire regulatory purpose is public
+# buyer-side verification, unlike a private per-unit note.
+
+class MarketplaceProjectOut(BaseModel):
+    """A public-safe Project - the marketplace's project card/detail
+    shape. `agency_name`/`agency_slug` identify who's selling it (a real
+    listings product always shows this) without ever exposing the
+    agency's internal id - agency_slug is the same public identifier the
+    website widget/conversation pipeline already uses."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    developer_name: str | None
+    description: str | None
+    project_type: str | None
+    address: str | None
+    city: str | None
+    state: str | None
+    locality: str | None
+    postal_code: str | None
+    rera_number: str | None
+    possession_date: date | None
+    amenities: list[str] | None
+    agency_name: str
+    agency_slug: str
+    total_properties: int = 0
+    available_properties: int = 0
+    media: list[MarketplaceMediaOut] = Field(default_factory=list)
+
+
+class MarketplaceProjectDetailOut(MarketplaceProjectOut):
+    properties: list["MarketplacePropertyOut"] = Field(default_factory=list)
+
+
+class MarketplacePropertyOut(PropertyPublicOut):
+    """PropertyPublicOut plus the project/agency summary a marketplace
+    card or detail page needs to actually render (a bare project_id UUID
+    isn't useful to a buyer-facing UI on its own). `amenities` is the
+    parent PROJECT's amenities (Property itself has none - see
+    app/models.py's Project docstring) - the property detail page shows
+    them as "this unit's project amenities", per the Phase 8 spec."""
+    project_name: str
+    developer_name: str | None
+    city: str | None
+    locality: str | None
+    amenities: list[str] | None
+    agency_name: str
+    agency_slug: str
+
+
+class MarketplacePropertySearchOut(BaseModel):
+    """Paginated search result - `total` is the real matching count
+    (not just len(results)), so the frontend can render real pagination
+    instead of guessing whether a next page exists (Step 15 of the
+    Phase 8 spec: bounded results, no loading of entire tables)."""
+    results: list["MarketplacePropertyOut"]
+    total: int
+
+
+class MarketplaceProjectFilters(BaseModel):
+    q: str | None = None
+    city: str | None = None
+    locality: str | None = None
+    project_type: str | None = None
+    developer: str | None = None
+
+
+class MarketplacePropertyFilters(BaseModel):
+    q: str | None = None  # free text over project name/developer/city/locality
+    city: str | None = None
+    locality: str | None = None
+    project_id: UUID | None = None
+    property_type: str | None = None
+    bhk: int | None = None
+    min_price: Decimal | None = None
+    max_price: Decimal | None = None
+    min_area: Decimal | None = None
+    max_area: Decimal | None = None
+    furnishing: str | None = None
+    facing: str | None = None
+    possession_before: date | None = None
+    sort: str = "recommended"  # recommended | price_asc | price_desc | newest | area_desc
+    limit: int = Field(default=24, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class SiteVisitRequest(BaseModel):
+    """A buyer-submitted site-visit request from the marketplace - always
+    for the buyer's own already-authenticated identity (see
+    get_current_buyer); name/phone/email here let the buyer confirm or
+    correct what's on their account rather than being asked to retype it
+    blind."""
+    name: str = Field(min_length=1, max_length=255)
+    phone: str | None = Field(default=None, max_length=32)
+    email: EmailStr | None = None
+    preferred_date: date
+    preferred_time: str = Field(description="Local time, HH:MM, e.g. '15:00'")
+
+
+class SiteVisitRequestOut(BaseModel):
+    ok: bool
+    message: str
+    appointment_id: UUID | None = None
+
+
+class AskAssistantRequest(BaseModel):
+    """Powers the marketplace's 'Talk to AI Assistant' - always scoped to
+    ONE property, so the agency's real assistant can ground its answer in
+    that exact listing's real structured facts (see
+    app/services/shared/conversation_service.py's property_id handling)
+    without the buyer having to restate which unit they mean."""
+    visitor_id: str
+    conversation_id: str | None = None
+    message: str = Field(min_length=1)
