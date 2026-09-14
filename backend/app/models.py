@@ -283,24 +283,51 @@ class Message(Base):
 
 class Lead(Base):
     """Fills in incrementally over the course of a conversation via the
-    receptionist's save_lead_info tool. Never requires a completed form."""
+    receptionist's save_lead_info tool. Never requires a completed form.
+
+    Phase 9: `buyer_id`/`property_id` are nullable, additive columns - a
+    non-marketplace lead (conversation/dashboard-sourced) simply leaves
+    both NULL, exactly like it always has. `ON DELETE SET NULL` on both
+    (not CASCADE) because a Lead is the AGENCY's own CRM record - it must
+    survive a buyer or a property later being removed, the same
+    reasoning `Appointment.lead_id` already uses. The `uq_lead_buyer_property`
+    constraint is the real duplicate-prevention guard for "same buyer,
+    same property" (see services/marketplace/inquiry_service.py) -
+    Postgres treats NULL as distinct in a unique index, so it only ever
+    actually constrains rows where BOTH are set; every existing
+    non-marketplace lead is unaffected, the same NULL-distinctness this
+    codebase already relies on for Property's own unit-number constraint."""
 
     __tablename__ = "leads"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
     agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id"), nullable=False)
     conversation_id = Column(UUID(as_uuid=False), ForeignKey("conversations.id"), unique=True, nullable=True)
+    buyer_id = Column(UUID(as_uuid=False), ForeignKey("buyers.id", ondelete="SET NULL"), nullable=True, index=True)
+    property_id = Column(UUID(as_uuid=False), ForeignKey("properties.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(255), nullable=True)
     phone = Column(String(32), nullable=True)
     email = Column(String(255), nullable=True)
     service_interested = Column(String(255), nullable=True)
     budget = Column(String(64), nullable=True)
-    status = Column(String(32), default="new")  # new | contacted | qualified | converted | lost
+    # new | contacted | qualified | site_visit_scheduled | visited |
+    # negotiating | converted | lost - a plain string, deliberately never
+    # a DB enum (Phase 9 extends this vocabulary; it must stay free-form -
+    # see services/marketplace/lead_lifecycle.py for the *optional*
+    # validated-transition helper used only by Phase 9's own automatic
+    # progressions, never by the existing manual PUT /leads/{id} path).
+    status = Column(String(32), default="new")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     agency = relationship("Agency", back_populates="leads")
     conversation = relationship("Conversation", back_populates="lead")
+    buyer = relationship("Buyer")
+    property = relationship("Property")
+
+    __table_args__ = (
+        UniqueConstraint("buyer_id", "property_id", name="uq_lead_buyer_property"),
+    )
 
 
 # =====================================================================
@@ -334,6 +361,13 @@ class Appointment(Base):
     conversation_id = Column(
         UUID(as_uuid=False), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
     )
+    # Phase 9: denormalized from the resolved Lead at booking time (never
+    # accepted directly from client input) - the same "one thing that must
+    # never be gotten wrong for direct queryability" reasoning Property's
+    # own agency_id denormalization already established. NULL for every
+    # non-marketplace appointment, exactly like lead_id already is.
+    buyer_id = Column(UUID(as_uuid=False), ForeignKey("buyers.id", ondelete="SET NULL"), nullable=True, index=True)
+    property_id = Column(UUID(as_uuid=False), ForeignKey("properties.id", ondelete="SET NULL"), nullable=True, index=True)
 
     customer_name = Column(String(255), nullable=True)
     customer_phone = Column(String(32), nullable=True)
@@ -362,6 +396,8 @@ class Appointment(Base):
     agency = relationship("Agency", back_populates="appointments")
     lead = relationship("Lead")
     conversation = relationship("Conversation")
+    buyer = relationship("Buyer")
+    property = relationship("Property")
 
 
 class BusinessHours(Base):
@@ -1133,6 +1169,15 @@ class Property(Base):
         from app.services.inventory.status import is_available_status
         return is_available_status(self.status)
 
+    @property
+    def project_name(self) -> str:
+        """Computed passthrough to the parent Project's name - lets
+        schemas.LeadPropertySummaryOut (Phase 9) validate straight off a
+        Property ORM object via Pydantic's from_attributes, the same
+        reason `is_available` is a property here rather than a stored
+        column."""
+        return self.project.name
+
     __table_args__ = (
         # Postgres treats NULLs as distinct in a unique index, so multiple
         # plots/commercial units with no unit_number never collide - this
@@ -1230,5 +1275,66 @@ class BuyerSavedProperty(Base):
 
     __table_args__ = (
         UniqueConstraint("buyer_id", "property_id", name="uq_buyer_saved_property"),
+    )
+
+
+# =====================================================================
+# BOOKING (Phase 9)
+# =====================================================================
+
+class BookingStatus(str, enum.Enum):
+    """initiated -> pending -> confirmed -> completed, or cancelled from
+    any non-completed state - see app/services/marketplace/booking_service.py's
+    ALLOWED_BOOKING_TRANSITIONS, the same "validated, not just documented"
+    discipline app/services/inventory/status.py already established for
+    Property. `completed` and `cancelled` are both terminal."""
+    initiated = "initiated"
+    pending = "pending"
+    confirmed = "confirmed"
+    completed = "completed"
+    cancelled = "cancelled"
+
+
+class Booking(Base):
+    """The commercial conversion of a Property/unit - a distinct business
+    concept from Appointment (a site visit is a meeting; a Booking is a
+    unit going off the market). Never a relabeling of Appointment.
+
+    `agency_id` CASCADEs (this is fundamentally the agency's own business
+    record - it cannot outlive the agency). `property_id`/`buyer_id`/
+    `lead_id`/`appointment_id` all SET NULL - a Booking is kept as a
+    historical business record even if the property listing, the buyer
+    account, the originating lead, or the site-visit appointment is later
+    removed; only the agency itself owning the record is non-negotiable.
+
+    `agreed_price` is a plain snapshot (the price agreed at booking time,
+    since Property.price can change afterward) - never a payment record;
+    no payment processing exists anywhere in this codebase and Phase 9
+    does not add any."""
+
+    __tablename__ = "bookings"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
+    property_id = Column(UUID(as_uuid=False), ForeignKey("properties.id", ondelete="SET NULL"), nullable=True, index=True)
+    buyer_id = Column(UUID(as_uuid=False), ForeignKey("buyers.id", ondelete="SET NULL"), nullable=True, index=True)
+    lead_id = Column(UUID(as_uuid=False), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)
+    appointment_id = Column(UUID(as_uuid=False), ForeignKey("appointments.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    status = Column(SAEnum(BookingStatus, name="booking_status"), nullable=False, default=BookingStatus.initiated, index=True)
+    agreed_price = Column(Numeric(14, 2), nullable=True)
+    notes = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    agency = relationship("Agency")
+    property = relationship("Property")
+    buyer = relationship("Buyer")
+    lead = relationship("Lead")
+    appointment = relationship("Appointment")
+
+    __table_args__ = (
+        CheckConstraint("agreed_price IS NULL OR agreed_price >= 0", name="ck_booking_agreed_price_non_negative"),
     )
 

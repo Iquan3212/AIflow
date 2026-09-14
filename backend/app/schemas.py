@@ -207,6 +207,12 @@ class LeadCreate(BaseModel):
     email: EmailStr | None = None
     service_interested: str | None = None
     budget: str | None = None
+    # Phase 9: additive, optional - the dashboard's manual "Add lead" form
+    # never sends these (unchanged behavior); the marketplace inquiry/
+    # site-visit services (app/services/marketplace/inquiry_service.py)
+    # are the only real callers today.
+    buyer_id: UUID | None = None
+    property_id: UUID | None = None
 
 
 class LeadUpdate(BaseModel):
@@ -218,12 +224,32 @@ class LeadUpdate(BaseModel):
     status: str | None = None
 
 
+class LeadPropertySummaryOut(BaseModel):
+    """The small nested property/project summary an agency's Leads view
+    needs to render inline, without a second round-trip per lead (Phase
+    9, Step 20/23). Agency-facing (this Lead already belongs to the
+    viewing agency), so full PropertyOut-level detail is fine here -
+    this is NOT the public marketplace schema."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    project_id: UUID
+    project_name: str
+    unit_number: str | None
+    building: str | None
+    property_type: str
+    bhk: int | None
+    price: Decimal | None
+
+
 class LeadOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     agency_id: UUID
     conversation_id: UUID | None = None
+    buyer_id: UUID | None = None
+    property_id: UUID | None = None
     name: str | None = None
     phone: str | None = None
     email: EmailStr | None = None
@@ -232,6 +258,7 @@ class LeadOut(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    property: LeadPropertySummaryOut | None = None
 
 
 class AIDraftOut(BaseModel):
@@ -281,6 +308,8 @@ class AppointmentOut(BaseModel):
     agency_id: UUID
     lead_id: UUID | None = None
     conversation_id: UUID | None = None
+    buyer_id: UUID | None = None
+    property_id: UUID | None = None
     customer_name: str | None = None
     customer_phone: str | None = None
     customer_email: str | None = None
@@ -988,6 +1017,91 @@ class SiteVisitRequestOut(BaseModel):
     ok: bool
     message: str
     appointment_id: UUID | None = None
+
+
+class InquiryOut(BaseModel):
+    """Buyer-facing response for POST /marketplace/properties/{id}/inquire
+    and GET /buyer/inquiries - deliberately NOT the agency's LeadOut
+    (which the buyer must never see - it can carry other agency-internal
+    fields); only what's safe for the buyer to know about their own
+    inquiry. `property` reuses the exact same public-safe
+    MarketplacePropertyOut shape the rest of the marketplace already
+    uses, never gated by current visibility here since this is the
+    buyer's OWN historical record, not a discovery surface (see
+    services/marketplace/inquiry_service.py)."""
+    inquiry_id: UUID
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    property: "MarketplacePropertyOut"
+
+
+class InquiryResponse(BaseModel):
+    """The immediate result of POST .../inquire."""
+    success: bool
+    message: str
+    inquiry_id: UUID
+    property: "MarketplacePropertyOut"
+
+
+class BuyerSiteVisitOut(BaseModel):
+    """GET /buyer/site-visits - only ever rows where
+    Appointment.buyer_id == the authenticated buyer (Step 18)."""
+    appointment_id: UUID
+    status: str
+    scheduled_at: datetime
+    end_at: datetime
+    service: str | None
+    created_at: datetime
+    property: "MarketplacePropertyOut | None"
+
+
+class BookingCreate(BaseModel):
+    """Agency-only (Step 13/15) - buyer_id/lead_id are both optional
+    (a walk-in offline booking may have neither), but when supplied they
+    are cross-checked against each other and against property_id in the
+    service layer, never trusted blindly."""
+    property_id: UUID
+    buyer_id: UUID | None = None
+    lead_id: UUID | None = None
+    appointment_id: UUID | None = None
+    agreed_price: Decimal | None = Field(default=None, ge=0)
+    notes: str | None = None
+
+
+class BookingStatusUpdate(BaseModel):
+    status: str
+
+
+class BookingOut(BaseModel):
+    """Full agency-facing view."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    agency_id: UUID
+    property_id: UUID | None
+    buyer_id: UUID | None
+    lead_id: UUID | None
+    appointment_id: UUID | None
+    status: str
+    agreed_price: Decimal | None
+    notes: str | None
+    created_at: datetime
+    updated_at: datetime
+    property: LeadPropertySummaryOut | None = None
+
+
+class BuyerBookingOut(BaseModel):
+    """GET /buyer/bookings - only ever rows where
+    Booking.buyer_id == the authenticated buyer. `agreed_price` is a
+    snapshot, never a payment record (Step 19) - no payment processing
+    exists anywhere in this codebase."""
+    booking_id: UUID
+    status: str
+    agreed_price: Decimal | None
+    created_at: datetime
+    updated_at: datetime
+    property: "MarketplacePropertyOut | None"
 
 
 class AskAssistantRequest(BaseModel):
