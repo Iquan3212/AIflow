@@ -1,7 +1,9 @@
 # AIFlow Real Estate Demo — UrbanNest Realty
 
 **Demo date:** 2026-09-11 (Phase 6). **Updated 2026-09-14** for Phase 7
-(real estate Project/Property inventory) — see §3a and §17.
+(real estate Project/Property inventory) — see §3a and §17. **Updated
+2026-09-15** for Phase 9 (buyer inquiry → lead → site visit → booking) —
+see §20.
 **Backend:** http://127.0.0.1:8000 (FastAPI, real Postgres/Neon dev database)
 **Frontend:** http://localhost:5174 (Vite dev server)
 **Demo script:** `backend/scripts/demo_real_estate.py` — safe to re-run (idempotent; skips anything that already exists)
@@ -11,7 +13,7 @@ codebase. Everything below was created through the real application's
 APIs/services, not inserted directly into the database, except where
 explicitly called out as a documented exception. §1–§14 are the original
 Phase 6 record (left as-is, historical); §3a and §17–§19 are Phase 7
-additions.
+additions; §20 is Phase 9.
 
 ---
 
@@ -399,15 +401,67 @@ inventory test suite, and the live API smoke test above — which confirm
 the API layer everything below the UI actually calls, but not the
 rendered UI itself.
 
-## 20. How to inspect this demo yourself
+## 20. Phase 9 (2026-09-15) — buyer inquiry → lead → site visit → booking
+
+Real Buyer/Agency CRM connection: `Lead.buyer_id`/`property_id`,
+`Appointment.buyer_id`/`property_id` (migration `cb4bcde8fc46`), and a
+new `Booking` domain integrated with Property's existing status
+lifecycle (`active → reserved → sold`, one-way `sold`, unchanged from
+Phase 7).
+
+`demo_real_estate.py`'s new `ensure_phase9_conversion()` drives the
+**entire loop through real HTTP calls**, on a project/unit no other
+demo step touches (Lakeview Heights' **U-LH-1102**, 4 BHK, ₹1.95 Cr):
+
+1. Buyer (Rahul Mehta) inquires — `POST /marketplace/properties/{id}/inquire` → creates/reuses one real `Lead` (`buyer_id`+`property_id` set).
+2. Buyer requests a site visit — `POST .../site-visit` → reuses the **same** Lead (Phase 8's "creates a fresh Lead every time" bug is fixed), books a real `Appointment` via the unchanged `AppointmentService.book()` (business hours/conflict checks/calendar sync/notification all still real).
+3. Agency confirms — `PUT /appointments/{id}/confirm` → `scheduled → confirmed`.
+4. Agency marks the visit completed — `PUT /appointments/{id}/complete` → `confirmed → completed`.
+5. Agency creates a Booking from the Lead — `POST /bookings` (property_id + lead_id + appointment_id, all cross-validated) → the property automatically goes `active → reserved`.
+6. Agency progresses the booking — `PUT /bookings/{id}/status`: `initiated → pending → confirmed` → the property automatically goes `reserved → sold`.
+7. Buyer sees it — `GET /buyer/bookings` shows the confirmed booking, `agreed_price` ₹1,95,00,000 (a snapshot only, never a payment record).
+
+**A real, permanent side effect worth noting explicitly:** running this
+demo genuinely, permanently sells U-LH-1102 (and, from earlier manual
+Phase 9 development testing, Urban Crest's U-UC-0603) — `sold` is
+deliberately one-way (Phase 7), so `ensure_inventory()`'s target status
+for both units was updated to `sold` to match this real, final state
+rather than fighting it on every rerun. `Project_Overview.txt`'s prose
+for U-UC-0603 was updated to say `sold` for consistency; the
+**already-embedded** copy of that document in this dev environment
+still has the old "available" wording (re-uploading would cost a real,
+unnecessary embedding call for a purely cosmetic fix — the AI's
+per-listing grounding always uses live DB facts over KB prose for
+structured facts like status, so this is not a functional bug).
+
+Idempotency: `ensure_phase9_conversion()` checks the buyer's own
+(never-visibility-gated) `GET /buyer/bookings` for an existing
+non-cancelled booking on U-LH-1102 **before** touching the public
+marketplace — since a sold unit is no longer publicly discoverable,
+re-running the naive "inquire first" flow after the unit is sold would
+otherwise break. Verified idempotent across 3 consecutive full runs.
+
+**Known pre-existing test debris (not a Phase 9 bug):** `GET /leads/`
+shows two `Rahul Mehta` leads both named "Lakeview Heights, Unit
+U-LH-0410" with `status=new` and `buyer_id`/`property_id` both `NULL`.
+These predate the Phase 9 migration — created while manually testing
+Phase 8's original (buggy) site-visit endpoint, before the
+`buyer_id`/`property_id` columns existed. They are harmless (the new
+`uq_lead_buyer_property` constraint never applies to NULL/NULL rows,
+by design — see §"Lead" in the audit) and were left in place rather
+than hand-editing the shared dev database outside a migration.
+
+## 21. How to inspect this demo yourself
 
 1. Backend: `cd backend && ./venv/bin/uvicorn app.main:app --reload` (already running at :8000)
 2. Frontend: `cd frontend && npm run dev` (already running at :5174)
 3. Log in at http://localhost:5174/login with the owner credentials in §1.
-4. Dashboard → Leads: see Rahul Mehta's real lead.
-5. Dashboard → Appointments: see the 3 site-visit bookings (2 scheduled, 1 cancelled).
-6. Dashboard → Knowledge Base: see the 6 documents, all `ready`; try "Search Knowledge" with a real query.
-7. Dashboard → Workflows: see the 3 active workflows and their real run history (§8).
-8. Dashboard → AI Workforce / Manager AI: ask a real-estate question grounded in the Knowledge Base.
-9. Dashboard → Inventory (Phase 7, §3a): see the 3 real projects with cover photos and live availability counts; open one to see its units as cards; open a unit to see full detail, the controlled status-transition control, and its photo/floor-plan gallery.
-10. Re-run the whole demo any time: `cd backend && PYTHONPATH=. ./venv/bin/python scripts/demo_real_estate.py` — it is idempotent and will skip anything that already exists.
+4. Dashboard → Leads: see Rahul Mehta's real leads, now showing buyer/property indicators and a "Book" action (Phase 9, §20).
+5. Dashboard → Appointments: see the site-visit bookings, including Confirm/Complete/No-show actions on eligible ones (Phase 9).
+6. Dashboard → Bookings (Phase 9, §20): see the real booking for U-LH-1102 and its status-transition controls.
+7. Dashboard → Knowledge Base: see the 6 documents, all `ready`; try "Search Knowledge" with a real query.
+8. Dashboard → Workflows: see the 3 active workflows and their real run history (§8).
+9. Dashboard → AI Workforce / Manager AI: ask a real-estate question grounded in the Knowledge Base.
+10. Dashboard → Inventory (Phase 7, §3a): see the real projects with cover photos and live availability counts; open one to see its units as cards; open a unit to see full detail, the controlled status-transition control, and its photo/floor-plan gallery.
+11. Buyer: log in at http://localhost:5174/buyer/login with the buyer credentials in §1 → Buyer Home now shows real "My inquiries", "My site visits", and "My bookings" (Phase 9, §20), replacing the old roadmap placeholder.
+12. Re-run the whole demo any time: `cd backend && PYTHONPATH=. ./venv/bin/python scripts/demo_real_estate.py` — it is idempotent and will skip anything that already exists.

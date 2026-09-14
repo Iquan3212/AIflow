@@ -158,7 +158,12 @@ INVENTORY = [
              "target_status": "active", "description": "3 BHK, Tower A, 4th floor, South-facing."},
             {"building": "Tower A", "floor": 11, "unit_number": "U-LH-1102", "bhk": 4,
              "carpet_area_sqft": "2050.00", "facing": "east", "price": "19500000.00",
-             "target_status": "active", "description": "4 BHK, Tower A, 11th floor, East-facing."},
+             # ensure_phase9_conversion() below deliberately runs this
+             # exact unit through a real, completed booking every time
+             # the demo runs - it ends the run permanently `sold` (one-way,
+             # Phase 7), so that must be this entry's steady-state target,
+             # not its original pre-Phase-9 "active".
+             "target_status": "sold", "description": "4 BHK, Tower A, 11th floor, East-facing."},
             {"building": "Tower B", "floor": 2, "unit_number": "U-LH-0207", "bhk": 2,
              "carpet_area_sqft": "1020.00", "facing": "north", "price": "9200000.00",
              "target_status": "blocked", "description": "2 BHK, Tower B, 2nd floor, North-facing. Under legal verification."},
@@ -181,7 +186,11 @@ INVENTORY = [
              "target_status": "active", "description": "3 BHK, Tower 1, 9th floor, West-facing."},
             {"building": "Tower 1", "floor": 6, "unit_number": "U-UC-0603", "bhk": 1,
              "carpet_area_sqft": "640.00", "facing": "south", "price": "5200000.00",
-             "target_status": "active", "description": "1 BHK, Tower 1, 6th floor, South-facing."},
+             # Sold via a real, completed Phase 9 buyer-conversion smoke
+             # test (inquiry -> site visit -> booking) during development -
+             # `sold` is deliberately one-way (Phase 7), so this reflects
+             # permanent reality, not a bug to hide. See DEMO_RUN.md §Phase 9.
+             "target_status": "sold", "description": "1 BHK, Tower 1, 6th floor, South-facing."},
             {"building": "Tower 2", "floor": 11, "unit_number": "U-UC-1105", "bhk": 2,
              "carpet_area_sqft": "980.00", "facing": "east", "price": "7800000.00",
              "target_status": "sold", "description": "2 BHK, Tower 2, 11th floor, East-facing."},
@@ -436,7 +445,7 @@ KB_DOCS = {
    Configuration: 1 BHK, 2 BHK, and 3 BHK apartments across 2 towers, G+12 floors.
    Amenities: rooftop terrace, gymnasium, community hall, solar water heating, visitor parking.
    Unit U-UC-0912 (Tower 1, 9th floor, 3 BHK, 1,320 sq.ft, West-facing): price INR 1,22,00,000 — status: available.
-   Unit U-UC-0603 (Tower 1, 6th floor, 1 BHK, 640 sq.ft, South-facing): price INR 52,00,000 — status: available.
+   Unit U-UC-0603 (Tower 1, 6th floor, 1 BHK, 640 sq.ft, South-facing): price INR 52,00,000 — status: sold (booking confirmed).
    Unit U-UC-1105 (Tower 2, 11th floor, 2 BHK, 980 sq.ft, East-facing): price INR 78,00,000 — status: sold.
 
 Floor plans and elevation images for all three projects are available on request from the sales team (floor-plan PDFs and image files are handled outside this document — no image-hosting feature exists in this system yet).
@@ -698,14 +707,12 @@ def demo_manager_chat(token: str) -> None:
 
 def ensure_site_visits(token: str) -> None:
     """Real Appointment rows via the real AppointmentService, standing in
-    for 'site visits' (no distinct SiteVisit model exists). Only the
-    scheduled/rescheduled/cancelled transitions are reachable through any
-    real endpoint or service method in this codebase (see
-    app/services/scheduling/appointment_service.py) - 'confirmed',
-    'completed', and 'no_show' exist as enum values in app/models.py but
-    have no code path that ever sets them, so they are not demonstrated
-    here (that would require fabricating a status transition the product
-    doesn't actually perform)."""
+    for 'site visits' (no distinct SiteVisit model exists). These three
+    are dashboard-sourced synthetic buyers (not the marketplace Buyer
+    account) - only their scheduled/rescheduled/cancelled transitions are
+    exercised here; see ensure_phase9_conversion() below for the real
+    confirmed/completed lifecycle (Phase 9) via a genuine marketplace
+    buyer's own site visit."""
     existing = api("GET", "/appointments/", token=token).json()
     by_customer = {a["customer_name"]: a for a in existing}
 
@@ -737,6 +744,109 @@ def ensure_site_visits(token: str) -> None:
         cancel_resp = api("DELETE", f"/appointments/{a3['id']}", token=token)
         if cancel_resp.status_code == 200:
             log(f"Cancelled site-visit appointment for Sneha Reddy (id={a3['id']}) to demonstrate the cancel path.")
+
+
+# --------------------------------------------------- Phase 9 conversion flow --
+
+def ensure_phase9_conversion(owner_token: str, buyer_token: str) -> None:
+    """The real Buyer -> Inquiry -> Lead -> Site Visit -> Appointment ->
+    Booking loop (Phase 9), driven entirely through the real marketplace
+    (buyer_token) and agency (owner_token) APIs - never inserted
+    directly into the database. Deliberately uses a DIFFERENT unit
+    (Lakeview Heights' U-LH-1102) than any other demo step touches.
+
+    This flow's own successful completion makes the unit `sold` -
+    permanently no longer public (Phase 7's one-way `sold`, Step 12) -
+    so a rerun cannot re-resolve it through the public marketplace the
+    way the first run did. Idempotency therefore checks the BUYER's own
+    (never-visibility-gated) booking history first: if a real booking
+    for this exact unit already exists, the whole flow already ran to
+    completion and this is a no-op, exactly like every other `ensure_*`
+    step in this script."""
+    my_bookings = api("GET", "/buyer/bookings", token=buyer_token).json()
+    already_done = next(
+        (b for b in my_bookings if b["property"] and b["property"]["unit_number"] == "U-LH-1102"
+         and b["status"] != "cancelled"),
+        None,
+    )
+    if already_done:
+        log(f"Phase 9 conversion demo for U-LH-1102 already completed (booking status={already_done['status']}) — skipping.")
+        return
+
+    props = api("GET", "/marketplace/properties", params={"limit": 100}).json()["results"]
+    target = next((p for p in props if p["unit_number"] == "U-LH-1102"), None)
+    if target is None:
+        log("WARNING: U-LH-1102 not found or no longer public — skipping Phase 9 conversion demo.")
+        return
+    property_id = target["id"]
+
+    inquire = api("POST", f"/marketplace/properties/{property_id}/inquire", token=buyer_token)
+    inquire.raise_for_status()
+    log(f"Buyer inquiry on {target['project_name']} {target['unit_number']}: {inquire.json()['message']}")
+
+    my_visits = api("GET", "/buyer/site-visits", token=buyer_token).json()
+    existing_visit = next((v for v in my_visits if v["property"] and v["property"]["id"] == property_id), None)
+    if existing_visit:
+        log(f"Site visit for {target['unit_number']} already exists (status={existing_visit['status']}) — skipping request.")
+        appointment_id = existing_visit["appointment_id"]
+    else:
+        from datetime import datetime, timedelta
+        d = datetime.now() + timedelta(days=2)
+        while d.weekday() == 6:  # Sunday - closed by default seed hours
+            d += timedelta(days=1)
+        visit = api("POST", f"/marketplace/properties/{property_id}/site-visit", token=buyer_token, json={
+            "name": BUYER_NAME, "phone": BUYER_PHONE, "email": BUYER_EMAIL,
+            "preferred_date": d.strftime("%Y-%m-%d"), "preferred_time": "11:00",
+        })
+        visit.raise_for_status()
+        visit_data = visit.json()
+        if not visit_data["ok"]:
+            log(f"WARNING: could not book Phase 9 demo site visit: {visit_data['message']}")
+            return
+        appointment_id = visit_data["appointment_id"]
+        log(f"Buyer requested a site visit for {target['unit_number']}: {visit_data['message']}")
+
+    appts = api("GET", "/appointments/", token=owner_token).json()
+    appt = next(a for a in appts if a["id"] == appointment_id)
+    if appt["status"] == "scheduled":
+        confirmed = api("PUT", f"/appointments/{appointment_id}/confirm", token=owner_token)
+        confirmed.raise_for_status()
+        appt = confirmed.json()
+        log(f"Agency confirmed the site visit (status={appt['status']}).")
+    if appt["status"] == "confirmed":
+        completed = api("PUT", f"/appointments/{appointment_id}/complete", token=owner_token)
+        completed.raise_for_status()
+        appt = completed.json()
+        log(f"Agency marked the site visit completed (status={appt['status']}).")
+
+    existing_bookings = api("GET", "/bookings", token=owner_token, params={"property_id": property_id}).json()
+    booking = next((b for b in existing_bookings if b["status"] != "cancelled"), None)
+    if booking is None:
+        leads = api("GET", "/leads/", token=owner_token).json()
+        lead = next(l for l in leads if l.get("property_id") == property_id)
+        created = api("POST", "/bookings", token=owner_token, json={
+            "property_id": property_id, "lead_id": lead["id"], "appointment_id": appointment_id,
+            "agreed_price": target["price"], "notes": "Phase 9 demo booking - synthetic data.",
+        })
+        created.raise_for_status()
+        booking = created.json()
+        log(f"Agency created a booking for {target['unit_number']} (status={booking['status']}).")
+    else:
+        log(f"Booking for {target['unit_number']} already exists (status={booking['status']}) — skipping create.")
+
+    for step_status in ("pending", "confirmed"):
+        if booking["status"] == step_status:
+            continue
+        progressed = api("PUT", f"/bookings/{booking['id']}/status", token=owner_token, json={"status": step_status})
+        progressed.raise_for_status()
+        booking = progressed.json()
+        log(f"Booking status -> {booking['status']}.")
+
+    prop_after = api("GET", f"/properties/{property_id}", token=owner_token).json()
+    log(f"Property {target['unit_number']} status after booking confirmed: {prop_after['status']}.")
+
+    my_bookings = api("GET", "/buyer/bookings", token=buyer_token).json()
+    log(f"Buyer's own bookings visible via GET /buyer/bookings: {len(my_bookings)}.")
 
 
 # ---------------------------------------------------------------- verification --
@@ -774,7 +884,8 @@ def main():
     ensure_agency_profile(OWNER_TOKEN)
     ensure_staff_users(agency_id)
     ensure_demo_plan_tier(agency_id)
-    ensure_buyer()
+    buyer_auth = ensure_buyer()
+    buyer_token = buyer_auth["access_token"]
 
     project_ids = ensure_inventory(OWNER_TOKEN)
     ensure_inventory_media(OWNER_TOKEN, project_ids)
@@ -791,6 +902,7 @@ def main():
     demo_manager_chat(OWNER_TOKEN)
 
     ensure_site_visits(OWNER_TOKEN)
+    ensure_phase9_conversion(OWNER_TOKEN, buyer_token)
 
     verify_leads_and_analytics(OWNER_TOKEN)
 
