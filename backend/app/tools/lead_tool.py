@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Session
 
-from app import models
+from app import models, schemas
 from app.services.lead_ai_service import extract_lead_information
+from app.services.lead_service import LeadService
 from app.services.notifications.dispatcher import NotificationDispatcher
 from app.services.notifications import preferences as notif_prefs
 from app.services.workflows.triggers import fire_trigger, lead_created_data
@@ -63,25 +64,39 @@ class LeadTool:
         # itself was just inserted.
         was_unidentified = target is None or not any([target.name, target.phone, target.email])
 
-        created = False
-        if target is None:
-            target = models.Lead(agency_id=agency.id, status="new")
-            db.add(target)
-            created = True
-
-        if name:
-            target.name = name
-        if phone:
-            target.phone = phone
-        if email:
-            target.email = email
-        if service:
-            target.service_interested = service
-        if budget:
-            target.budget = budget
-
-        db.commit()
-        db.refresh(target)
+        # Phase 10A: writes go through LeadService (the one authoritative
+        # Lead-persistence path, shared with the dashboard CRUD router and
+        # the marketplace inquiry flow) instead of this tool building
+        # models.Lead itself. LeadCreate/LeadUpdate validate `email` as
+        # EmailStr, but this value is LLM-extracted from free text, not a
+        # verified address - the legacy inline path stored whatever string
+        # came out with zero validation, so model_construct() is used to
+        # bypass schema validation and keep that exact no-validation
+        # behavior. LeadService.create() fires lead_created itself, so this
+        # tool must not fire it again for the `created` branch below.
+        lead_service = LeadService(db)
+        created = target is None
+        if created:
+            payload = schemas.LeadCreate.model_construct(
+                name=name, phone=phone, email=email,
+                service_interested=service, budget=budget,
+                buyer_id=None, property_id=None,
+            )
+            target = lead_service.create(agency.id, payload)
+        else:
+            update_fields = {}
+            if name:
+                update_fields["name"] = name
+            if phone:
+                update_fields["phone"] = phone
+            if email:
+                update_fields["email"] = email
+            if service:
+                update_fields["service_interested"] = service
+            if budget:
+                update_fields["budget"] = budget
+            payload = schemas.LeadUpdate.model_construct(**update_fields)
+            target = lead_service.update(target.id, agency.id, payload) or target
 
         newly_identified = was_unidentified and any([target.name, target.phone, target.email])
         if created or newly_identified:
@@ -102,10 +117,11 @@ class LeadTool:
                     "event": "notification.new_lead_failed", "agency_id": agency.id, "lead_id": target.id,
                 }})
 
-            fire_trigger(
-                db, agency.id, models.WorkflowTriggerType.lead_created,
-                lead_created_data(target), event_id=str(target.id),
-            )
+            if not created:
+                fire_trigger(
+                    db, agency.id, models.WorkflowTriggerType.lead_created,
+                    lead_created_data(target), event_id=str(target.id),
+                )
 
         return {
             "ok": True,

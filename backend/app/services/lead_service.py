@@ -25,6 +25,16 @@ class LeadService:
             .all()
         )
 
+    def get(self, lead_id: UUID, agency_id: UUID):
+        return (
+            self.db.query(models.Lead)
+            .filter(
+                models.Lead.id == lead_id,
+                models.Lead.agency_id == agency_id,
+            )
+            .first()
+        )
+
     def create(
         self,
         agency_id: UUID,
