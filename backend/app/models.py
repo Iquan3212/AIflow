@@ -1338,3 +1338,94 @@ class Booking(Base):
         CheckConstraint("agreed_price IS NULL OR agreed_price >= 0", name="ck_booking_agreed_price_non_negative"),
     )
 
+
+# =====================================================================
+# AI WORKFORCE FOUNDATION (Phase 10A)
+# =====================================================================
+#
+# Two small, deliberately separate primitives - see the Phase 10 audit
+# report and Phase 10A spec this was built from:
+#
+# AIActionApproval: a generic "the AI wants to do X, a human must decide"
+# gate for AI-workforce tools, distinct from ApprovalRequest (which only
+# exists inside a Workflow's step-run, workflow_step_run_id NOT NULL +
+# UNIQUE - unusable standalone) and from GmailPendingAction (Gmail-send-
+# specific). Approving a row here is a decision record ONLY - nothing in
+# this codebase currently reads an "approved" row and automatically
+# performs the underlying action; that wiring is explicitly deferred.
+#
+# AgentExecution: one row per AI-workforce employee turn, for real
+# observability (which employee ran, for which lead/conversation, what
+# tools it called, how long it took, whether it succeeded) - NOT Phase
+# 12 analytics, just enough to answer "what did the AI actually do."
+
+class AIActionApprovalStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class AIActionApproval(Base):
+    """A pending (or decided) request for a human to approve an action an
+    AI-workforce tool proposed - e.g. scheduling a site visit, confirming
+    one, or sending a drafted customer message. `payload` carries
+    whatever the proposing tool needs to actually perform the action if
+    a later phase wires up execution; this table itself never performs
+    it. `requested_by_employee` is the AI Workforce employee name (e.g.
+    "sales"), never a human user."""
+
+    __tablename__ = "ai_action_approvals"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    action_type = Column(String(64), nullable=False, index=True)
+    summary = Column(Text, nullable=False)  # short, human-readable description of the proposed action
+    payload = Column(JSON, nullable=False, default=dict)
+    requested_by_employee = Column(String(64), nullable=False)
+
+    status = Column(SAEnum(AIActionApprovalStatus, name="ai_action_approval_status"), nullable=False, default=AIActionApprovalStatus.pending, index=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    decided_at = Column(DateTime, nullable=True)
+    decided_by_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    agency = relationship("Agency")
+    decided_by = relationship("User")
+
+
+class AgentExecutionStatus(str, enum.Enum):
+    succeeded = "succeeded"
+    failed = "failed"
+
+
+class AgentExecution(Base):
+    """One row per AI-workforce employee turn - real observability, not a
+    dashboard/analytics feature. `tool_calls` is a plain JSON list of
+    {"tool": name, "args": {...}, "duration_ms": ...} entries, the same
+    shape app.agents.tool_loop.run_bounded_tool_loop already logs in
+    memory; this table just persists it. `conversation_id`/`lead_id`
+    SET NULL - this is an audit trail that must survive either being
+    deleted later."""
+
+    __tablename__ = "agent_executions"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
+    employee = Column(String(64), nullable=False, index=True)
+    conversation_id = Column(UUID(as_uuid=False), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True, index=True)
+    lead_id = Column(UUID(as_uuid=False), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    status = Column(SAEnum(AgentExecutionStatus, name="agent_execution_status"), nullable=False, index=True)
+    outcome = Column(Text, nullable=True)  # short, human-readable outcome/error reason
+    tool_calls = Column(JSON, nullable=False, default=list)
+    duration_ms = Column(Integer, nullable=True)
+    model = Column(String(128), nullable=True)
+    provider = Column(String(64), nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    agency = relationship("Agency")
+    conversation = relationship("Conversation")
+    lead = relationship("Lead")
+
