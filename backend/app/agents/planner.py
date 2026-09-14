@@ -113,6 +113,31 @@ class Planner:
             # gets called - that finer-grained decision doesn't fit this
             # one-intent-to-one-tool-list mapping.
             "gmail": list(GMAIL_KEYWORDS),
+            # Phase 10A, Step 9: new real-estate intent categories for the
+            # AI workforce foundation. Deliberately routed to "manager"
+            # below (intent_employee), same as "gmail" - no dedicated
+            # lead_qualification/property_matching/site_visit/
+            # customer_relations employee exists yet (that's 10B+), this
+            # only makes Planner able to recognize and classify these
+            # intents ahead of that, with zero LLM cost. Kept as
+            # multi-word phrases so they don't collide with the existing
+            # single-word keyword lists above.
+            "lead_qualification": [
+                "qualify the lead", "lead qualification", "how qualified is",
+                "is this lead qualified", "buying stage", "ready to buy",
+            ],
+            "property_matching": [
+                "match a property", "matching property", "suitable property",
+                "recommend a property", "which property fits", "property match",
+            ],
+            "site_visit": [
+                "site visit", "property tour", "site tour",
+                "visit the property", "visit the site",
+            ],
+            "customer_relations": [
+                "follow up with", "nurture the lead", "check in with the customer",
+                "stay in touch with",
+            ],
         }
 
         # Which tools are typically required per employee intent
@@ -125,6 +150,11 @@ class Planner:
             "finance": ["quotation"],
             "manager": [],
             "gmail": ["gmail_search", "gmail_read", "gmail_draft", "gmail_send"],
+            # No dedicated employee/tool set yet - see intent_keywords comment above.
+            "lead_qualification": [],
+            "property_matching": [],
+            "site_visit": [],
+            "customer_relations": [],
         }
 
         # Lower number = higher priority
@@ -136,6 +166,10 @@ class Planner:
             "analytics": 30,
             "marketing": 40,
             "gmail": 45,
+            "site_visit": 12,
+            "lead_qualification": 22,
+            "property_matching": 23,
+            "customer_relations": 42,
             "general": 50,
         }
 
@@ -147,7 +181,13 @@ class Planner:
         # granted the gmail_* tools - see AIOrchestrator/ARCHITECTURE.md),
         # so it needs an explicit entry rather than relying on the
         # intent-name-equals-employee-name shortcut.
-        self.intent_employee = {"gmail": "manager"}
+        self.intent_employee = {
+            "gmail": "manager",
+            "lead_qualification": "manager",
+            "property_matching": "manager",
+            "site_visit": "manager",
+            "customer_relations": "manager",
+        }
 
     def plan(self, message: str) -> Plan:
         text = (message or "").lower()
