@@ -31,8 +31,15 @@ class Registry:
         return dict(self._tools)
 
     # Employee registration
-    def register_employee(self, name: str, instance: Any, tools: Optional[List[str]] = None) -> None:
-        self._employees[name] = {"instance": instance, "tools": list(tools or [])}
+    def register_employee(self, name: str, instance: Any, tools: Optional[List[str]] = None, tool_calling: bool = False) -> None:
+        """`tool_calling` is the Phase 10A capability flag: False (the
+        default, unchanged for every existing employee) means the legacy
+        single-shot generate_employee_reply() path; True marks a new
+        employee as tool-calling-capable (drives the bounded loop in
+        app.agents.tool_loop instead). This Registry remains the sole
+        source of which tools an employee may use either way - ToolRouter
+        is still the tool-permission gate that actually enforces it."""
+        self._employees[name] = {"instance": instance, "tools": list(tools or []), "tool_calling": tool_calling}
 
     def get_employee(self, name: str) -> Optional[Any]:
         meta = self._employees.get(name)
@@ -42,6 +49,9 @@ class Registry:
 
     def employee_tools(self, name: str) -> List[str]:
         return list(self._employees.get(name, {}).get("tools", []))
+
+    def employee_is_tool_calling(self, name: str) -> bool:
+        return bool(self._employees.get(name, {}).get("tool_calling", False))
 
     def tools_for_employee(self, name: str) -> Dict[str, Any]:
         allowed = self.employee_tools(name)
