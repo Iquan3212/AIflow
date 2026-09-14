@@ -10,6 +10,7 @@ import {
     FileText,
     LifeBuoy,
     BookOpen,
+    Building2,
     BarChart3,
     Settings as SettingsIcon,
     LogOut,
@@ -65,6 +66,7 @@ const GROUPS: NavGroup[] = [
 ];
 
 const SOLO_LINKS: NavLeaf[] = [
+    { to: "/inventory", label: "Inventory", description: "", icon: Building2 },
     { to: "/knowledge", label: "Knowledge", description: "", icon: BookOpen },
     { to: "/analytics", label: "Analytics", description: "", icon: BarChart3 },
 ];

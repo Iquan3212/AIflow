@@ -13,7 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import Integer, Time
+from sqlalchemy import Integer, Time, Numeric, Date, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
@@ -62,6 +62,8 @@ class Agency(Base):
     scheduling_settings = relationship(
         "SchedulingSettings", back_populates="agency", uselist=False, cascade="all, delete-orphan"
     )
+    projects = relationship("Project", back_populates="agency", cascade="all, delete-orphan")
+    properties = relationship("Property", back_populates="agency", cascade="all, delete-orphan")
 
 
 class User(Base):
@@ -931,4 +933,264 @@ class ApprovalRequest(Base):
     # pointing back) - foreign_keys disambiguates which one each
     # relationship() below actually follows.
     workflow_step_run = relationship("WorkflowStepRun", foreign_keys=[workflow_step_run_id])
+
+
+# =====================================================================
+# REAL ESTATE DOMAIN — PROJECT + PROPERTY INVENTORY (Phase 7)
+# =====================================================================
+#
+# The structured source of truth for real estate facts (price,
+# availability, unit details) - never inferred or fabricated by the LLM
+# (see ARCHITECTURE.md's "Real Estate Pivot" section). Manager/Employee
+# tools must query this through a service layer (app/services/inventory/),
+# never raw SQL and never LLM-generated queries (Step 28 of the Phase 7
+# spec this was built from).
+#
+# Hierarchy: Agency -> Project -> Property. A separate Building/Tower
+# model was deliberately NOT added - "building"/"floor" are plain columns
+# on Property, since a real row per tower/floor would add a join for no
+# behavior this phase (or the documented future phases) actually needs;
+# see Property's docstring.
+
+class PropertyType(str, enum.Enum):
+    """Shared by Project.project_type (the project's primary offering) and
+    Property.property_type (each unit's own type, which can vary within a
+    mixed-use project) - one vocabulary, reusable by future buyer search/
+    matching (Phase 8) exactly as the Phase 7 spec asked for."""
+    apartment = "apartment"
+    villa = "villa"
+    plot = "plot"
+    commercial = "commercial"
+    office = "office"
+    retail = "retail"
+    warehouse = "warehouse"
+
+
+class ProjectStatus(str, enum.Enum):
+    draft = "draft"
+    active = "active"
+    archived = "archived"
+
+
+class PropertyStatus(str, enum.Enum):
+    """The controlled lifecycle every Property.status transition is
+    validated against - see app/services/inventory/status.py's
+    ALLOWED_STATUS_TRANSITIONS. `sold` can only ever move to `archived`
+    (never silently back to `active`), matching the Phase 7 spec's own
+    example of a transition that must never happen unimportantly."""
+    draft = "draft"
+    active = "active"
+    reserved = "reserved"
+    blocked = "blocked"
+    sold = "sold"
+    deactivated = "deactivated"
+    archived = "archived"
+
+
+class Facing(str, enum.Enum):
+    north = "north"
+    south = "south"
+    east = "east"
+    west = "west"
+    north_east = "north_east"
+    north_west = "north_west"
+    south_east = "south_east"
+    south_west = "south_west"
+
+
+class Furnishing(str, enum.Enum):
+    unfurnished = "unfurnished"
+    semi_furnished = "semi_furnished"
+    fully_furnished = "fully_furnished"
+
+
+class PropertyMediaType(str, enum.Enum):
+    image = "image"
+    floor_plan = "floor_plan"
+
+
+class Project(Base):
+    """One real-estate project/development an Agency is selling. Always
+    agency-scoped - every query in app/services/inventory/ filters by
+    agency_id, the same structural tenant-isolation pattern every other
+    table in this codebase already uses (see KnowledgeChunk's own
+    docstring for why this must never be gotten wrong).
+
+    Amenities live here, not on Property - a real project's amenities
+    (clubhouse, gym, security) apply to every unit in it, so storing them
+    per-unit would just be the same JSON array duplicated across hundreds
+    of Property rows for no benefit (Step 3 of the Phase 7 spec explicitly
+    asks not to store values redundantly)."""
+
+    __tablename__ = "projects"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    name = Column(String(255), nullable=False)
+    developer_name = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
+    project_type = Column(SAEnum(PropertyType, name="property_type"), nullable=True)
+
+    address = Column(Text, nullable=True)
+    city = Column(String(120), nullable=True, index=True)
+    state = Column(String(120), nullable=True)
+    locality = Column(String(120), nullable=True, index=True)
+    postal_code = Column(String(16), nullable=True)
+    latitude = Column(Numeric(9, 6), nullable=True)
+    longitude = Column(Numeric(9, 6), nullable=True)
+
+    rera_number = Column(String(64), nullable=True)  # project-level RERA registration - never fabricated, left null if unknown
+    possession_date = Column(Date, nullable=True)
+    project_status = Column(SAEnum(ProjectStatus, name="project_status"), nullable=False, default=ProjectStatus.draft)
+
+    amenities = Column(JSON, nullable=True)  # list[str] - see app/services/inventory/amenities.py for the canonical vocabulary
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    agency = relationship("Agency", back_populates="projects")
+    properties = relationship("Property", back_populates="project", cascade="all, delete-orphan")
+    media = relationship(
+        "PropertyMedia", back_populates="project", cascade="all, delete-orphan",
+        foreign_keys="PropertyMedia.project_id",
+    )
+
+
+class Property(Base):
+    """One sellable unit (an apartment, a villa, a plot, a commercial
+    shop...) inside a Project. `agency_id` is denormalized from the
+    parent Project (not just reachable via a join) specifically so every
+    inventory query can filter `WHERE agency_id = :agency_id` directly on
+    this table, the same reason KnowledgeChunk denormalizes it - the one
+    thing that must never be gotten wrong for a multi-tenant table. The
+    service layer (app/services/inventory/service.py) is the ONLY place
+    that ever sets agency_id on a new Property, always copied from the
+    already-verified-owned parent Project - never accepted from client
+    input (Step 16 of the Phase 7 spec: Property.agency_id must never
+    diverge from Property.project.agency_id).
+
+    `building`/`floor` are plain columns, not a separate Building/Tower
+    model - see this file's Phase 7 section docstring for why.
+
+    `is_available` is NOT a stored column - see
+    app/services/inventory/status.py's `is_available_status()`.
+    Availability is a computed fact derived from `status`, never a
+    second, independently-settable flag that could drift out of sync
+    (Step 5 of the spec: availability must always resolve from
+    structured status, never be inferred or cached elsewhere)."""
+
+    __tablename__ = "properties"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    building = Column(String(120), nullable=True)  # tower/block label, e.g. "Tower 1" - free text, no separate entity
+    floor = Column(Integer, nullable=True)
+    unit_number = Column(String(64), nullable=True)  # null for property types with no conventional unit number (e.g. a plot)
+
+    property_type = Column(SAEnum(PropertyType, name="property_type"), nullable=False)
+    bhk = Column(Integer, nullable=True)  # null where BHK doesn't apply (plot/commercial/warehouse)
+    carpet_area_sqft = Column(Numeric(10, 2), nullable=True)
+    built_up_area_sqft = Column(Numeric(10, 2), nullable=True)
+    super_built_up_area_sqft = Column(Numeric(10, 2), nullable=True)
+    facing = Column(SAEnum(Facing, name="property_facing"), nullable=True)
+    furnishing = Column(SAEnum(Furnishing, name="property_furnishing"), nullable=True)
+
+    price = Column(Numeric(14, 2), nullable=True)  # real numeric type, never a formatted string - null means "price on request"
+    maintenance_amount = Column(Numeric(12, 2), nullable=True)  # monthly maintenance, same currency as price
+    possession_date = Column(Date, nullable=True)  # overrides the project's own possession_date when a unit differs
+
+    status = Column(SAEnum(PropertyStatus, name="property_status"), nullable=False, default=PropertyStatus.draft, index=True)
+    description = Column(Text, nullable=True)
+    rera_number = Column(String(64), nullable=True)  # only if this jurisdiction/project registers per-unit; otherwise use the project's
+
+    internal_notes = Column(Text, nullable=True)  # PRIVATE - acquisition/sales notes; never returned by any public-facing schema
+    property_metadata = Column(JSON, nullable=True)  # small, optional extras - never large blobs
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    agency = relationship("Agency", back_populates="properties")
+    project = relationship("Project", back_populates="properties")
+    media = relationship(
+        "PropertyMedia", back_populates="property", cascade="all, delete-orphan",
+        foreign_keys="PropertyMedia.property_id",
+    )
+
+    @property
+    def is_available(self) -> bool:
+        """Computed, never stored - see
+        app/services/inventory/status.py's is_available_status(), the one
+        function that decides this. Read by PropertyOut/PropertyPublicOut
+        via Pydantic's from_attributes."""
+        from app.services.inventory.status import is_available_status
+        return is_available_status(self.status)
+
+    __table_args__ = (
+        # Postgres treats NULLs as distinct in a unique index, so multiple
+        # plots/commercial units with no unit_number never collide - this
+        # only actually constrains property types that DO have one
+        # (Step 13 of the spec: don't break legitimate types with no
+        # conventional unit number).
+        UniqueConstraint(
+            "agency_id", "project_id", "building", "unit_number",
+            name="uq_property_agency_project_building_unit",
+        ),
+        CheckConstraint("price IS NULL OR price >= 0", name="ck_property_price_non_negative"),
+        CheckConstraint("maintenance_amount IS NULL OR maintenance_amount >= 0", name="ck_property_maintenance_non_negative"),
+        CheckConstraint("bhk IS NULL OR bhk >= 0", name="ck_property_bhk_non_negative"),
+        CheckConstraint("floor IS NULL OR floor >= -3", name="ck_property_floor_reasonable"),
+        CheckConstraint(
+            "carpet_area_sqft IS NULL OR carpet_area_sqft > 0", name="ck_property_carpet_area_positive"
+        ),
+        CheckConstraint(
+            "built_up_area_sqft IS NULL OR built_up_area_sqft > 0", name="ck_property_built_up_area_positive"
+        ),
+        CheckConstraint(
+            "super_built_up_area_sqft IS NULL OR super_built_up_area_sqft > 0",
+            name="ck_property_super_built_up_area_positive",
+        ),
+    )
+
+
+class PropertyMedia(Base):
+    """An image or floor plan attached to either a Project (project-wide
+    photos) or a Property (unit-specific photos/floor plan) - never both,
+    never neither (enforced in app/services/inventory/media.py, the same
+    "exactly one parent" rule the service layer owns rather than a
+    cross-column DB constraint). Reuses the exact same on-disk storage
+    module Knowledge Base documents already use
+    (app/services/knowledge/storage.py) - no new storage architecture,
+    per the Phase 7 spec's explicit instruction to reuse what already
+    exists. Only metadata/the sanitized path is stored in Postgres, never
+    the binary content itself."""
+
+    __tablename__ = "property_media"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True)
+    property_id = Column(UUID(as_uuid=False), ForeignKey("properties.id", ondelete="CASCADE"), nullable=True, index=True)
+
+    media_type = Column(SAEnum(PropertyMediaType, name="property_media_type"), nullable=False)
+    filename = Column(String(255), nullable=False)  # original filename, display-only
+    file_type = Column(String(16), nullable=False)  # jpg | jpeg | png | webp | pdf (floor plans may be PDF)
+    size_bytes = Column(Integer, nullable=False)
+    storage_path = Column(Text, nullable=False)  # sanitized on-disk path - never derived from user input directly
+    sort_order = Column(Integer, nullable=False, default=0)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    agency = relationship("Agency")
+    project = relationship("Project", back_populates="media", foreign_keys=[project_id])
+    property = relationship("Property", back_populates="media", foreign_keys=[property_id])
+
+    __table_args__ = (
+        CheckConstraint(
+            "(project_id IS NOT NULL AND property_id IS NULL) OR (project_id IS NULL AND property_id IS NOT NULL)",
+            name="ck_property_media_exactly_one_parent",
+        ),
+    )
 

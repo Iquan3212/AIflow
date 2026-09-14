@@ -15,14 +15,16 @@ throughout Phases 1-5 is now an `Agency`; nothing about that concept's
 actual behavior changed, only its name and its place in a larger
 two-sided product).
 
-The full phase sequence (only Phase 6 is done - see ROADMAP.md for
+The full phase sequence (Phases 6 and 7 are done - see ROADMAP.md for
 current status):
 
 1. **Phase 6 — Agency rename + Buyer auth foundation** (done - this
    section documents it in full below). Every later phase's models hang
    off `agency_id`, and the buyer side needs its own auth system to
    exist before it can have any authenticated feature.
-2. **Phase 7 — Property/Project inventory** on the Agency side.
+2. **Phase 7 — Property/Project inventory** on the Agency side (done -
+   see "Phase 7 — Property/Project inventory (what actually changed)"
+   below).
 3. **Phase 8 — Buyer marketplace frontend** (search/browse/filter,
    property/project detail, save/favorite, compare, a platform-level
    cross-agency AI property-matching assistant - architecturally
@@ -131,6 +133,79 @@ sessions via a persisted session table).
   buyer marketplace happens in Phase 8, once there is an actual
   marketplace to put there (redirecting root to an empty page today
   would only make things worse for a real visitor).
+
+### Phase 7 — Property/Project inventory (what actually changed)
+
+The structured source of truth for real-estate facts on the Agency side
+- price, availability, unit details are never inferred or fabricated by
+any LLM anywhere in this app; they only ever come from these tables via
+the service layer below.
+
+- **Database** (migration `ca6e5cedb0b7`): `Project` (one real-estate
+  development an Agency sells - name, developer, address/city/locality,
+  RERA number, possession date, a canonical (not free-text) `amenities`
+  vocabulary, and its own `ProjectStatus` of `draft`/`active`/`archived`)
+  → `Property` (one sellable unit inside a project - building/floor/unit
+  number, `PropertyType`, BHK, three area fields, `Facing`/`Furnishing`,
+  price/maintenance, a controlled `PropertyStatus` lifecycle, and
+  `internal_notes` - private, never returned by any public-facing
+  schema) → `PropertyMedia` (an image or floor plan belonging to exactly
+  one of a Project or Property - a DB `CHECK` constraint enforces "never
+  both, never neither"). `Property.agency_id` is denormalized from its
+  parent `Project` specifically so every inventory query can filter
+  `WHERE agency_id = :agency_id` directly on this table - the same
+  tenant-isolation discipline `KnowledgeChunk` already established - and
+  the service layer is the only place that ever sets it, always copied
+  from an already-verified-owned `Project`, never accepted from client
+  input.
+- **Controlled status lifecycle**
+  (`app/services/inventory/status.py`): a `PropertyStatus` transition is
+  only ever accepted if it appears in `ALLOWED_STATUS_TRANSITIONS` - e.g.
+  `sold` may only ever move to `archived`, never silently back to
+  `active`. Availability is NOT a second, independently-settable column;
+  `Property.is_available` is a computed property resolved from `status`
+  via `is_available_status()`, so it can never drift out of sync with
+  the real status.
+- **Plan-tier active-listing cap**
+  (`app/services/inventory/config.py`'s `PLAN_ACTIVE_LISTING_LIMITS`,
+  enforced only when a `Property` moves *into* `active`): no billing
+  system exists in this repository yet, so this is only the hook a
+  future one would enforce (`Agency.plan` → an integer cap, `None` =
+  unlimited) - real, tested, DB-visible behavior today (a 402 is
+  returned once a plan's cap is reached), not payment processing.
+- **APIs** (`app/routers/projects.py`, `app/routers/properties.py`):
+  agency-scoped CRUD + search for both, a dedicated
+  `PUT /properties/{id}/status` (the only path that ever changes
+  status, so the controlled lifecycle above can never be bypassed by a
+  plain field edit), and media upload/list/delete. A same-session
+  addition beyond the original design - `GET .../media/{id}/file` - was
+  required because the original schemas only ever returned media
+  *metadata*; without a way to fetch the actual bytes, no UI could ever
+  display an uploaded photo or floor plan. Reuses the Knowledge Base's
+  existing per-tenant on-disk storage module
+  (`app/services/knowledge/storage.py`) as-is - no second storage
+  architecture.
+- **Frontend**: `/inventory` (project list + a cross-project "all
+  units" search/filter view), `/inventory/projects/:id` (project detail
+  + its units + a photo gallery), `/inventory/properties/:id` (full unit
+  detail, the controlled status-transition control - it only ever
+  offers a transition the backend actually allows - and a photo/floor-
+  plan gallery), matching the existing premium real-estate design
+  system and top-nav pattern. Since every media endpoint requires a
+  Bearer token, a plain `<img src="...">` can't authenticate - the
+  frontend fetches media bytes through the same authenticated axios
+  client and turns the response into a `blob:` URL
+  (`hooks/useMediaBlobUrl.ts`).
+- **Tests**: `backend/tests/test_inventory.py` (48 tests) - tenant
+  isolation (cross-agency reads/writes/searches all fail), the full
+  status-transition matrix, listing-cap enforcement, duplicate-unit
+  prevention (a DB `UniqueConstraint` on
+  `agency_id, project_id, building, unit_number`, with `NULL` unit
+  numbers for property types like plots never colliding), media
+  validation, and public/private field separation (`PropertyOut` vs.
+  `PropertyPublicOut` - the latter deliberately excludes `agency_id`,
+  `internal_notes`, and `rera_number`, defined now so Phase 8's buyer-
+  facing endpoints don't have to redesign the response shape).
 
 ## Multi-tenancy
 

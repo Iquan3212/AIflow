@@ -7,17 +7,23 @@ state first (by deterministic, fixed demo email/slug/title) and reuses it
 instead of creating a duplicate.
 
 What this script does NOT do (and why):
-- No Property/Project/Unit/Booking/SiteVisit/Inquiry model exists in this
-  codebase (see app/models.py) - only Agency/Buyer/Lead/Appointment/
-  Workflow/KnowledgeDocument etc. This script represents the 3-project
-  portfolio as Knowledge Base document content (real upload + real RAG
-  ingestion) and uses the generic Lead/Appointment models as the honest
-  stand-in for "buyer inquiry" / "site visit". It does not fabricate a
-  Property table or match-scoring engine that isn't there.
+- Phase 7 added a real Project/Property inventory (see app/models.py's
+  Project/Property/PropertyMedia) - this script now creates REAL
+  structured inventory rows via the real /projects and /properties APIs,
+  matching (not duplicating) the same facts already described in the
+  Knowledge Base documents below, so both sources agree and the
+  database stays the single authoritative source of truth for price/
+  availability/unit details (never inferred by the LLM). No Booking/
+  SiteVisit/Inquiry model exists yet (Phase 9) - the generic Lead/
+  Appointment models remain the honest stand-in for "buyer inquiry" /
+  "site visit" until those phases land.
 - No staff-invite endpoint exists (see app/routers/auth.py) - additional
   staff users are inserted directly as a documented, clearly-labeled
   exception ("supporting data with no UI/API path"), not through a real
-  endpoint that doesn't exist.
+  endpoint that doesn't exist. The same applies to bumping the demo
+  agency's plan tier below (no self-service plan-upgrade endpoint exists
+  yet - Phase 7 only built the *hooks* a future billing system would use,
+  per its own explicit scope).
 
 Run:  PYTHONPATH=. ./venv/bin/python scripts/demo_real_estate.py
 Env:  DEMO_BASE_URL (default http://127.0.0.1:8000)
@@ -79,6 +85,215 @@ def ensure_agency() -> dict:
         resp.raise_for_status()
         return resp.json()
     resp.raise_for_status()
+
+
+# ---------------------------------------------------------- inventory (Phase 7) --
+#
+# Mirrors the same 3 projects / 9 units already described in
+# Project_Overview.txt/Pricing_Guide.txt/RERA_Information.txt below, as
+# REAL Project/Property rows created via the real /projects and
+# /properties APIs — so the structured database and the Knowledge Base
+# content agree on the same facts instead of describing two different
+# fictional portfolios.
+#
+# A handful of amenities mentioned in the KB prose ("rooftop terrace",
+# "community hall", "infinity pool") don't have an exact match in the
+# canonical amenity vocabulary (app/services/inventory/config.py) — the
+# closest canonical equivalent is used (infinity pool -> swimming_pool)
+# and anything with no reasonable equivalent is simply omitted, rather
+# than inventing a new canonical value not backed by product decisions.
+#
+# New properties are always created in 'draft' (the service layer's own
+# rule) — this walks each one through the real, validated status
+# transitions (draft -> active [-> reserved/sold/blocked]) to reach the
+# status the KB narrative describes, rather than setting status directly.
+
+_TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+    "1f15c4890000000a49444154789c6360000002000155e621bc0000000049454e44ae426082"
+)
+_TINY_PDF = (
+    b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+    b"2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF"
+)
+
+INVENTORY = [
+    {
+        "project": {
+            "name": "Skyline Residences", "developer_name": None,
+            "description": "2 BHK and 3 BHK apartments across 4 towers, G+14 floors.",
+            "project_type": "apartment",
+            "address": "Whitefield, Bengaluru", "city": "Bengaluru", "state": "Karnataka",
+            "locality": "Whitefield", "postal_code": "560066",
+            "rera_number": "PRM/KA/RERA/1251/446/PR/030124/006512",
+            "possession_date": "2026-12-01",
+            "amenities": ["clubhouse", "swimming_pool", "gym", "childrens_play_area", "security", "parking"],
+        },
+        "properties": [
+            {"building": "Tower 1", "floor": 12, "unit_number": "U-SR-1203", "bhk": 3,
+             "carpet_area_sqft": "1450.00", "facing": "east", "price": "14500000.00",
+             "target_status": "active", "description": "3 BHK, Tower 1, 12th floor, East-facing."},
+            {"building": "Tower 1", "floor": 8, "unit_number": "U-SR-0805", "bhk": 2,
+             "carpet_area_sqft": "1080.00", "facing": "north", "price": "9800000.00",
+             "target_status": "reserved", "description": "2 BHK, Tower 1, 8th floor, North-facing. Held pending loan approval."},
+            {"building": "Tower 2", "floor": 16, "unit_number": "U-SR-1601", "bhk": 3,
+             "carpet_area_sqft": "1470.00", "facing": "west", "price": "15200000.00",
+             "target_status": "sold", "description": "3 BHK, Tower 2, 16th floor, West-facing."},
+        ],
+    },
+    {
+        "project": {
+            "name": "Lakeview Heights", "developer_name": None,
+            "description": "2 BHK, 3 BHK, and 4 BHK apartments across 3 towers, G+18 floors.",
+            "project_type": "apartment",
+            "address": "Sarjapur Road, Bengaluru", "city": "Bengaluru", "state": "Karnataka",
+            "locality": "Sarjapur Road", "postal_code": "560035",
+            "rera_number": "PRM/KA/RERA/1251/446/PR/050224/006788",
+            "possession_date": "2027-06-01",
+            "amenities": ["jogging_track", "co_working_space", "indoor_games", "ev_charging", "rainwater_harvesting"],
+        },
+        "properties": [
+            {"building": "Tower A", "floor": 4, "unit_number": "U-LH-0410", "bhk": 3,
+             "carpet_area_sqft": "1610.00", "facing": "south", "price": "13800000.00",
+             "target_status": "active", "description": "3 BHK, Tower A, 4th floor, South-facing."},
+            {"building": "Tower A", "floor": 11, "unit_number": "U-LH-1102", "bhk": 4,
+             "carpet_area_sqft": "2050.00", "facing": "east", "price": "19500000.00",
+             "target_status": "active", "description": "4 BHK, Tower A, 11th floor, East-facing."},
+            {"building": "Tower B", "floor": 2, "unit_number": "U-LH-0207", "bhk": 2,
+             "carpet_area_sqft": "1020.00", "facing": "north", "price": "9200000.00",
+             "target_status": "blocked", "description": "2 BHK, Tower B, 2nd floor, North-facing. Under legal verification."},
+        ],
+    },
+    {
+        "project": {
+            "name": "Urban Crest", "developer_name": None,
+            "description": "1 BHK, 2 BHK, and 3 BHK apartments across 2 towers, G+12 floors.",
+            "project_type": "apartment",
+            "address": "Electronic City, Bengaluru", "city": "Bengaluru", "state": "Karnataka",
+            "locality": "Electronic City", "postal_code": "560100",
+            "rera_number": "PRM/KA/RERA/1251/446/PR/070124/006901",
+            "possession_date": "2026-03-01",
+            "amenities": ["gym", "solar_power", "parking"],
+        },
+        "properties": [
+            {"building": "Tower 1", "floor": 9, "unit_number": "U-UC-0912", "bhk": 3,
+             "carpet_area_sqft": "1320.00", "facing": "west", "price": "12200000.00",
+             "target_status": "active", "description": "3 BHK, Tower 1, 9th floor, West-facing."},
+            {"building": "Tower 1", "floor": 6, "unit_number": "U-UC-0603", "bhk": 1,
+             "carpet_area_sqft": "640.00", "facing": "south", "price": "5200000.00",
+             "target_status": "active", "description": "1 BHK, Tower 1, 6th floor, South-facing."},
+            {"building": "Tower 2", "floor": 11, "unit_number": "U-UC-1105", "bhk": 2,
+             "carpet_area_sqft": "980.00", "facing": "east", "price": "7800000.00",
+             "target_status": "sold", "description": "2 BHK, Tower 2, 11th floor, East-facing."},
+        ],
+    },
+]
+
+# The only path from 'draft' (every new Property's starting status) to a
+# non-active target — always through 'active' first, matching
+# ALLOWED_STATUS_TRANSITIONS in app/services/inventory/status.py.
+_STATUS_PATH = {
+    "active": ["active"],
+    "reserved": ["active", "reserved"],
+    "sold": ["active", "sold"],
+    "blocked": ["active", "blocked"],
+}
+
+
+def ensure_inventory(token: str) -> dict[str, str]:
+    """Returns {project_name: project_id} for use by media upload below."""
+    existing_projects = api("GET", "/projects", token=token).json()
+    by_name = {p["name"]: p for p in existing_projects}
+
+    project_ids: dict[str, str] = {}
+    for entry in INVENTORY:
+        proj_payload = entry["project"]
+        name = proj_payload["name"]
+        if name in by_name:
+            log(f"Project '{name}' already exists — skipping create.")
+            project = by_name[name]
+        else:
+            resp = api("POST", "/projects", token=token, json=proj_payload)
+            resp.raise_for_status()
+            project = resp.json()
+            log(f"Created project '{name}' (id={project['id']}).")
+        project_ids[name] = project["id"]
+
+        existing_props = api("GET", "/properties", token=token, params={"project_id": project["id"]}).json()
+        by_unit = {p["unit_number"]: p for p in existing_props}
+
+        for prop in entry["properties"]:
+            unit_number = prop["unit_number"]
+            target_status = prop["target_status"]
+            if unit_number in by_unit:
+                unit = by_unit[unit_number]
+                log(f"Property '{unit_number}' already exists (status={unit['status']}) — skipping create.")
+            else:
+                payload = {k: v for k, v in prop.items() if k != "target_status"}
+                payload["project_id"] = project["id"]
+                payload["property_type"] = "apartment"
+                resp = api("POST", "/properties", token=token, json=payload)
+                resp.raise_for_status()
+                unit = resp.json()
+                log(f"Created property '{unit_number}' (id={unit['id']}, status={unit['status']}).")
+
+            if unit["status"] == target_status:
+                continue
+            for step_status in _STATUS_PATH[target_status]:
+                if unit["status"] == step_status:
+                    continue
+                resp = api("PUT", f"/properties/{unit['id']}/status", token=token, json={"status": step_status})
+                resp.raise_for_status()
+                unit = resp.json()
+                log(f"Property '{unit_number}' status -> {unit['status']}.")
+
+        # A project stays 'draft' until explicitly published — these three
+        # are UrbanNest's real, currently-selling portfolio (they already
+        # have active units above), so the project record itself should
+        # read 'active' too, not the ProjectCreate default.
+        if project["project_status"] != "active":
+            resp = api("PATCH", f"/projects/{project['id']}", token=token, json={"project_status": "active"})
+            resp.raise_for_status()
+            log(f"Project '{name}' status -> active.")
+
+    return project_ids
+
+
+def ensure_inventory_media(token: str, project_ids: dict[str, str]) -> None:
+    """Uploads one project-level cover image per project, plus one unit
+    photo and one floor plan for a representative unit — enough to
+    exercise the real media pipeline (validation, storage, listing,
+    deletion is covered by test_inventory.py) without uploading nine
+    near-identical placeholder files."""
+    for entry in INVENTORY:
+        name = entry["project"]["name"]
+        project_id = project_ids[name]
+        existing_media = api("GET", f"/projects/{project_id}/media", token=token).json()
+        if existing_media:
+            log(f"Project '{name}' already has {len(existing_media)} media item(s) — skipping media upload.")
+            continue
+        resp = api("POST", f"/projects/{project_id}/media", token=token,
+                    files={"file": (f"{name.lower().replace(' ', '_')}_cover.png", _TINY_PNG, "image/png")})
+        resp.raise_for_status()
+        log(f"Uploaded cover image for project '{name}'.")
+
+    first_project = INVENTORY[0]
+    first_unit_number = first_project["properties"][0]["unit_number"]
+    props = api("GET", "/properties", token=token,
+                params={"project_id": project_ids[first_project["project"]["name"]]}).json()
+    unit = next(p for p in props if p["unit_number"] == first_unit_number)
+    if unit["media"]:
+        log(f"Property '{first_unit_number}' already has media — skipping property media upload.")
+        return
+    resp = api("POST", f"/properties/{unit['id']}/media", token=token,
+                params={"media_type": "image"},
+                files={"file": ("unit_photo.png", _TINY_PNG, "image/png")})
+    resp.raise_for_status()
+    resp = api("POST", f"/properties/{unit['id']}/media", token=token,
+                params={"media_type": "floor_plan"},
+                files={"file": ("floor_plan.pdf", _TINY_PDF, "application/pdf")})
+    resp.raise_for_status()
+    log(f"Uploaded a unit photo + floor plan for property '{first_unit_number}'.")
 
 
 def ensure_agency_profile(token: str) -> None:
@@ -148,6 +363,34 @@ def ensure_staff_users(agency_id: str) -> list[str]:
 
 
 # ----------------------------------------------------------------- buyer --
+
+def ensure_demo_plan_tier(agency_id: str) -> None:
+    """No self-service plan-upgrade endpoint exists anywhere in this
+    codebase (grepped app/routers/*.py) - Phase 7 only built the plan ->
+    active-listing-limit *hooks* a future billing system would enforce
+    (app/services/inventory/config.py's PLAN_ACTIVE_LISTING_LIMITS), not
+    billing itself. The free plan's 5-active-listing cap is real and
+    correctly enforced (see ensure_inventory below, which needs more than
+    5 units active across 3 projects) - bumping the demo agency to
+    'starter' (limit 25) directly in the DB is the same kind of
+    documented, no-real-endpoint-exists exception as
+    ensure_staff_users above, not something a real agency owner can do
+    today."""
+    from app.database import SessionLocal
+    from app import models
+
+    db = SessionLocal()
+    try:
+        agency = db.query(models.Agency).filter(models.Agency.id == agency_id).first()
+        if agency.plan == models.PlanTier.free:
+            agency.plan = models.PlanTier.starter
+            db.commit()
+            log(f"Bumped demo agency plan free -> starter directly in DB — no self-service upgrade endpoint exists.")
+        else:
+            log(f"Demo agency plan already '{agency.plan.value}' — skipping bump.")
+    finally:
+        db.close()
+
 
 def ensure_buyer() -> dict:
     resp = api("POST", "/buyer/auth/signup", json={
@@ -530,7 +773,11 @@ def main():
 
     ensure_agency_profile(OWNER_TOKEN)
     ensure_staff_users(agency_id)
+    ensure_demo_plan_tier(agency_id)
     ensure_buyer()
+
+    project_ids = ensure_inventory(OWNER_TOKEN)
+    ensure_inventory_media(OWNER_TOKEN, project_ids)
 
     ensure_knowledge_base(OWNER_TOKEN)
     demo_knowledge_search(OWNER_TOKEN)

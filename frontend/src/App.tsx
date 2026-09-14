@@ -13,6 +13,9 @@ import Drafts from "./pages/Drafts/Drafts";
 import Support from "./pages/Support/Support";
 import Knowledge from "./pages/Knowledge/Knowledge";
 import Workflows from "./pages/Workflows/Workflows";
+import Inventory from "./pages/Inventory/Inventory";
+import ProjectDetail from "./pages/Inventory/ProjectDetail";
+import PropertyDetail from "./pages/Inventory/PropertyDetail";
 
 import ProtectedLayout from "./layouts/ProtectedLayout";
 import PublicOnlyLayout from "./layouts/PublicOnlyLayout";
@@ -61,6 +64,9 @@ export default function App() {
                     <Route path="/support" element={<Support />} />
                     <Route path="/knowledge" element={<Knowledge />} />
                     <Route path="/workflows" element={<Workflows />} />
+                    <Route path="/inventory" element={<Inventory />} />
+                    <Route path="/inventory/projects/:projectId" element={<ProjectDetail />} />
+                    <Route path="/inventory/properties/:propertyId" element={<PropertyDetail />} />
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/settings" element={<Settings />} />
                 </Route>

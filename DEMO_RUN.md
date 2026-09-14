@@ -1,15 +1,17 @@
 # AIFlow Real Estate Demo — UrbanNest Realty
 
-**Demo date:** 2026-09-11
+**Demo date:** 2026-09-11 (Phase 6). **Updated 2026-09-14** for Phase 7
+(real estate Project/Property inventory) — see §3a and §17.
 **Backend:** http://127.0.0.1:8000 (FastAPI, real Postgres/Neon dev database)
 **Frontend:** http://localhost:5174 (Vite dev server)
 **Demo script:** `backend/scripts/demo_real_estate.py` — safe to re-run (idempotent; skips anything that already exists)
 
 This is a from-scratch demo built on the **current, actually-implemented**
-codebase (through Phase 6 of the real estate roadmap — Agency rename +
-Buyer auth foundation). Everything below was created through the real
-application's APIs/services, not inserted directly into the database,
-except where explicitly called out as a documented exception.
+codebase. Everything below was created through the real application's
+APIs/services, not inserted directly into the database, except where
+explicitly called out as a documented exception. §1–§14 are the original
+Phase 6 record (left as-is, historical); §3a and §17–§19 are Phase 7
+additions.
 
 ---
 
@@ -63,6 +65,46 @@ answers from this content instead of a hand-built lookup table:
 
 Each project has varying BHK, area, floor, facing, price, and availability
 status (available/reserved/sold/blocked) as described in the content.
+
+## 3a. Phase 7 update: the same 3 projects now ALSO exist as real structured inventory
+
+**As of 2026-09-14, §3's "no `Property`/`Project` model" note above is
+out of date.** Phase 7 added real `Project`/`Property`/`PropertyMedia`
+models (`backend/app/models.py`), a service layer
+(`backend/app/services/inventory/`), CRUD + search APIs
+(`GET/POST/PATCH/DELETE /projects`, `/properties`, plus a
+`PUT /properties/{id}/status` controlled-lifecycle endpoint and
+`GET .../media/{id}/file` to fetch an uploaded image/floor plan's actual
+bytes), and an Agency-dashboard Inventory UI (`/inventory`,
+`/inventory/projects/:id`, `/inventory/properties/:id`).
+
+`demo_real_estate.py` now creates the **exact same 3 projects and 9
+units** described in §3's Knowledge Base content as real rows via the
+real `/projects` and `/properties` APIs (`ensure_inventory()`), so the
+structured database and the KB prose agree on the same facts — the
+database is the authoritative source for price/availability/unit
+details; the LLM never invents them (see §17 for what this looked like
+live in the Manager AI's answer).
+
+New units created (unit numbers match §3's Knowledge Base content
+exactly): Skyline Residences — U-SR-1203 (active), U-SR-0805 (reserved),
+U-SR-1601 (sold); Lakeview Heights — U-LH-0410 (active), U-LH-1102
+(active), U-LH-0207 (blocked); Urban Crest — U-UC-0912 (active),
+U-UC-0603 (active), U-UC-1105 (sold). Each project also got one cover
+photo; the first unit (U-SR-1203) got one photo + one floor plan — real
+uploaded files (tiny placeholder PNG/PDF bytes, since this is synthetic
+demo data with no real photography), exercised through the real media
+upload/list/delete/file-fetch endpoints, not inserted as bare DB rows.
+
+**Documented exception:** the demo agency's plan was bumped
+`free -> starter` directly in the DB (`ensure_demo_plan_tier()`) — the
+free plan's real 5-active-listing cap (enforced by
+`PLAN_ACTIVE_LISTING_LIMITS`) would otherwise block activating all 9
+demo units, and no self-service plan-upgrade endpoint exists yet (same
+kind of documented, no-real-endpoint-exists exception as §1's staff
+users). The cap itself was NOT worked around or disabled — it's real,
+tested behavior; the demo just needed enough headroom to demonstrate it
+alongside a realistic-sized portfolio.
 
 ## 4. Knowledge Base documents (6, all uploaded via the real API and `status=ready`)
 
@@ -185,9 +227,12 @@ unmodified consequence of this.
 
 ## 11. Bookings, Property Matching, Site Visit/Inquiry as distinct models
 
-**Not implemented.** No `Booking`, `SiteVisit`, `Inquiry`, `Property`,
-`Project`, or `Unit` model exists in `app/models.py`. Nothing was created
-to simulate them.
+**Partially implemented as of Phase 7 (2026-09-14) — see §3a.**
+`Project`/`Property`/`PropertyMedia` now exist and are real (this section
+was written before Phase 7 and is left for historical accuracy). Still
+**not implemented**: `Booking`, `SiteVisit`, or `Inquiry` as distinct
+models — Phase 9's scope, not Phase 7's. Nothing was created to simulate
+those three.
 
 ---
 
@@ -269,7 +314,92 @@ demo.
   credentials) appear in this file, in the demo script, or in any seed
   file. `backend/.env` remains git-ignored.
 
-## 16. How to inspect this demo yourself
+## 17. Phase 7 bugs found and fixed (2026-09-14)
+
+The Phase 7 backend (models, schemas, routers, service layer, migration,
+and `tests/test_inventory.py`'s 47 tests) had already been written by an
+earlier session but never run end-to-end against a live server before
+this pass. Driving it for real surfaced 4 real, confirmed bugs, all
+fixed:
+
+1. **`demo_real_estate.py`'s own docstring claimed Phase 7 inventory
+   creation that had never actually been implemented.** The prior
+   session updated the file's comment to say "this script now creates
+   REAL structured inventory rows via the real /projects and /properties
+   APIs" but never added the code to do it — `main()` had no call to any
+   such function. Fixed by writing `ensure_inventory()` and
+   `ensure_inventory_media()` and wiring them into `main()` (see §3a).
+2. **The demo's own status-transition helper had an off-by-one logic
+   bug**: for a unit already at its final target status (e.g. `sold`),
+   it still walked the artificial `["active", "sold"]` path from the
+   start, attempting `sold -> active` — a transition `status.py`
+   correctly rejects (409), since `sold` may only ever move to
+   `archived`. Fixed by skipping the walk entirely once the unit is
+   already at its target status.
+3. **New projects defaulted to `project_status=draft` and nothing ever
+   promoted them**, so all 3 demo projects — despite having real active
+   listings — showed as "Draft" everywhere in the UI/API. Fixed by
+   having the demo explicitly `PATCH` each project to `active` once its
+   units exist, using the real endpoint (no new backend behavior
+   needed — `ProjectUpdate.project_status` already existed).
+4. **No API anywhere could return an uploaded media file's actual
+   bytes** — `PropertyMediaOut` only ever returned metadata
+   (filename/size/etc.), and no router exposed the on-disk file. This
+   meant the Inventory UI could never actually display a project cover
+   photo, unit photo, or floor plan — only prove one had been uploaded.
+   Fixed by adding `GET /projects/{id}/media/{media_id}/file` and
+   `GET /properties/{id}/media/{media_id}/file` (agency-scoped, same
+   auth as every other inventory endpoint), backed by a new
+   `PropertyMediaService.read_content()` / `content_type_for()` in the
+   service layer, with a new regression test
+   (`test_read_content_round_trips_the_uploaded_bytes`). The frontend
+   fetches this through the authenticated axios client and turns it into
+   a `blob:` URL (`useMediaBlobUrl`), since a plain `<img src>` can't
+   carry the required Bearer token.
+
+All 4 were found by actually running the demo script against the live
+server and reading the real error/response, not by code review alone.
+
+## 18. Phase 7 final regression
+
+- **Backend:** `pytest -q` (full suite) → **501 passed, 4 failed** in
+  479s. `tests/test_inventory.py` alone: **48 passed, 0 failed**. The 4
+  failures are the same pre-existing `EMBEDDING_PROVIDER=gemini`-coupled
+  knowledge-retrieval tests documented in §14 above — confirmed via
+  `git stash` to fail identically on the pre-Phase-7 baseline, so they
+  are unrelated to this work.
+- **Frontend:** `npm run build` (tsc -b + vite build) → clean, 0 errors.
+  `npm run lint` → clean, 0 errors/warnings.
+- **Migration:** `alembic current` → `ca6e5cedb0b7 (head)`, already
+  applied to the dev database before this session started.
+- **API smoke test** (real HTTP, no LLM): agency login → create Project
+  → create Property → `GET` it back → `PUT .../status` to `active` →
+  `GET` again confirms `status=active`, `is_available=true`. Passed;
+  smoke-test rows deleted afterward.
+- **Demo script idempotency:** run 3 times consecutively — first run
+  created everything, second and third runs made zero additional
+  writes (confirmed via log output — every project/property/media/
+  workflow/appointment line read "already exists — skipping").
+
+## 19. Phase 7 UI verification — not performed live
+
+**Could not be visually verified in a live browser this session** — the
+Claude-in-Chrome extension was not connected (confirmed via
+`tabs_context_mcp`, even after reinstalling/restarting Chrome), and
+connecting it requires signing into claude.ai in that Chrome profile,
+which needs the user's own credentials. Both dev servers are running
+(`:8000` backend, `:5174` frontend) for manual inspection:
+Dashboard → Inventory → see 3 projects with real cover photos and
+available/total counts → click into a project → see its 3 units as
+cards with price/status/area/facing → click into a unit → see full
+detail, the controlled status-transition control (only ever offers
+backend-valid next statuses), and its photo/floor-plan gallery.
+Verified instead via: clean frontend build/typecheck/lint, the passing
+inventory test suite, and the live API smoke test above — which confirm
+the API layer everything below the UI actually calls, but not the
+rendered UI itself.
+
+## 20. How to inspect this demo yourself
 
 1. Backend: `cd backend && ./venv/bin/uvicorn app.main:app --reload` (already running at :8000)
 2. Frontend: `cd frontend && npm run dev` (already running at :5174)
@@ -279,4 +409,5 @@ demo.
 6. Dashboard → Knowledge Base: see the 6 documents, all `ready`; try "Search Knowledge" with a real query.
 7. Dashboard → Workflows: see the 3 active workflows and their real run history (§8).
 8. Dashboard → AI Workforce / Manager AI: ask a real-estate question grounded in the Knowledge Base.
-9. Re-run the whole demo any time: `cd backend && PYTHONPATH=. ./venv/bin/python scripts/demo_real_estate.py` — it is idempotent and will skip anything that already exists.
+9. Dashboard → Inventory (Phase 7, §3a): see the 3 real projects with cover photos and live availability counts; open one to see its units as cards; open a unit to see full detail, the controlled status-transition control, and its photo/floor-plan gallery.
+10. Re-run the whole demo any time: `cd backend && PYTHONPATH=. ./venv/bin/python scripts/demo_real_estate.py` — it is idempotent and will skip anything that already exists.

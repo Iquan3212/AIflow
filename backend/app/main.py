@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.logging_config import configure_logging, get_logger, set_request_id
 from app.rate_limit import limiter, log_rate_limit_exceeded
 
-from app.routers import employee, workforce, analytics, drafts, support_tickets, notifications, gmail, knowledge, workflows
+from app.routers import employee, workforce, analytics, drafts, support_tickets, notifications, gmail, knowledge, workflows, projects, properties
 
 from app.routers import (
     auth,
@@ -295,6 +295,8 @@ app.include_router(notifications.router)
 app.include_router(gmail.router)
 app.include_router(knowledge.router)
 app.include_router(workflows.router)
+app.include_router(projects.router)
+app.include_router(properties.router)
 
 
 @app.get("/")

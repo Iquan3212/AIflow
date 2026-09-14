@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -659,3 +660,204 @@ class ApprovalRequestOut(BaseModel):
 
 class ApprovalDecisionRequest(BaseModel):
     approve: bool
+
+
+# =====================================================
+# REAL ESTATE INVENTORY (Phase 7)
+# =====================================================
+
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    developer_name: str | None = None
+    description: str | None = None
+    project_type: str | None = None
+    address: str | None = None
+    city: str | None = Field(default=None, max_length=120)
+    state: str | None = Field(default=None, max_length=120)
+    locality: str | None = Field(default=None, max_length=120)
+    postal_code: str | None = Field(default=None, max_length=16)
+    latitude: Decimal | None = None
+    longitude: Decimal | None = None
+    rera_number: str | None = Field(default=None, max_length=64)
+    possession_date: date | None = None
+    amenities: list[str] | None = None
+
+
+class ProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    developer_name: str | None = None
+    description: str | None = None
+    project_type: str | None = None
+    address: str | None = None
+    city: str | None = Field(default=None, max_length=120)
+    state: str | None = Field(default=None, max_length=120)
+    locality: str | None = Field(default=None, max_length=120)
+    postal_code: str | None = Field(default=None, max_length=16)
+    latitude: Decimal | None = None
+    longitude: Decimal | None = None
+    rera_number: str | None = Field(default=None, max_length=64)
+    possession_date: date | None = None
+    project_status: str | None = None
+    amenities: list[str] | None = None
+
+
+class ProjectOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    agency_id: UUID
+    name: str
+    developer_name: str | None
+    description: str | None
+    project_type: str | None
+    address: str | None
+    city: str | None
+    state: str | None
+    locality: str | None
+    postal_code: str | None
+    latitude: Decimal | None
+    longitude: Decimal | None
+    rera_number: str | None
+    possession_date: date | None
+    project_status: str
+    amenities: list[str] | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectWithCountsOut(ProjectOut):
+    total_properties: int = 0
+    available_properties: int = 0
+
+
+class PropertyCreate(BaseModel):
+    project_id: UUID
+    building: str | None = Field(default=None, max_length=120)
+    floor: int | None = None
+    unit_number: str | None = Field(default=None, max_length=64)
+    property_type: str
+    bhk: int | None = Field(default=None, ge=0)
+    carpet_area_sqft: Decimal | None = Field(default=None, gt=0)
+    built_up_area_sqft: Decimal | None = Field(default=None, gt=0)
+    super_built_up_area_sqft: Decimal | None = Field(default=None, gt=0)
+    facing: str | None = None
+    furnishing: str | None = None
+    price: Decimal | None = Field(default=None, ge=0)
+    maintenance_amount: Decimal | None = Field(default=None, ge=0)
+    possession_date: date | None = None
+    description: str | None = None
+    rera_number: str | None = Field(default=None, max_length=64)
+    internal_notes: str | None = None
+
+
+class PropertyUpdate(BaseModel):
+    building: str | None = Field(default=None, max_length=120)
+    floor: int | None = None
+    unit_number: str | None = Field(default=None, max_length=64)
+    property_type: str | None = None
+    bhk: int | None = Field(default=None, ge=0)
+    carpet_area_sqft: Decimal | None = Field(default=None, gt=0)
+    built_up_area_sqft: Decimal | None = Field(default=None, gt=0)
+    super_built_up_area_sqft: Decimal | None = Field(default=None, gt=0)
+    facing: str | None = None
+    furnishing: str | None = None
+    price: Decimal | None = Field(default=None, ge=0)
+    maintenance_amount: Decimal | None = Field(default=None, ge=0)
+    possession_date: date | None = None
+    description: str | None = None
+    rera_number: str | None = Field(default=None, max_length=64)
+    internal_notes: str | None = None
+
+
+class PropertyStatusUpdate(BaseModel):
+    status: str
+
+
+class PropertyMediaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    agency_id: UUID
+    project_id: UUID | None
+    property_id: UUID | None
+    media_type: str
+    filename: str
+    file_type: str
+    size_bytes: int
+    sort_order: int
+    created_at: datetime
+
+
+class PropertyOut(BaseModel):
+    """Full agency-facing view - includes internal_notes. Never returned
+    by any future public/buyer-facing endpoint (see PropertyPublicOut)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    agency_id: UUID
+    project_id: UUID
+    building: str | None
+    floor: int | None
+    unit_number: str | None
+    property_type: str
+    bhk: int | None
+    carpet_area_sqft: Decimal | None
+    built_up_area_sqft: Decimal | None
+    super_built_up_area_sqft: Decimal | None
+    facing: str | None
+    furnishing: str | None
+    price: Decimal | None
+    maintenance_amount: Decimal | None
+    possession_date: date | None
+    status: str
+    is_available: bool
+    description: str | None
+    rera_number: str | None
+    internal_notes: str | None
+    property_metadata: dict[str, Any] | None
+    media: list[PropertyMediaOut] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class PropertyPublicOut(BaseModel):
+    """The subset of Property fields safe to expose on a future public/
+    buyer-facing endpoint (Phase 8) - deliberately excludes agency_id,
+    internal_notes, and any other agency-private field (Step 26 of the
+    Phase 7 spec). Not wired to any route yet in this phase; defined now
+    so Phase 8 doesn't have to redesign the response shape."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    project_id: UUID
+    building: str | None
+    floor: int | None
+    unit_number: str | None
+    property_type: str
+    bhk: int | None
+    carpet_area_sqft: Decimal | None
+    built_up_area_sqft: Decimal | None
+    super_built_up_area_sqft: Decimal | None
+    facing: str | None
+    furnishing: str | None
+    price: Decimal | None
+    possession_date: date | None
+    is_available: bool
+    description: str | None
+    media: list[PropertyMediaOut] = Field(default_factory=list)
+
+
+class PropertyListFilters(BaseModel):
+    """Query-param filters for GET /properties - see
+    app/services/inventory/property_service.py's search(). Every field
+    is optional; an absent filter simply isn't applied."""
+    project_id: UUID | None = None
+    status: str | None = None
+    property_type: str | None = None
+    bhk: int | None = None
+    min_price: Decimal | None = None
+    max_price: Decimal | None = None
+    city: str | None = None
+    locality: str | None = None
+    floor: int | None = None
+    facing: str | None = None
