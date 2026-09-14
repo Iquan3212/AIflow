@@ -23,11 +23,15 @@ from app.services.workflows.triggers import fire_trigger, lead_created_data
 logger = get_logger(__name__)
 
 
-def tool_definitions() -> list[dict]:
+def tool_definitions(include_similar_properties: bool = False) -> list[dict]:
     """OpenAI-compatible tool schema. `start_local_iso` is an ISO-8601 local
     datetime the model resolves from the customer's phrasing using the current
-    date/timezone supplied in the system prompt."""
-    return [
+    date/timezone supplied in the system prompt. `include_similar_properties`
+    is only ever true when the conversation carries a current-listing
+    context (Phase 8's marketplace "Talk to AI Assistant") - offering this
+    tool with no current property would give the model no reference point
+    for "similar to what?"."""
+    tools = [
         {
             "type": "function",
             "function": {
@@ -108,16 +112,43 @@ def tool_definitions() -> list[dict]:
             },
         },
     ]
+    if include_similar_properties:
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "list_similar_properties",
+                "description": (
+                    "Look up other real, currently-available units from THIS agency's own inventory, "
+                    "similar to the listing the customer is currently viewing. Use this instead of "
+                    "guessing when asked about similar/other/alternative units. Never returns units "
+                    "from a different agency."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "bhk": {"type": "integer", "description": "Filter by BHK; omit to use the current listing's own BHK."},
+                        "property_type": {"type": "string", "description": "Filter by property type; omit to use the current listing's own type."},
+                    },
+                },
+            },
+        })
+    return tools
 
 
 class ToolDispatcher:
     """Executes a tool call and returns a compact JSON string result for the model."""
 
-    def __init__(self, db: Session, agency: models.Agency, conversation: models.Conversation, lead: models.Lead):
+    def __init__(
+        self, db: Session, agency: models.Agency, conversation: models.Conversation, lead: models.Lead,
+        current_property: "models.Property | None" = None,
+    ):
         self.db = db
         self.agency = agency
         self.conversation = conversation
         self.lead = lead
+        # Phase 8: the property the customer is currently viewing on the
+        # marketplace, if any - backs list_similar_properties below.
+        self.current_property = current_property
         self.appts = AppointmentService(db)
 
     def run(self, name: str, args: dict) -> str:
@@ -248,6 +279,35 @@ class ToolDispatcher:
                                "message": "No existing appointment found to cancel."})
         outcome = self.appts.cancel(self.agency, appt.id)
         return _outcome_json(outcome)
+
+    def _list_similar_properties(self, args: dict) -> str:
+        if self.current_property is None:
+            return json.dumps({"ok": False, "error": "no_current_listing"})
+
+        from app.services.marketplace.property_service import MarketplacePropertyService
+
+        results = MarketplacePropertyService(self.db).similar(
+            self.agency.id,
+            property_type=args.get("property_type") or self.current_property.property_type.value,
+            bhk=args.get("bhk", self.current_property.bhk),
+            exclude_property_id=self.current_property.id,
+        )
+        return json.dumps({
+            "ok": True,
+            "count": len(results),
+            "units": [
+                {
+                    "project_name": u.project_name,
+                    "unit_number": u.unit_number,
+                    "building": u.building,
+                    "bhk": u.bhk,
+                    "carpet_area_sqft": str(u.carpet_area_sqft) if u.carpet_area_sqft else None,
+                    "price": str(u.price) if u.price else None,
+                    "facing": u.facing,
+                }
+                for u in results
+            ],
+        })
 
 
 def _outcome_json(outcome) -> str:

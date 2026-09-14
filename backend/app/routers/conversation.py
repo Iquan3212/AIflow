@@ -22,6 +22,11 @@ class ChatRequest(BaseModel):
     visitor_id: str
     conversation_id: str | None = None
     message: str
+    # Phase 8: when the marketplace's "Talk to AI Assistant" is opened from
+    # a specific listing, the frontend supplies this so the buyer never has
+    # to type "I'm asking about Tower 2, unit 1204" - see
+    # conversation_service.process_message's property_id handling.
+    property_id: str | None = None
 
 
 @router.get("/", response_model=list[schemas.ConversationSummaryOut])
@@ -41,6 +46,7 @@ def _send_message_impl(chat: ChatRequest, db: Session):
         visitor_id=chat.visitor_id,
         conversation_id=chat.conversation_id,
         message=chat.message,
+        property_id=chat.property_id,
     )
 
 

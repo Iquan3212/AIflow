@@ -133,18 +133,67 @@ def _scheduling_context(agency) -> str:
     )
 
 
+def _build_listing_context(db: Session, agency: models.Agency, property_id: str):
+    """Resolves a buyer-supplied property_id (Phase 8's marketplace
+    "Talk to AI Assistant") to real, public-safe structured facts and
+    renders them as a grounding block the model must treat as
+    authoritative for this one listing - database facts over LLM
+    knowledge (Step 8 of the Phase 8 spec), and the buyer never has to
+    restate which unit they mean (Step 9). Uses the exact same
+    public-safe fields the marketplace itself shows - never
+    internal_notes or any other private field, even though this is the
+    listing's own agency's assistant (Step 9: "do not put sensitive
+    internal fields into the prompt" draws no exception for that).
+    Returns None (silently - a stale/mismatched property_id shouldn't
+    break an otherwise-normal conversation) if the property doesn't
+    exist, isn't currently public, or belongs to a different agency than
+    this conversation is already with."""
+    from app.services.marketplace.property_service import MarketplacePropertyService
+
+    listing = MarketplacePropertyService(db).get(property_id)
+    if listing is None or listing.agency_slug != agency.slug:
+        return None
+
+    property_row = db.query(models.Property).filter(models.Property.id == property_id).first()
+    if property_row is None:
+        return None
+
+    unit_label = " ".join(filter(None, [listing.building, f"Unit {listing.unit_number}" if listing.unit_number else None]))
+    lines = [
+        f"Project: {listing.project_name}" + (f" (by {listing.developer_name})" if listing.developer_name else ""),
+        f"Location: {', '.join(filter(None, [listing.locality, listing.city]))}" or None,
+        f"Unit: {unit_label}" if unit_label else None,
+        f"Type: {listing.property_type}" + (f", {listing.bhk} BHK" if listing.bhk is not None else ""),
+        f"Carpet area: {listing.carpet_area_sqft} sq.ft" if listing.carpet_area_sqft else None,
+        f"Built-up area: {listing.built_up_area_sqft} sq.ft" if listing.built_up_area_sqft else None,
+        f"Facing: {listing.facing}" if listing.facing else None,
+        f"Furnishing: {listing.furnishing}" if listing.furnishing else None,
+        f"Price: INR {listing.price}" if listing.price else "Price: on request (not listed)",
+        f"Possession date: {listing.possession_date}" if listing.possession_date else None,
+        f"Currently available: {'yes' if listing.is_available else 'no'}",
+        f"Description: {listing.description}" if listing.description else None,
+    ]
+    text = "\n".join(line for line in lines if line)
+    return text, property_row
+
+
 def process_message(
     db: Session,
     agency_slug: str,
     visitor_id: str,
     conversation_id: str | None,
     message: str,
+    property_id: str | None = None,
 ):
     """The website widget's entrypoint: resolves the agency by its public
     slug (the one identifier the widget's <script> tag actually knows), then
     hands off to the channel-agnostic core. Unchanged in behavior from
     before WhatsApp/Instagram existed - this is exactly the same function
-    signature and logic that's always powered the widget."""
+    signature and logic that's always powered the widget. `property_id` is
+    new in Phase 8: the marketplace's "Talk to AI Assistant" supplies it so
+    the reply is grounded in one specific real listing (see
+    _build_listing_context) - every other caller leaves it None and
+    nothing about their behavior changes."""
     agency = get_agency_by_slug(db, agency_slug)
     if agency is None:
         raise Exception("Agency not found")
@@ -152,6 +201,7 @@ def process_message(
     return process_message_for_agency(
         db, agency=agency, visitor_id=visitor_id,
         conversation_id=conversation_id, message=message, channel="website",
+        property_id=property_id,
     )
 
 
@@ -162,6 +212,7 @@ def process_message_for_agency(
     conversation_id: str | None,
     message: str,
     channel: str = "website",
+    property_id: str | None = None,
 ):
     """Channel-agnostic core: one message in, one persisted reply out,
     regardless of whether it arrived via the website widget, a WhatsApp
@@ -196,6 +247,25 @@ def process_message_for_agency(
     lead = _get_or_create_lead(db, agency.id, conversation.id)
     orchestrator = AIOrchestrator(db=db,agency=agency,conversation=conversation,lead=lead,)
 
+    listing_context = None
+    current_property = None
+    if property_id:
+        resolved = _build_listing_context(db, agency, property_id)
+        if resolved is not None:
+            listing_context, current_property = resolved
+            # So a resulting book_appointment tool call names this exact
+            # listing without the model having to compose that string
+            # itself - the same "set once from real data" approach
+            # save_lead_info already uses for every other lead field.
+            if not lead.service_interested:
+                unit_bits = " ".join(filter(None, [
+                    getattr(current_property, "building", None),
+                    f"Unit {current_property.unit_number}" if current_property.unit_number else None,
+                ]))
+                project_name = current_property.project.name
+                lead.service_interested = f"{project_name}" + (f", {unit_bits}" if unit_bits else "")
+                db.commit()
+
     history = load_history(db, conversation.id)
     agent_context = orchestrator.before_llm(message, history, delegate=False)
 
@@ -218,6 +288,19 @@ def process_message_for_agency(
     """
 
     messages = [{"role": "system", "content": system_prompt}]
+
+    if listing_context:
+        messages.append({
+            "role": "system",
+            "content": (
+                "The customer is viewing this exact listing right now. "
+                + wrap_untrusted("CURRENT LISTING - AUTHORITATIVE, REAL DATABASE FACTS", listing_context)
+                + "\nGround price/availability/BHK/area/facing/furnishing/possession-date answers ONLY in "
+                "the block above - never invent or estimate a number, and never contradict it. If asked "
+                "about similar/other units, use the list_similar_properties tool rather than guessing."
+            ),
+        })
+
     for msg in history:
         # A prior turn's provider-error/leak-backstop apology (see
         # prompt_guard.is_fallback_reply) is this app's own failure text,
@@ -251,8 +334,8 @@ def process_message_for_agency(
     knowledge_context = retrieve_context(db, agency.id, message)
     messages.extend(knowledge_context_messages(knowledge_context))
 
-    dispatcher = ToolDispatcher(db, agency, conversation, lead)
-    tools = tool_definitions()
+    dispatcher = ToolDispatcher(db, agency, conversation, lead, current_property=current_property)
+    tools = tool_definitions(include_similar_properties=current_property is not None)
 
     reply_text = _run_tool_loop(
     messages,
