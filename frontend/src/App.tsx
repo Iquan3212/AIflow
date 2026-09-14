@@ -24,6 +24,8 @@ import BuyerPublicOnlyLayout from "./layouts/BuyerPublicOnlyLayout";
 import Manager from "./pages/Manager/Manager";
 import WorkforceUI from "./pages/Workforce/WorkforceUI";
 import Discover from "./pages/Discover/Discover";
+import DiscoverProjectDetail from "./pages/Discover/ProjectDetail";
+import DiscoverPropertyDetail from "./pages/Discover/PropertyDetail";
 import BuyerLogin from "./pages/Buyer/BuyerLogin";
 import BuyerRegister from "./pages/Buyer/BuyerRegister";
 import BuyerHome from "./pages/Buyer/BuyerHome";
@@ -44,6 +46,8 @@ export default function App() {
                     agency dashboard above (see BuyerAuthContext), so an agency
                     session never grants buyer routes or vice versa. */}
                 <Route path="/discover" element={<Discover />} />
+                <Route path="/discover/projects/:projectId" element={<DiscoverProjectDetail />} />
+                <Route path="/discover/properties/:propertyId" element={<DiscoverPropertyDetail />} />
                 <Route element={<BuyerPublicOnlyLayout />}>
                     <Route path="/buyer/login" element={<BuyerLogin />} />
                     <Route path="/buyer/register" element={<BuyerRegister />} />
