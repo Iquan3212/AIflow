@@ -10,6 +10,8 @@ import {
     Unlink,
     AlertTriangle,
     User,
+    Building2,
+    UserX,
 } from "lucide-react";
 
 import { useAgency } from "../../context/AgencyContext";
@@ -35,6 +37,9 @@ import {
     getGoogleStatus,
     getGoogleConnectUrl,
     disconnectGoogle,
+    confirmAppointment,
+    completeAppointment,
+    markAppointmentNoShow,
     type Appointment,
     type Slot,
     type BusinessHoursItem,
@@ -244,6 +249,42 @@ export default function Appointments() {
         }
     }
 
+    // ---- Phase 9: confirm/complete/no-show -------------------------------
+
+    async function doConfirm(a: Appointment) {
+        try {
+            await confirmAppointment(a.id);
+            flash("ok", "Site visit confirmed.");
+            await refreshAppointments();
+        } catch (e) {
+            const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+            flash("err", detail || "Couldn't confirm.");
+        }
+    }
+
+    async function doComplete(a: Appointment) {
+        try {
+            await completeAppointment(a.id);
+            flash("ok", "Site visit marked completed.");
+            await refreshAppointments();
+        } catch (e) {
+            const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+            flash("err", detail || "Couldn't mark completed.");
+        }
+    }
+
+    async function doNoShow(a: Appointment) {
+        if (!window.confirm(`Mark ${a.customer_name || "this buyer"} as a no-show?`)) return;
+        try {
+            await markAppointmentNoShow(a.id);
+            flash("ok", "Marked as a no-show.");
+            await refreshAppointments();
+        } catch (e) {
+            const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+            flash("err", detail || "Couldn't update.");
+        }
+    }
+
     async function saveSettings() {
         setSavingSettings(true);
         try {
@@ -440,10 +481,37 @@ export default function Appointments() {
                                         {a.service || "No property specified"} · {fmt(a.scheduled_at, tz)}
                                     </p>
                                 </div>
+                                {a.property_id && (
+                                    <Badge tone="brand" className="hidden sm:inline-flex">
+                                        <Building2 size={11} className="inline -mt-0.5 mr-1" /> Marketplace
+                                    </Badge>
+                                )}
                                 <Badge tone="neutral" className="hidden sm:inline-flex">{a.source}</Badge>
                                 <Badge tone={STATUS_TONE[a.status] ?? "neutral"}>{a.status.replace("_", " ")}</Badge>
-                                {a.status !== "cancelled" && (
+                                {/* Phase 9: only the actions the backend's own
+                                 * validated transition table actually allows
+                                 * from this exact status - never a button
+                                 * that would just 409 (Step 24: "no fake
+                                 * buttons"). Reschedule/cancel are untouched,
+                                 * available for any non-terminal status,
+                                 * exactly as they always were. */}
+                                {(a.status === "scheduled" || a.status === "confirmed" || a.status === "rescheduled") && (
                                     <div className="flex items-center gap-1">
+                                        {a.status === "scheduled" && (
+                                            <Button variant="ghost" size="sm" className="!text-emerald-700 hover:!bg-emerald-50" onClick={() => doConfirm(a)}>
+                                                <CheckCircle2 size={14} /> Confirm
+                                            </Button>
+                                        )}
+                                        {a.status === "confirmed" && (
+                                            <>
+                                                <Button variant="ghost" size="sm" className="!text-emerald-700 hover:!bg-emerald-50" onClick={() => doComplete(a)}>
+                                                    <CheckCircle2 size={14} /> Complete
+                                                </Button>
+                                                <Button variant="ghost" size="sm" className="!text-amber-700 hover:!bg-amber-50" onClick={() => doNoShow(a)}>
+                                                    <UserX size={14} /> No-show
+                                                </Button>
+                                            </>
+                                        )}
                                         <Button
                                             variant="ghost"
                                             size="sm"

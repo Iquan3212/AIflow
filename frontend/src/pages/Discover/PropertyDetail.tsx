@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Bookmark, Bot, Building2, CalendarClock, MapPin } from "lucide-react";
+import { ArrowLeft, Bookmark, Bot, Building2, CalendarClock, Heart, MapPin } from "lucide-react";
 
 import MarketplaceHeader from "../../components/marketplace/MarketplaceHeader";
 import TalkToAIPanel from "../../components/marketplace/TalkToAIPanel";
@@ -9,7 +9,9 @@ import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import { LoadingState, ErrorState } from "../../components/ui/States";
 import { getErrorMessage } from "../../services/api";
-import { getProperty, listSavedProperties, propertyMediaUrl, removeSavedProperty, saveProperty } from "../../services/marketplace";
+import {
+    getProperty, inquireAboutProperty, listSavedProperties, propertyMediaUrl, removeSavedProperty, saveProperty,
+} from "../../services/marketplace";
 import { useBuyerAuth } from "../../context/BuyerAuthContext";
 import { AMENITY_LABELS } from "../../types/inventory";
 import {
@@ -28,6 +30,8 @@ export default function PropertyDetail() {
     const [saved, setSaved] = useState(false);
     const [showAI, setShowAI] = useState(false);
     const [showSiteVisit, setShowSiteVisit] = useState(false);
+    const [inquiring, setInquiring] = useState(false);
+    const [inquiryMessage, setInquiryMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
     async function load() {
         if (!propertyId) return;
@@ -79,6 +83,24 @@ export default function PropertyDetail() {
             return;
         }
         setShowSiteVisit(true);
+    }
+
+    async function handleInquire() {
+        if (!property) return;
+        if (!isAuthenticated) {
+            navigate("/buyer/login");
+            return;
+        }
+        setInquiring(true);
+        setInquiryMessage(null);
+        try {
+            const result = await inquireAboutProperty(property.id);
+            setInquiryMessage({ ok: true, text: result.message });
+        } catch (err) {
+            setInquiryMessage({ ok: false, text: getErrorMessage(err) });
+        } finally {
+            setInquiring(false);
+        }
     }
 
     if (error) {
@@ -233,6 +255,20 @@ export default function PropertyDetail() {
                         <Card className="p-6 space-y-3">
                             <p className="text-xs text-slate-400">Listed by</p>
                             <p className="font-semibold text-ink-950">{property.agency_name}</p>
+                            <Button
+                                variant="secondary"
+                                className="w-full"
+                                onClick={handleInquire}
+                                loading={inquiring}
+                                disabled={inquiring}
+                            >
+                                <Heart size={16} /> Inquire
+                            </Button>
+                            {inquiryMessage && (
+                                <p className={`text-xs ${inquiryMessage.ok ? "text-emerald-700" : "text-red-600"}`}>
+                                    {inquiryMessage.text}
+                                </p>
+                            )}
                             <Button className="w-full" onClick={handleTalkToAI}>
                                 <Bot size={16} /> Talk to AI Assistant
                             </Button>

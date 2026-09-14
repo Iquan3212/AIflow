@@ -12,12 +12,16 @@ import { baseURL } from "./api";
 import buyerApi from "./buyerApi";
 import type {
     AskAssistantResult,
+    InquiryResult,
     MarketplaceProject,
     MarketplaceProjectDetail,
     MarketplaceProjectFilters,
     MarketplaceProperty,
     MarketplacePropertyFilters,
     MarketplacePropertySearchResult,
+    MyBooking,
+    MyInquiry,
+    MySiteVisit,
     SiteVisitRequestInput,
     SiteVisitRequestResult,
 } from "../types/marketplace";
@@ -80,6 +84,29 @@ export async function askAssistant(payload: {
  * anonymous browsing (see backend's get_current_buyer dependency). */
 export async function requestSiteVisit(propertyId: string, payload: SiteVisitRequestInput): Promise<SiteVisitRequestResult> {
     const response = await buyerApi.post<SiteVisitRequestResult>(`/marketplace/properties/${propertyId}/site-visit`, payload);
+    return response.data;
+}
+
+/** The lightweight "I'm interested" action (Phase 9) - buyer-authenticated. */
+export async function inquireAboutProperty(propertyId: string): Promise<InquiryResult> {
+    const response = await buyerApi.post<InquiryResult>(`/marketplace/properties/${propertyId}/inquire`);
+    return response.data;
+}
+
+// ---- buyer's own conversion journey (Phase 9) --------------------------
+
+export async function listMyInquiries(): Promise<MyInquiry[]> {
+    const response = await buyerApi.get<MyInquiry[]>("/buyer/inquiries");
+    return response.data;
+}
+
+export async function listMySiteVisits(): Promise<MySiteVisit[]> {
+    const response = await buyerApi.get<MySiteVisit[]>("/buyer/site-visits");
+    return response.data;
+}
+
+export async function listMyBookings(): Promise<MyBooking[]> {
+    const response = await buyerApi.get<MyBooking[]>("/buyer/bookings");
     return response.data;
 }
 

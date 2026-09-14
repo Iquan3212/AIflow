@@ -5,6 +5,8 @@ export interface Appointment {
     agency_id: string;
     lead_id: string | null;
     conversation_id: string | null;
+    buyer_id?: string | null;
+    property_id?: string | null;
     customer_name: string | null;
     customer_phone: string | null;
     customer_email: string | null;
@@ -82,6 +84,23 @@ export async function rescheduleAppointment(id: string, newStartLocalIso: string
 
 export async function cancelAppointment(id: string): Promise<void> {
     await api.delete(`/appointments/${id}`);
+}
+
+// ---- Phase 9: agency confirm/complete/no-show actions --------------------
+
+export async function confirmAppointment(id: string): Promise<Appointment> {
+    const res = await api.put(`/appointments/${id}/confirm`);
+    return res.data;
+}
+
+export async function completeAppointment(id: string): Promise<Appointment> {
+    const res = await api.put(`/appointments/${id}/complete`);
+    return res.data;
+}
+
+export async function markAppointmentNoShow(id: string): Promise<Appointment> {
+    const res = await api.put(`/appointments/${id}/no-show`);
+    return res.data;
 }
 
 // ---- settings -----------------------------------------------------------

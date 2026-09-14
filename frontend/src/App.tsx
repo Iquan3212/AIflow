@@ -16,6 +16,7 @@ import Workflows from "./pages/Workflows/Workflows";
 import Inventory from "./pages/Inventory/Inventory";
 import ProjectDetail from "./pages/Inventory/ProjectDetail";
 import PropertyDetail from "./pages/Inventory/PropertyDetail";
+import Bookings from "./pages/Bookings/Bookings";
 
 import ProtectedLayout from "./layouts/ProtectedLayout";
 import PublicOnlyLayout from "./layouts/PublicOnlyLayout";
@@ -71,6 +72,7 @@ export default function App() {
                     <Route path="/inventory" element={<Inventory />} />
                     <Route path="/inventory/projects/:projectId" element={<ProjectDetail />} />
                     <Route path="/inventory/properties/:propertyId" element={<PropertyDetail />} />
+                    <Route path="/bookings" element={<Bookings />} />
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/settings" element={<Settings />} />
                 </Route>

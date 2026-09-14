@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Download, Mail, Phone, Plus, Search, Trash2, Users, Wallet } from "lucide-react";
+import { Building2, Download, Handshake, Mail, Phone, Plus, Search, Trash2, Users, Wallet } from "lucide-react";
 
 import AppShell from "../../components/layout/AppShell";
 import PageHeader from "../../components/ui/PageHeader";
@@ -11,20 +11,30 @@ import Input, { Label } from "../../components/ui/Input";
 import { LoadingState, ErrorState, EmptyState } from "../../components/ui/States";
 import { getErrorMessage } from "../../services/api";
 import { createLead, deleteLead, listLeads, updateLeadStatus } from "../../services/leads";
+import { createBooking } from "../../services/bookings";
 import { LEAD_STATUSES, type Lead, type LeadStatus } from "../../types/lead";
 import { downloadCsv } from "../../utils/csv";
 
 /** The real pipeline stages this backend's Lead model actually defines
- * (app/models.py's `status` column) - no invented "Matched"/"Negotiation"/
- * "Booking" stages beyond what's real. */
+ * (app/models.py's `status` column) - no invented stages beyond what's
+ * real. Phase 9 adds the marketplace/real-estate-specific stages
+ * (site_visit_scheduled/visited/negotiating) additively; the original
+ * five keep their exact original meaning and colors. */
 const STAGE_META: Record<LeadStatus, { label: string; tone: "neutral" | "info" | "warning" | "success" | "danger" }> = {
     new: { label: "New", tone: "info" },
     contacted: { label: "Contacted", tone: "warning" },
     qualified: { label: "Qualified", tone: "warning" },
+    site_visit_scheduled: { label: "Site Visit Scheduled", tone: "warning" },
+    visited: { label: "Visited", tone: "warning" },
+    negotiating: { label: "Negotiating", tone: "warning" },
     converted: { label: "Converted", tone: "success" },
     lost: { label: "Lost", tone: "danger" },
 };
 
+// The top overview cards stay exactly as they were before Phase 9 - the
+// three new marketplace-specific stages are fully valid/selectable
+// below, just not given their own top-level counter tile, to avoid
+// visually restructuring a page every non-marketplace agency also uses.
 const PIPELINE_ORDER: LeadStatus[] = ["new", "contacted", "qualified", "converted"];
 
 function AddLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: (lead: Lead) => void }) {
@@ -95,8 +105,73 @@ function AddLeadModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     );
 }
 
-function LeadCard({ lead, onStatusChange, onDelete }: { lead: Lead; onStatusChange: (status: LeadStatus) => void; onDelete: () => void }) {
+/** Phase 9: the natural entry point for turning a marketplace lead into
+ * a Booking - property/buyer/lead are all DERIVED from the lead itself
+ * (read-only here), never retyped, matching booking_service.py's own
+ * "prefer deriving relationships from an existing Lead" rule. */
+function CreateBookingModal({ lead, onClose, onCreated }: { lead: Lead; onClose: () => void; onCreated: () => void }) {
+    const [agreedPrice, setAgreedPrice] = useState(lead.property?.price ?? "");
+    const [notes, setNotes] = useState("");
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState("");
+
+    async function handleSubmit(e: FormEvent) {
+        e.preventDefault();
+        if (!lead.property_id) return;
+        setSaving(true);
+        setError("");
+        try {
+            await createBooking({
+                property_id: lead.property_id,
+                lead_id: lead.id,
+                buyer_id: lead.buyer_id ?? undefined,
+                agreed_price: agreedPrice ? Number(agreedPrice) : undefined,
+                notes: notes.trim() || undefined,
+            });
+            onCreated();
+            onClose();
+        } catch (err) {
+            setError(getErrorMessage(err));
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    return (
+        <Modal title="Create booking" onClose={onClose}>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                {error && <div className="bg-red-50 border border-red-200 text-red-600 rounded-lg p-3 text-sm">{error}</div>}
+                <div className="rounded-xl bg-stone-100 p-3 text-sm">
+                    <p className="font-medium text-ink-950">{lead.property?.project_name}</p>
+                    <p className="text-slate-500 text-xs mt-0.5">
+                        {[lead.property?.building, lead.property?.unit_number].filter(Boolean).join(" · ") || "Unit not specified"}
+                        {" for "}{lead.name ?? "this buyer"}
+                    </p>
+                </div>
+                <div>
+                    <Label htmlFor="agreed_price">Agreed price (₹)</Label>
+                    <Input id="agreed_price" type="number" min={0} value={agreedPrice} onChange={(e) => setAgreedPrice(e.target.value)} />
+                </div>
+                <div>
+                    <Label htmlFor="booking_notes">Notes</Label>
+                    <Input id="booking_notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                    <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+                    <Button type="submit" loading={saving}>Create booking</Button>
+                </div>
+            </form>
+        </Modal>
+    );
+}
+
+function LeadCard({
+    lead, onStatusChange, onDelete, onBookingCreated,
+}: {
+    lead: Lead; onStatusChange: (status: LeadStatus) => void; onDelete: () => void; onBookingCreated: () => void;
+}) {
     const meta = STAGE_META[lead.status];
+    const [showBooking, setShowBooking] = useState(false);
     return (
         <Card interactive className="p-5 flex flex-col gap-3">
             <div className="flex items-start justify-between gap-3">
@@ -133,6 +208,35 @@ function LeadCard({ lead, onStatusChange, onDelete }: { lead: Lead; onStatusChan
                 )}
             </div>
 
+            {/* Phase 9: marketplace provenance - only present for a lead
+             * that actually came from a buyer inquiry/site-visit request. */}
+            {lead.property && (
+                <div className="flex items-center justify-between gap-1.5 text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        <Badge tone="brand" className="shrink-0">
+                            <Building2 size={11} className="inline -mt-0.5 mr-1" /> Marketplace
+                        </Badge>
+                        <span className="text-slate-500 truncate">
+                            {lead.property.project_name}
+                            {lead.property.unit_number ? ` · ${lead.property.unit_number}` : ""}
+                        </span>
+                    </div>
+                    <button
+                        onClick={() => setShowBooking(true)}
+                        className="shrink-0 flex items-center gap-1 text-brand-700 hover:text-brand-800 font-medium"
+                    >
+                        <Handshake size={12} /> Book
+                    </button>
+                </div>
+            )}
+            {showBooking && (
+                <CreateBookingModal
+                    lead={lead}
+                    onClose={() => setShowBooking(false)}
+                    onCreated={onBookingCreated}
+                />
+            )}
+
             <div className="flex items-center justify-between gap-2 pt-1">
                 <select
                     value={lead.status}
@@ -156,6 +260,13 @@ export default function Leads() {
     const [search, setSearch] = useState("");
     const [statusFilter, setStatusFilter] = useState<LeadStatus | "all">("all");
     const [showAddModal, setShowAddModal] = useState(false);
+    const [bookingToast, setBookingToast] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!bookingToast) return;
+        const t = setTimeout(() => setBookingToast(null), 3500);
+        return () => clearTimeout(t);
+    }, [bookingToast]);
 
     async function load() {
         setError(null);
@@ -171,7 +282,11 @@ export default function Leads() {
     }, []);
 
     const counts = useMemo(() => {
-        const base: Record<LeadStatus, number> = { new: 0, contacted: 0, qualified: 0, converted: 0, lost: 0 };
+        const base: Record<LeadStatus, number> = {
+            new: 0, contacted: 0, qualified: 0,
+            site_visit_scheduled: 0, visited: 0, negotiating: 0,
+            converted: 0, lost: 0,
+        };
         for (const lead of leads ?? []) base[lead.status] += 1;
         return base;
     }, [leads]);
@@ -225,6 +340,14 @@ export default function Leads() {
 
     return (
         <AppShell>
+            {bookingToast && (
+                <div
+                    role="status"
+                    className="fixed top-20 right-6 z-40 rounded-xl px-4 py-3 text-sm font-medium shadow-lifted bg-brand-600 text-white"
+                >
+                    {bookingToast}
+                </div>
+            )}
             <PageHeader
                 eyebrow="Buyer pipeline"
                 title="Leads"
@@ -313,6 +436,7 @@ export default function Leads() {
                                     lead={lead}
                                     onStatusChange={(status) => handleStatusChange(lead, status)}
                                     onDelete={() => handleDelete(lead)}
+                                    onBookingCreated={() => setBookingToast("Booking created — see it on the Bookings page.")}
                                 />
                             ))}
                         </div>

@@ -11,6 +11,7 @@ import {
     LifeBuoy,
     BookOpen,
     Building2,
+    Handshake,
     BarChart3,
     Settings as SettingsIcon,
     LogOut,
@@ -52,6 +53,7 @@ const GROUPS: NavGroup[] = [
         items: [
             { to: "/leads", label: "Leads", description: "Every buyer inquiry your AI Workforce has captured.", icon: Users },
             { to: "/conversations", label: "Conversations", description: "Read and reply to customer chats directly.", icon: MessageSquare },
+            { to: "/bookings", label: "Bookings", description: "Confirmed and completed unit sales.", icon: Handshake },
         ],
     },
     {

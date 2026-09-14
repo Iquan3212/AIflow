@@ -139,3 +139,39 @@ export interface AskAssistantResult {
     conversation_id: string;
     reply: string;
 }
+
+// ---- Phase 9: buyer's own conversion journey --------------------------
+
+export interface InquiryResult {
+    success: boolean;
+    message: string;
+    inquiry_id: string;
+    property: MarketplaceProperty;
+}
+
+export interface MyInquiry {
+    inquiry_id: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+    property: MarketplaceProperty;
+}
+
+export interface MySiteVisit {
+    appointment_id: string;
+    status: string;
+    scheduled_at: string;
+    end_at: string;
+    service: string | null;
+    created_at: string;
+    property: MarketplaceProperty | null;
+}
+
+export interface MyBooking {
+    booking_id: string;
+    status: string;
+    agreed_price: string | null;
+    created_at: string;
+    updated_at: string;
+    property: MarketplaceProperty | null;
+}
