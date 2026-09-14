@@ -349,12 +349,22 @@ class TestSiteVisitRequest:
 
             lead = db.query(models.Lead).filter(models.Lead.agency_id == agency.id).first()
             assert lead is not None
-            assert "Site visit" in (lead.service_interested or "")
+            # Phase 9: the site-visit endpoint now goes through the same
+            # get_or_create_marketplace_lead() a plain "inquire" uses, so
+            # the lead is properly linked (not just descriptively
+            # labeled "Site visit - ...", which would be a wrong label
+            # for a lead that could equally have come from a plain
+            # inquiry) and carries the real buyer/property relationship.
+            assert lead.buyer_id == buyer.id
+            assert lead.property_id == s["active_prop"].id
+            assert "Active Project" in (lead.service_interested or "")
 
             appt = db.query(models.Appointment).filter(models.Appointment.id == result.appointment_id).first()
             assert appt is not None
             assert appt.source == "marketplace"
             assert appt.lead_id == lead.id
+            assert appt.buyer_id == buyer.id
+            assert appt.property_id == s["active_prop"].id
         finally:
             db.query(models.Appointment).filter(models.Appointment.agency_id == agency.id).delete()
             db.query(models.Lead).filter(models.Lead.agency_id == agency.id).delete()
