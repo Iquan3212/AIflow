@@ -38,6 +38,8 @@ class LeadService:
             email=payload.email,
             service_interested=payload.service_interested,
             budget=payload.budget,
+            buyer_id=payload.buyer_id,
+            property_id=payload.property_id,
         )
 
         self.db.add(lead)

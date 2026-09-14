@@ -13,6 +13,7 @@ not anonymous, action).
   GET  /marketplace/properties/{id}                     detail
   GET  /marketplace/properties/{id}/media/{mid}/file    public photo/floor plan
   POST /marketplace/properties/{id}/site-visit          buyer-authenticated
+  POST /marketplace/properties/{id}/inquire              buyer-authenticated
 """
 
 from __future__ import annotations
@@ -24,8 +25,9 @@ from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
 from app.deps import get_current_buyer
-from app.services.lead_service import LeadService
+from app.services.marketplace.inquiry_service import PropertyNotPublicError, get_or_create_marketplace_lead
 from app.services.marketplace.media_service import MediaNotPublicError, get_public_project_media_content, get_public_property_media_content
+from app.services.marketplace.lead_lifecycle import advance_if_further
 from app.services.marketplace.project_service import MarketplaceProjectService
 from app.services.marketplace.property_service import InvalidSortError, MarketplacePropertyService
 from app.services.scheduling.appointment_service import AppointmentService
@@ -119,7 +121,38 @@ def get_property_media_file(property_id: str, media_id: str, db: Session = Depen
     return Response(content=content, media_type=content_type)
 
 
-# ---- site visit request (buyer-authenticated) ------------------------
+# ---- inquiry + site visit request (buyer-authenticated) --------------
+
+@router.post("/properties/{property_id}/inquire", response_model=schemas.InquiryResponse)
+def inquire_about_property(
+    property_id: str,
+    buyer: models.Buyer = Depends(get_current_buyer),
+    db: Session = Depends(get_db),
+):
+    """The lightweight "I'm interested" action (Phase 9, Step 6) - get-or-
+    creates the ONE Lead for (buyer, property) via
+    get_or_create_marketplace_lead, which re-resolves the property
+    through the exact same public marketplace visibility rules every
+    other marketplace endpoint uses (never a raw Property.get - Step
+    30), so a buyer can never attach an unpublished/private property to
+    an agency's Lead this way. Never exposes the agency's own LeadOut
+    to the buyer - only a safe, purpose-built response."""
+    try:
+        resolution = get_or_create_marketplace_lead(db, buyer, property_id)
+    except PropertyNotPublicError:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    property_out = MarketplacePropertyService(db).to_out(resolution.property, resolution.project)
+
+    message = (
+        "Thanks for your interest — the agency has been notified."
+        if resolution.created
+        else "You've already inquired about this property — the agency has your details."
+    )
+    return schemas.InquiryResponse(
+        success=True, message=message, inquiry_id=resolution.lead.id, property=property_out,
+    )
+
 
 @router.post("/properties/{property_id}/site-visit", response_model=schemas.SiteVisitRequestOut)
 def request_site_visit(
@@ -128,48 +161,45 @@ def request_site_visit(
     buyer: models.Buyer = Depends(get_current_buyer),
     db: Session = Depends(get_db),
 ):
-    """Creates a REAL Lead + Appointment through the exact same
-    AppointmentService/LeadService the agency dashboard and the AI
-    receptionist already use (Step 10 of the Phase 8 spec: reuse the
-    existing appointment architecture, never a duplicate one). No new
-    Appointment column was added for the property reference - like
-    `demo_real_estate.py`'s own site-visit rows, the listing is named in
-    the free-text `service` field, the same convention this app already
-    uses for 'what is this visit about'."""
-    marketplace_property = MarketplacePropertyService(db).get(property_id)
-    if marketplace_property is None:
+    """Creates/reuses ONE Lead via the exact same get_or_create_marketplace_lead
+    an inquiry uses (Phase 9, Step 7 - fixes Phase 8's bug of creating a
+    brand-new Lead on every single request), then books through the
+    EXISTING AppointmentService.book() unchanged - business-hours
+    validation, double-booking checks, calendar sync, customer
+    confirmation notification, and the appointment_created workflow
+    trigger all keep working exactly as they did before Phase 9."""
+    try:
+        resolution = get_or_create_marketplace_lead(db, buyer, property_id)
+    except PropertyNotPublicError:
         raise HTTPException(status_code=404, detail="Property not found")
 
-    agency = db.query(models.Agency).filter(models.Agency.slug == marketplace_property.agency_slug).first()
-    if agency is None:
-        raise HTTPException(status_code=404, detail="Agency not found")
-
-    listing_label = f"{marketplace_property.project_name}"
-    if marketplace_property.unit_number:
-        listing_label += f", Unit {marketplace_property.unit_number}"
-    elif marketplace_property.building:
-        listing_label += f", {marketplace_property.building}"
-
-    lead = LeadService(db).create(
-        agency.id,
-        schemas.LeadCreate(
-            name=payload.name,
-            phone=payload.phone,
-            email=payload.email,
-            service_interested=f"Site visit - {listing_label}",
-        ),
+    lead, property_row, project_row, agency = (
+        resolution.lead, resolution.property, resolution.project, resolution.agency,
     )
+    listing_label = project_row.name
+    if property_row.unit_number:
+        listing_label += f", Unit {property_row.unit_number}"
+    elif property_row.building:
+        listing_label += f", {property_row.building}"
 
     outcome = AppointmentService(db).book(
         agency,
         start_local_iso=f"{payload.preferred_date.isoformat()}T{payload.preferred_time}",
-        customer_name=payload.name,
-        customer_phone=payload.phone,
-        customer_email=payload.email,
+        customer_name=payload.name or lead.name,
+        customer_phone=payload.phone or lead.phone,
+        customer_email=payload.email or lead.email,
         service=f"Site visit - {listing_label}",
         lead_id=lead.id,
         source="marketplace",
+        buyer_id=buyer.id,
+        property_id=property_id,
     )
+
+    if outcome.ok:
+        # A real site visit got a real slot - this is genuinely further
+        # along the funnel than merely having inquired (Step 4).
+        if advance_if_further(lead, "site_visit_scheduled"):
+            db.commit()
 
     return schemas.SiteVisitRequestOut(
         ok=outcome.ok,

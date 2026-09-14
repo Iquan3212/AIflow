@@ -23,6 +23,7 @@ from app.services.workflows.triggers import appointment_data, fire_trigger
 
 logger = get_logger(__name__)
 
+from . import appointment_status
 from .availability import Rules, DayHours, Interval, check_slot, generate_slots
 from .datetime_utils import parse_local_iso, to_local, humanize, get_tz, now_utc
 
@@ -146,6 +147,8 @@ class AppointmentService:
         lead_id: str | None = None,
         conversation_id: str | None = None,
         source: str = "chat",
+        buyer_id: str | None = None,
+        property_id: str | None = None,
     ) -> BookingOutcome:
         self.ensure_defaults(agency)
         tz = agency.timezone
@@ -180,6 +183,8 @@ class AppointmentService:
             agency_id=agency.id,
             lead_id=lead_id,
             conversation_id=conversation_id,
+            buyer_id=buyer_id,
+            property_id=property_id,
             customer_name=customer_name,
             customer_phone=customer_phone,
             customer_email=customer_email,
@@ -265,6 +270,53 @@ class AppointmentService:
         return BookingOutcome(True, appointment=appt,
                               message=f"Cancelled your appointment on {humanize(appt.scheduled_at, tz)}.")
 
+    # ---- Phase 9: agency confirm/complete/no-show actions -------------------
+    # New explicit agency actions using AppointmentStatus values that already
+    # existed but that nothing ever set (see appointment_status.py). Never
+    # touches book()/reschedule()/cancel() - those remain exactly as they were.
+
+    def confirm(self, agency: models.Agency, appointment_id: str) -> BookingOutcome:
+        appt = self.repo.get(agency.id, appointment_id)
+        if not appt:
+            return BookingOutcome(False, reason="not_found", message="I couldn't find that appointment.")
+        try:
+            appointment_status.validate_appointment_action(appt.status, models.AppointmentStatus.confirmed)
+        except appointment_status.InvalidAppointmentActionError as exc:
+            return BookingOutcome(False, reason="invalid_transition", message=str(exc))
+
+        already_confirmed = appt.status == models.AppointmentStatus.confirmed
+        appt.status = models.AppointmentStatus.confirmed
+        appt = self.repo.save(appt)
+        if not already_confirmed:
+            self._send_visit_confirmed(agency, appt)
+        return BookingOutcome(True, appointment=appt, message="Site visit confirmed.")
+
+    def complete(self, agency: models.Agency, appointment_id: str) -> BookingOutcome:
+        appt = self.repo.get(agency.id, appointment_id)
+        if not appt:
+            return BookingOutcome(False, reason="not_found", message="I couldn't find that appointment.")
+        try:
+            appointment_status.validate_appointment_action(appt.status, models.AppointmentStatus.completed)
+        except appointment_status.InvalidAppointmentActionError as exc:
+            return BookingOutcome(False, reason="invalid_transition", message=str(exc))
+
+        appt.status = models.AppointmentStatus.completed
+        appt = self.repo.save(appt)
+        return BookingOutcome(True, appointment=appt, message="Site visit marked completed.")
+
+    def mark_no_show(self, agency: models.Agency, appointment_id: str) -> BookingOutcome:
+        appt = self.repo.get(agency.id, appointment_id)
+        if not appt:
+            return BookingOutcome(False, reason="not_found", message="I couldn't find that appointment.")
+        try:
+            appointment_status.validate_appointment_action(appt.status, models.AppointmentStatus.no_show)
+        except appointment_status.InvalidAppointmentActionError as exc:
+            return BookingOutcome(False, reason="invalid_transition", message=str(exc))
+
+        appt.status = models.AppointmentStatus.no_show
+        appt = self.repo.save(appt)
+        return BookingOutcome(True, appointment=appt, message="Site visit marked as a no-show.")
+
     def find_for_customer(self, agency: models.Agency, *, phone=None, email=None, conversation_id=None):
         """Best-effort lookup of a customer's active appointment for reschedule/cancel."""
         for appt in self.repo.get_all(agency.id):
@@ -334,6 +386,22 @@ class AppointmentService:
         )
         appt.confirmation_sent_at = now_utc()
         self.repo.save(appt)
+
+    def _send_visit_confirmed(self, agency, appt):
+        """Phase 9: reuses the existing APPOINTMENT_CONFIRMED preference/
+        channel exactly as instructed (Step 21) - distinct wording from
+        _send_confirmation's booking-receipt message above (this fires
+        when the AGENCY explicitly confirms the visit, a separate real
+        event from the automatic "your booking request was received"
+        notification already sent at book() time), but the same
+        customer opt-in toggle governs both."""
+        when = humanize(appt.scheduled_at, agency.timezone)
+        self.notifier.notify_customer(
+            db=self.db, agency_id=agency.id, event_type=notif_prefs.APPOINTMENT_CONFIRMED,
+            name=appt.customer_name, email=appt.customer_email, phone=appt.customer_phone,
+            subject=f"Site visit confirmed — {agency.name}",
+            body=f"Good news - {agency.name} has confirmed your site visit for {when}.",
+        )
 
     def _send_reschedule(self, agency, appt):
         when = humanize(appt.scheduled_at, agency.timezone)

@@ -102,6 +102,42 @@ def cancel_appointment(
     return {"message": outcome.message}
 
 
+# ---- Phase 9: agency confirm/complete/no-show actions ----------------
+
+def _outcome_or_error(outcome):
+    if outcome.ok:
+        return outcome.appointment
+    code = 404 if outcome.reason == "not_found" else 409
+    raise HTTPException(status_code=code, detail=outcome.message)
+
+
+@router.put("/{appointment_id}/confirm", response_model=schemas.AppointmentOut)
+def confirm_appointment(
+    appointment_id: str,
+    agency: models.Agency = Depends(get_current_agency),
+    db: Session = Depends(get_db),
+):
+    return _outcome_or_error(AppointmentService(db).confirm(agency, appointment_id))
+
+
+@router.put("/{appointment_id}/complete", response_model=schemas.AppointmentOut)
+def complete_appointment(
+    appointment_id: str,
+    agency: models.Agency = Depends(get_current_agency),
+    db: Session = Depends(get_db),
+):
+    return _outcome_or_error(AppointmentService(db).complete(agency, appointment_id))
+
+
+@router.put("/{appointment_id}/no-show", response_model=schemas.AppointmentOut)
+def mark_appointment_no_show(
+    appointment_id: str,
+    agency: models.Agency = Depends(get_current_agency),
+    db: Session = Depends(get_db),
+):
+    return _outcome_or_error(AppointmentService(db).mark_no_show(agency, appointment_id))
+
+
 # ---- scheduling config (opening hours + booking rules) ----
 
 @router.get("/settings/hours", response_model=list[schemas.BusinessHoursItem])
