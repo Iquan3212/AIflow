@@ -54,11 +54,12 @@ def retrieve(
 
     `threshold=None` (the default - every real production call site omits
     it) defers to the ACTIVE embedding provider's own
-    `relevance_threshold`, since a sparse hashed bag-of-words vector
-    (mock) and a dense neural embedding (Gemini) have fundamentally
-    different cosine-similarity scales for a genuine match - one global
-    cutoff can't correctly serve both. Pass an explicit float to override
-    (tests do this to probe specific cutoffs regardless of provider)."""
+    `relevance_threshold` (see EmbeddingProvider in embeddings.py) rather
+    than a single bare module constant - different embedding
+    representations have different typical cosine-similarity ranges for
+    a genuine match, so this stays per-provider even though "mock" is
+    the only one registered today. Pass an explicit float to override
+    (tests do this to probe specific cutoffs)."""
     query = (query or "").strip()
     if not query or not agency_id:
         return []

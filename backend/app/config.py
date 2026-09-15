@@ -55,27 +55,34 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 30
 
     # =====================================================
-    # AI — provider-agnostic. LLM_PROVIDER selects which of the four
-    # adapters in app/services/llm/ handles every chat_completion() call
-    # in the app (see app/services/llm/factory.py). Only the SELECTED
-    # provider's credentials are required at runtime - validated lazily by
-    # the factory when it's actually constructed, not by pydantic here, so
+    # AI — provider-agnostic. LLM_PROVIDER selects which of the adapters
+    # in app/services/llm/ handles every chat_completion() call in the
+    # app (see app/services/llm/factory.py). Only the SELECTED provider's
+    # credentials are required at runtime - validated lazily by the
+    # factory when it's actually constructed, not by pydantic here, so
     # startup never fails over an unused provider's missing key.
+    #
+    # Phase 11: Gemini was removed as a supported provider (both here and
+    # as EMBEDDING_PROVIDER below) - it repeatedly hit its free-tier
+    # daily quota in this dev environment; see
+    # app/services/knowledge/embeddings.py's module docstring for the
+    # full removal rationale.
     # =====================================================
 
-    llm_provider: str = "groq"  # groq | gemini | openrouter | ollama
+    llm_provider: str = "groq"  # groq | openrouter | ollama
 
-    # Optional: if set to one of the four provider names (and different
-    # from llm_provider), a transient failure (rate limit/timeout/
-    # unavailable/provider_error - never an invalid request, an auth
-    # problem in OUR app, a prompt-injection refusal, or a tool/agency-
-    # rule failure) triggers exactly one retry against this provider
-    # instead. "" or "none" (the default) disables fallback entirely.
+    # Optional: if set to one of the supported provider names (and
+    # different from llm_provider), a transient failure (rate limit/
+    # timeout/unavailable/provider_error - never an invalid request, an
+    # auth problem in OUR app, a prompt-injection refusal, or a tool/
+    # agency-rule failure) triggers exactly one retry against this
+    # provider instead. "" or "none" (the default) disables fallback
+    # entirely.
     llm_fallback_provider: str = ""
 
     # The model id passed to whichever provider is selected - its meaning
-    # is provider-specific (e.g. "openai/gpt-oss-20b" for Groq, a Gemini
-    # model name for Gemini), so there's one field, not one per provider.
+    # is provider-specific (e.g. "openai/gpt-oss-20b" for Groq), so
+    # there's one field, not one per provider.
     llm_model: str = "gpt-4o-mini"
 
     # Legacy generic fields from before multi-provider support - still
@@ -100,8 +107,6 @@ class Settings(BaseSettings):
 
     groq_api_key: str = ""
     groq_base_url: str = ""  # blank = Groq's real endpoint (see factory.py)
-
-    gemini_api_key: str = ""
 
     openrouter_api_key: str = ""
     openrouter_base_url: str = ""  # blank = OpenRouter's real endpoint
@@ -185,13 +190,14 @@ class Settings(BaseSettings):
     # KNOWLEDGE BASE / RAG (Phase 4)
     #
     # EMBEDDING_PROVIDER selects which app/services/knowledge/embeddings.py
-    # implementation turns chunk text into vectors:
-    #   - "mock" (default): deterministic, hash-seeded vectors - zero cost,
-    #     zero network calls. Correct for every test and for development;
-    #     NOT semantically meaningful, so real retrieval quality can only
-    #     be judged with a real provider.
-    #   - "gemini": real embeddings via the already-configured
-    #     GEMINI_API_KEY (no new credential needed) - see embeddings.py.
+    # implementation turns chunk text into vectors. "mock" (the default,
+    # and the only supported value as of Phase 11) is deterministic,
+    # hash-seeded-but-vocabulary-sensitive vectors - zero cost, zero
+    # network calls, and already genuinely relevance-sensitive (see
+    # MockEmbeddingProvider's own docstring) rather than a placeholder.
+    # Gemini was removed as an embedding provider in Phase 11 - see
+    # embeddings.py's module docstring for the full rationale (repeated
+    # free-tier daily quota exhaustion in this dev environment).
     # KNOWLEDGE_STORAGE_DIR: where uploaded documents' raw bytes are
     # written (see storage.py) - one subdirectory per agency_id.
     # =====================================================

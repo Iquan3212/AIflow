@@ -379,8 +379,8 @@ care which provider is actually configured:
 Caller (ManagerAgent/Employee/Tool)
  -> llm_client.chat_completion(messages, tools)     (facade - unchanged signature)
  -> app/services/llm/factory.py: create_llm_provider() (selected once, at import, from LLM_PROVIDER)
- -> LLMProvider adapter                              (OpenAICompatibleProvider | GeminiProvider)
- -> provider SDK (openai / google-genai)             (only place a provider SDK is imported)
+ -> LLMProvider adapter                              (OpenAICompatibleProvider)
+ -> provider SDK (openai)                            (only place a provider SDK is imported)
  -> ChatResult(content, tool_calls)                   (canonical shape, back to the caller)
 ```
 
@@ -406,30 +406,25 @@ Caller (ManagerAgent/Employee/Tool)
   `APIConnectionError`/`InternalServerError`, `AuthenticationError`/
   `PermissionDeniedError`, `BadRequestError`) into the six categories
   above; anything else becomes `provider_error`.
-- **`app/services/llm/gemini_provider.py`** — a real, separate adapter for
-  **Google Gemini** via the current `google-genai` SDK (not the older,
-  deprecated `google-generativeai` package) — Gemini's request/response
-  shape is genuinely different, not just a different base URL: no
-  "system" role in the content array (every system-role message in the
-  incoming OpenAI-shaped list is concatenated, in order, into one
-  `system_instruction`), `assistant` maps to Gemini's `model` role, and a
-  "tool"-role result message (identified only by `tool_call_id` in the
-  OpenAI shape) is mapped to a `functionResponse` part by tracking
-  `tool_call_id -> function_name` from the preceding assistant message's
-  `tool_calls`. Classifies `google.genai.errors.APIError` by its
-  `.code` (HTTP status): 429 -> `rate_limited`, 401/403 ->
-  `authentication_error`, 400 -> `invalid_request`, 408/504 -> `timeout`,
-  5xx -> `unavailable`; a connection-level failure (no status code at
-  all, since it never reaches `APIError`) becomes `unavailable`.
+- **Gemini (removed in Phase 11)** — a separate adapter,
+  `app/services/llm/gemini_provider.py`, once implemented Google Gemini
+  via the `google-genai` SDK here (Gemini's request/response shape was
+  genuinely different, not just a different base URL — no "system" role
+  in the content array, `assistant` mapped to Gemini's `model` role,
+  etc.). It was deleted in Phase 11 after repeatedly hitting its
+  free-tier daily quota in this dev environment (see `EMBEDDING_PROVIDER`
+  below for the actual root cause) — `LLM_PROVIDER=gemini` now fails the
+  same generic way any other unknown provider name would. Do not
+  resurrect this file from git history to "fix" Gemini; the fix was
+  removing it.
 - **`app/services/llm/factory.py`** — `create_llm_provider(settings,
   provider_name=None)` is the *only* place that branches on provider
-  name. `LLM_PROVIDER` (`groq` | `gemini` | `openrouter` | `ollama`)
-  selects the adapter; each branch validates only the credentials that
-  provider actually needs (`ProviderNotConfiguredError` if missing), so
-  an unused provider's blank API key never fails startup — Gemini/
-  OpenRouter can be left unconfigured entirely while running on Groq.
-  Ollama needs no key at all, just `OLLAMA_BASE_URL` (default
-  `http://127.0.0.1:11434`).
+  name. `LLM_PROVIDER` (`groq` | `openrouter` | `ollama`) selects the
+  adapter; each branch validates only the credentials that provider
+  actually needs (`ProviderNotConfiguredError` if missing), so an unused
+  provider's blank API key never fails startup — OpenRouter can be left
+  unconfigured entirely while running on Groq. Ollama needs no key at
+  all, just `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`).
 - **`app/services/llm_client.py`** — the thin facade above, unchanged in
   signature from before this refactor. Adds one optional feature:
   **single-attempt fallback** — if `LLM_FALLBACK_PROVIDER` names a second
@@ -449,13 +444,11 @@ Caller (ManagerAgent/Employee/Tool)
   set — an existing `.env` keeps working with zero changes.
 - **Tool/function calling**: the only real tool-calling call site is
   `conversation_service.py`'s tool loop (OpenAI-style `tools`/
-  `tool_choice`, reading back `.tool_calls`). Every adapter either
-  implements this correctly (Groq/OpenRouter/Ollama via native OpenAI
-  tool-calling; Gemini via `FunctionDeclaration`/`ToolConfig`) or the
-  underlying model simply won't emit a tool call and the loop's existing
-  "no tool_calls -> return the plain reply" path handles it — there is no
-  code path that fabricates a tool result or claims a tool ran when it
-  didn't.
+  `tool_choice`, reading back `.tool_calls`). Groq/OpenRouter/Ollama
+  implement this via native OpenAI tool-calling; if the underlying model
+  simply won't emit a tool call, the loop's existing "no tool_calls ->
+  return the plain reply" path handles it — there is no code path that
+  fabricates a tool result or claims a tool ran when it didn't.
 - **Verified NOT changed by this refactor** (confirmed via `git diff`):
   `prompt_guard.py`, `manager_agent.py`, every employee agent,
   `tool_router.py`, `conversation_service.py`'s tool loop, and
@@ -774,7 +767,7 @@ Document upload
  -> process_document()     (FastAPI BackgroundTasks - no queue infra in this repo)
      -> extract_text()      (pypdf / python-docx / utf-8-or-latin1 txt; honest ExtractionError, never fabricated text)
      -> chunk_text()        (deterministic, paragraph-aware, char-based, small overlap)
-     -> EmbeddingProvider.embed()  (mock or Gemini - see below)
+     -> EmbeddingProvider.embed()  (mock - the only registered provider, see below)
      -> KnowledgeChunk rows (agency_id denormalized onto every chunk - see below)
  -> status=ready (chunk_count set) or status=failed (real error message, never silently "ready" with zero usable content)
 ```
@@ -811,9 +804,8 @@ Customer/owner message
   PostgreSQL database every other table already lives in.
 - **`EmbeddingProvider` abstraction** (`embeddings.py`) - deliberately
   separate from `app/services/llm/` (the `LLM_PROVIDER` chat-completion
-  layer): an agency can run its Manager AI on Groq while Knowledge Base
-  embeddings come from Gemini, with neither layer aware of the other's
-  provider choice. `EMBEDDING_PROVIDER` (default `mock`) selects:
+  layer). `EMBEDDING_PROVIDER` (default and only supported value: `mock`)
+  selects:
   - `mock` - deterministic, zero-cost, zero-network **hashed bag-of-words**
     ("feature hashing") embedding: text is tokenized (lowercased,
     stopwords stripped), each token hashed into one of `dimension`
@@ -828,26 +820,23 @@ Customer/owner message
     DIFFERENT strings was pure noise regardless of true relevance,
     confirmed live via an exact-text query scoring 1.0 through the real
     API (proving pgvector/threshold/tenant-filter code was correct all
-    along) while natural paraphrases scored ~0.02-0.03. Still not real
-    semantic understanding (a synonym/paraphrase with zero shared words
-    won't match - that needs `gemini`), but no longer blind to a query
-    and a document plainly sharing the same words. See
-    `MockEmbeddingProvider`'s own docstring (`embeddings.py`) for the
-    full root-cause trace.
-  - `gemini` - real embeddings via the already-installed `google-genai`
-    SDK and already-configured `GEMINI_API_KEY` (no new credential
-    needed). Live-verified (one real, minimal diagnostic call) that
-    `text-embedding-004` 404s on this project's API key/version;
-    `client.models.list()` filtered to `embedContent`-capable models
-    shows only `gemini-embedding-001` (stable, used here) and two preview
-    models. Its native output is 3072-dimensional -
-    `output_dimensionality=768` (Matryoshka/MRL truncation) is requested
-    explicitly to match `EMBEDDING_DIMENSION` / the fixed-size pgvector
-    column. The truncated output is not unit-norm (confirmed: ~0.59, not
-    1.0) - left as-is rather than renormalized, since pgvector's
-    `cosine_distance()` is already scale-invariant (true cosine
-    similarity divides by both vectors' norms), so retrieval ranking is
-    unaffected either way.
+    along) while natural paraphrases scored ~0.02-0.03. Not real semantic
+    understanding (a synonym/paraphrase with zero shared words won't
+    match), but no longer blind to a query and a document plainly sharing
+    the same words. See `MockEmbeddingProvider`'s own docstring
+    (`embeddings.py`) for the full root-cause trace.
+  - **Gemini (removed in Phase 11)** - a real-embeddings provider once
+    existed here (`gemini-embedding-001`, truncated via
+    `output_dimensionality=768` to match `EMBEDDING_DIMENSION`/the
+    fixed-size pgvector column). It was deleted after this project's dev
+    `.env` set `EMBEDDING_PROVIDER=gemini` and repeatedly hit Gemini's
+    free-tier **daily** quota (`EmbedContentRequestsPerDayPerProjectPer
+    Model-FreeTier`, limit 1000) - the actual root cause of a whole class
+    of "known pre-existing flakiness" in the knowledge/RAG test suite
+    across earlier phases, none of which ever intentionally depended on
+    Gemini (confirmed: their own docstrings always describe testing
+    against the deterministic mock provider). `EMBEDDING_PROVIDER=gemini`
+    now fails the same generic way any other unknown provider name would.
 - **Retrieval** (`retrieval.py`) - `retrieve(db, agency_id, query,
   top_k, threshold)` returns a clean `KnowledgeResult` (`document_id,
   document_name, chunk_id, content, score`) list - callers never see a
@@ -856,12 +845,13 @@ Customer/owner message
   near-identical-content second-tenant fixture that cross-tenant
   retrieval never crosses, even at worst-case similarity. `threshold`
   defaults to `None`, which defers to the ACTIVE `EmbeddingProvider`'s own
-  `relevance_threshold` (`RELEVANCE_THRESHOLD`=0.55 for `gemini`,
-  `MOCK_RELEVANCE_THRESHOLD`=0.3 for `mock`, empirically measured against
-  real query/document score distributions - see `config.py`) rather than
-  one global cutoff, since a sparse hashed bag-of-words vector and a
-  dense neural embedding have fundamentally different cosine-similarity
-  scales for a genuine match.
+  `relevance_threshold` (`MOCK_RELEVANCE_THRESHOLD`=0.3 for `mock`,
+  empirically measured against real query/document score distributions -
+  see `config.py`) rather than one global cutoff - kept per-provider
+  rather than a bare module constant since a different embedding
+  representation would have a different cosine-similarity scale for a
+  genuine match, even though `mock` is the only provider registered
+  today.
 - **Workforce integration** - every employee (`sales_agent.py`,
   `support_agent.py`, `receptionist_agent.py`, `analytics_agent.py`,
   `marketing_agent.py`, `finance_agent.py`, and `manager_agent.py`)
@@ -948,18 +938,17 @@ Customer/owner message
   something is queued/processing, and stops on its own once nothing is
   pending (no push channel exists to the browser for background-task
   completion).
-- **Live QA finding, fixed**: the one deliberate live QA pass against a
-  real 4-document test agency (`gemini-embedding-001` provider) found
-  that `text-embedding-004` (the originally-assumed model name) 404s for
-  this API key/version - not a plumbing bug, a wrong model string. Fixed
-  by switching to `gemini-embedding-001` with explicit
-  `output_dimensionality=768`; re-verified live (all 4 documents reached
+- **Live QA finding (Phase 4, historical)**: a deliberate live QA pass
+  against a real 4-document test agency, back when Gemini was still the
+  real-embeddings provider, found that `text-embedding-004` (the
+  originally-assumed model name) 404s for that API key/version - not a
+  plumbing bug, a wrong model string. Fixed at the time by switching to
+  `gemini-embedding-001`; re-verified live (all 4 documents reached
   `ready`, semantic search correctly ranked the right document first for
   every query, and a 7-query live chat matrix through `/manager/chat`
   produced grounded, cited, non-fabricated, injection-resistant answers).
-  `EMBEDDING_PROVIDER` is shipped defaulting to `mock` - `gemini` is
-  opt-in via `.env`, matching Step 7's "mock during development, real
-  provider enable-able later" design.
+  `EMBEDDING_PROVIDER` shipped defaulting to `mock` throughout - Gemini
+  was opt-in via `.env`, and was fully removed in Phase 11 (see above).
 
 ## Controlled Workflow Automation (`backend/app/services/workflows/`, Phase 5)
 

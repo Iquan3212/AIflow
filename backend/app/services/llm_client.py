@@ -4,7 +4,7 @@ Thin, provider-independent facade every caller in the app already uses:
     chat_completion(messages, tools=None, tool_choice="auto") -> ChatResult
 
 raising LLMProviderError (never a provider SDK's own exception type) on
-failure. The actual provider - Groq, Gemini, OpenRouter, or a local Ollama
+failure. The actual provider - Groq, OpenRouter, or a local Ollama
 server - is selected once, at import time, by LLM_PROVIDER (see
 app/services/llm/factory.py). No caller needs to change to add or swap
 providers: ManagerAgent, the employee agents, llm_reply.py, and the tools

@@ -11,12 +11,12 @@ GMAIL_KEYWORDS history).
 # Every embedding written to KnowledgeChunk.embedding MUST be exactly this
 # many dimensions - the pgvector column is created with a fixed size (see
 # the add_knowledge_base migration), so every EmbeddingProvider
-# implementation (mock or real) has to conform to this, not the other way
-# around. 768 is what GeminiEmbeddingProvider explicitly requests via
-# output_dimensionality (gemini-embedding-001 natively outputs 3072 dims -
-# see embeddings.py's own docstring for why that specific model/param was
-# needed) - MockEmbeddingProvider deliberately produces vectors of the
-# same length so both are interchangeable without a schema change.
+# implementation has to conform to this, not the other way around. 768
+# was originally chosen to match a real provider (Gemini, since removed
+# in Phase 11 - see embeddings.py's module docstring) via its Matryoshka
+# output_dimensionality truncation; kept unchanged since MockEmbeddingProvider
+# (the only provider now) already produces vectors of this length and
+# changing it would require a schema migration for no actual benefit.
 EMBEDDING_DIMENSION = 768
 
 # ---- upload validation ------------------------------------------------
@@ -35,14 +35,15 @@ CHUNK_OVERLAP_CHARS = 150
 MIN_CHUNK_CHARS = 40  # a chunk shorter than this is merged into its neighbor rather than indexed on its own
 
 # ---- retrieval ------------------------------------------------------
-# See app/services/knowledge/retrieval.py. RELEVANCE_THRESHOLD is a
-# cosine-similarity cutoff (1.0 = identical, 0.0 = unrelated) - chunks
+# See app/services/knowledge/retrieval.py. The relevance cutoff is a
+# cosine-similarity threshold (1.0 = identical, 0.0 = unrelated) - chunks
 # below it are dropped rather than forced into the prompt, so "nothing
 # relevant was found" is a real, honest outcome the LLM can act on (see
 # llm_reply.py's grounding instruction) instead of always injecting the
-# top-k regardless of quality.
+# top-k regardless of quality. See MOCK_RELEVANCE_THRESHOLD below for the
+# actual value used (Phase 11: "mock" is the only embedding provider -
+# see embeddings.py's module docstring for why Gemini was removed).
 DEFAULT_TOP_K = 4
-RELEVANCE_THRESHOLD = 0.55  # calibrated for real (Gemini) embeddings - see MOCK_RELEVANCE_THRESHOLD for mock's own, lower, empirically-measured scale
 MAX_CONTEXT_CHARS = 4000  # hard cap on how much retrieved text can ever reach one synthesis call
 
 # ---- mock embedding provider (see embeddings.py) -----------------------
@@ -81,10 +82,10 @@ MOCK_EMBEDDING_STOPWORDS = frozenset({
 # documents and real natural-language questions: genuinely relevant
 # matches scored 0.50-0.63, while an unrelated query's best (wrong) match
 # scored at most ~0.12 - 0.3 sits with wide margin on both sides of that
-# real, measured gap. Deliberately lower than RELEVANCE_THRESHOLD (0.55)
-# because a sparse hashed bag-of-words vector's cosine-similarity scale is
-# fundamentally different from a dense neural embedding's (Gemini) - one
-# global threshold cannot correctly serve both distributions, so each
-# EmbeddingProvider carries its own (see EmbeddingProvider.relevance_threshold
-# in embeddings.py).
+# real, measured gap. A sparse hashed bag-of-words vector's cosine-
+# similarity scale is not directly comparable to a dense neural
+# embedding's, which is why EmbeddingProvider.relevance_threshold
+# (embeddings.py) is a per-provider attribute rather than one bare
+# module constant - even though "mock" is the only provider today
+# (Phase 11 removed Gemini, the other one that ever existed here).
 MOCK_RELEVANCE_THRESHOLD = 0.3

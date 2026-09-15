@@ -1,12 +1,13 @@
 """
 Canonical, provider-independent LLM contract. Every provider adapter
-(openai_compatible.py - Groq/OpenRouter/Ollama; gemini_provider.py)
-implements LLMProvider and only ever returns/raises the types defined
-here - nothing above llm_client.py (ManagerAgent, employees, tools,
-llm_reply.py) ever sees a provider SDK's own request/response/exception
-type. This is what makes the provider swappable through configuration
-alone: every caller depends on this module's shapes, never on `openai.*`
-or `google.genai.*` directly.
+(openai_compatible.py - Groq/OpenRouter/Ollama) implements LLMProvider
+and only ever returns/raises the types defined here - nothing above
+llm_client.py (ManagerAgent, employees, tools, llm_reply.py) ever sees a
+provider SDK's own request/response/exception type. This is what makes
+the provider swappable through configuration alone: every caller
+depends on this module's shapes, never on `openai.*` directly. (A
+Gemini adapter existed here through Phase 10; removed in Phase 11 - see
+app/services/knowledge/embeddings.py's module docstring.)
 """
 
 from __future__ import annotations
@@ -40,9 +41,9 @@ ALL_REASONS = frozenset({
 FALLBACK_ELIGIBLE_REASONS = frozenset({RATE_LIMITED, TIMEOUT, UNAVAILABLE, PROVIDER_ERROR})
 
 # ---- canonical customer-safe failure messages ------------------------------
-# Shared by every adapter (openai_compatible.py and gemini_provider.py used
-# to each define their own identical copies of these four strings - single
-# source of truth now). Also used by prompt_guard.py to recognize a reply as
+# Shared by every adapter - each used to define its own identical copies
+# of these four strings; single source of truth now. Also used by
+# prompt_guard.py to recognize a reply as
 # "this app's own failure text", never real assistant content - see
 # is_fallback_reply() - so a transient provider hiccup doesn't get replayed
 # to the model as if it were prior conversation history.
@@ -98,11 +99,9 @@ class ChatResult:
 
 class LLMProvider(abc.ABC):
     """One provider adapter. `name` identifies it in logs/status output
-    (never a secret). Implementations: openai_compatible.py (shared by
+    (never a secret). Implementation: openai_compatible.py, shared by
     Groq/OpenRouter/Ollama - all three speak the same OpenAI chat/
-    completions schema) and gemini_provider.py (a genuinely different
-    API, given its own real adapter rather than forced through the
-    OpenAI shape)."""
+    completions schema."""
 
     name: str = "unknown"
 

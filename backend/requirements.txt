@@ -14,16 +14,15 @@ alembic>=1.13.0
 slowapi>=0.1.9
 
 # LLM providers: openai (above) covers Groq/OpenRouter/Ollama - all three
-# speak the OpenAI chat/completions schema. Gemini's API is genuinely
-# different and needs its own SDK - the current, supported one (not the
-# older, deprecated google-generativeai package).
-google-genai>=1.75.0,<2.0.0
+# speak the OpenAI chat/completions schema. (Gemini's LLM and embedding
+# adapters, and their google-genai SDK dependency, were removed in Phase
+# 11 - see app/services/knowledge/embeddings.py's module docstring for
+# why. Nothing else in this codebase imports google.genai.)
 
 # Google Calendar sync AND Gmail (app/services/calendar/, app/services/
 # gmail/) - both adapters use this client library for the actual API
-# calls once OAuth tokens exist. google-auth (Credentials) is already a
-# transitive dep of google-genai; declared explicitly here since both
-# adapters import it directly, not just incidentally.
+# calls once OAuth tokens exist. Declared explicitly since both adapters
+# import it directly, not just incidentally.
 google-api-python-client>=2.130.0
 google-auth>=2.30.0
 

@@ -60,10 +60,11 @@ You need:
   provider (see `ARCHITECTURE.md#database`) — free tier is enough to start.
   Paste the connection string into `DATABASE_URL`.
 - **One LLM provider, chosen via `LLM_PROVIDER`** in `.env` — `groq`,
-  `gemini`, `openrouter`, or `ollama` (local, no API key). Only that
-  provider's credentials are required; the other three can stay blank.
-  See "LLM providers" below and `ARCHITECTURE.md`'s "LLM provider layer"
-  section for how they're selected and swapped.
+  `openrouter`, or `ollama` (local, no API key). Only that provider's
+  credentials are required; the others can stay blank. See "LLM
+  providers" below and `ARCHITECTURE.md`'s "LLM provider layer" section
+  for how they're selected and swapped. (Gemini was removed as a
+  supported provider in Phase 11 — see `ARCHITECTURE.md` for why.)
 
 Then create the schema (schema is managed by Alembic, not auto-created on
 boot — see `ARCHITECTURE.md#database`):
@@ -91,7 +92,6 @@ one with `LLM_PROVIDER` in `.env`:
 | `LLM_PROVIDER` | Credentials needed | Notes |
 |---|---|---|
 | `groq` (default) | `GROQ_API_KEY` | [console.groq.com/keys](https://console.groq.com/keys). Example model: `openai/gpt-oss-20b`. |
-| `gemini` | `GEMINI_API_KEY` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Example model: `gemini-2.0-flash`. |
 | `openrouter` | `OPENROUTER_API_KEY` | [openrouter.ai/keys](https://openrouter.ai/keys). Any model id OpenRouter hosts; tool-calling only works if the chosen model supports it. |
 | `ollama` | none — runs locally | Install from [ollama.com/download](https://ollama.com/download), then `ollama pull llama3.1` (or any tool-calling-capable model) and leave it running. Set `OLLAMA_BASE_URL` if it's not on the default `http://127.0.0.1:11434`. If Ollama isn't running, requests fail with a clean "temporarily unavailable" error instead of crashing. |
 
@@ -111,8 +111,14 @@ Separate from the `LLM_PROVIDER` chat layer above — set via
 
 | `EMBEDDING_PROVIDER` | Credentials needed | Notes |
 |---|---|---|
-| `mock` (default) | none | Deterministic, zero-cost, zero-network. Fine for development and the test suite; **not semantically meaningful** — only exact/near-exact text scores as a real match, so it's not useful for judging real answer quality. |
-| `gemini` | `GEMINI_API_KEY` (same key as the `gemini` `LLM_PROVIDER` option above — no separate credential needed) | Real semantic embeddings (`gemini-embedding-001`, truncated to 768 dimensions). Use this for anything beyond exercising the ingestion/retrieval plumbing. |
+| `mock` (default, only supported value) | none | Deterministic, zero-cost, zero-network hashed bag-of-words embedding — genuinely relevance-sensitive (shared vocabulary between a query and a chunk scores measurably higher), not a naive placeholder. |
+
+`mock` is the only registered `EMBEDDING_PROVIDER`. Gemini was removed
+as an embedding provider in Phase 11 after repeatedly hitting its
+free-tier daily quota in this dev environment — see
+`ARCHITECTURE.md`/`embeddings.py`'s module docstring for the full
+rationale. Setting `EMBEDDING_PROVIDER=gemini` now raises a clean
+"unknown provider" error at startup rather than being silently accepted.
 
 `KNOWLEDGE_STORAGE_DIR` (default `./data/knowledge`) sets where uploaded
 document files are stored on disk (per-agency subdirectories,

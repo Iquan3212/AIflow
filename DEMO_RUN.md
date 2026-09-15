@@ -119,24 +119,36 @@ alongside a realistic-sized portfolio.
 | `Refund_or_Cancellation_Policy.txt` | Cancellation tiers, RERA delay clause |
 | `RERA_Information.txt` | RERA numbers + registered possession dates |
 
-**Embeddings:** processed with **real Gemini embeddings**
-(`EMBEDDING_PROVIDER=gemini` in `backend/.env`), not the mock provider —
-this is a deliberate choice so the RAG demo is semantically meaningful,
-per the task's explicit authorization to use real embeddings for the
-Knowledge Base demo. **This setting is intentionally left as `gemini`,
-not reverted to the shipped default of `mock`**, because the 6 documents'
-chunks are already stored as real Gemini vectors; switching back to mock
-would silently break retrieval (a mock-embedded query compared against
-Gemini-embedded chunks is comparing two unrelated vector spaces — this is
-exactly the kind of bug the Phase 4 KB investigation earlier in this
-project already diagnosed once). See §8 for the one consequence of this:
-a few knowledge-retrieval tests assume the mock provider and need an
-explicit override to run locally.
+**Embeddings (historical → updated in Phase 11):** at the time this demo
+was originally run, these 6 documents were processed with **real Gemini
+embeddings** (`EMBEDDING_PROVIDER=gemini` in `backend/.env`), a
+deliberate choice so the RAG demo was semantically meaningful. Phase 11
+removed Gemini entirely (repeated free-tier daily quota exhaustion — see
+`ARCHITECTURE.md`'s embedding-provider section) and set
+`EMBEDDING_PROVIDER=mock` as the only supported value. That left these
+6 chunks (and every other pre-existing "ready" document in this dev DB)
+holding stale Gemini vectors (confirmed via norm ≈0.59, Gemini's known
+truncated-output signature, vs. mock's unit-norm ≈1.0) while every new
+query would be mock-embedded — comparing two unrelated vector spaces,
+exactly the bug the Phase 4 KB investigation originally diagnosed. Fixed
+as part of Phase 11 by reprocessing all 14 "ready" documents in this dev
+DB through the existing idempotent retry flow
+(`KnowledgeService.mark_queued_for_retry()` + `process_document()`), now
+under `EMBEDDING_PROVIDER=mock` — re-verified: all 14 came back
+`status=ready` with the same chunk counts as before, chunk vector norms
+now ≈1.0 (mock), and a real `retrieve()` call for this agency's "What is
+the refund policy if possession is delayed?" still correctly returned
+`Refund_or_Cancellation_Policy.txt` (score 0.447, above
+`MOCK_RELEVANCE_THRESHOLD`=0.3). §8's note about a few tests needing an
+explicit mock override no longer applies — every test now runs against
+mock by default.
 
-A real (non-LLM) retrieval preview was verified via `POST
-/knowledge/search`: querying "What is the refund policy if possession is
-delayed?" returned the correct chunk from `Refund_or_Cancellation_Policy.txt`
-(score 0.736).
+A real (non-LLM) retrieval preview was originally verified via `POST
+/knowledge/search` against the Gemini-embedded chunks: querying "What is
+the refund policy if possession is delayed?" returned the correct chunk
+from `Refund_or_Cancellation_Policy.txt` (score 0.736 — not comparable to
+the Phase 11 mock score above, since the two embedding spaces have
+different cosine-similarity scales).
 
 ## 5. Real buyer inquiry → real Lead → real site visit (the "golden path")
 
@@ -282,26 +294,15 @@ demo's own templates were corrected instead.
 
 ## 13. Real LLM / embedding provider call count
 
-- **Embedding operations (real Gemini):** 6 (one per Knowledge Base document processed)
+- **Embedding operations (real Gemini, at the time):** 6 (one per Knowledge Base document processed) — **historical**; Phase 11 removed Gemini and these 6 documents were reprocessed with the mock provider (see §4).
 - **LLM chat turns (real Groq):** 4 — 3 customer-conversation turns + 1 Manager AI dashboard query
 - No duplicate/repeated queries were run; no large live-LLM regression suite was executed.
 
 ## 14. Final regression
 
-- **Backend:** `pytest -q` → **447 passed, 0 failed** (4 tests require `EMBEDDING_PROVIDER=mock` explicitly set when running locally — see note below — otherwise they fail only because this demo deliberately left `.env`'s `EMBEDDING_PROVIDER=gemini`, not because of an app bug).
+- **Backend:** `pytest -q` → **447 passed, 0 failed** at the time (4 tests required `EMBEDDING_PROVIDER=mock` explicitly set when running locally, since this demo deliberately left `.env`'s `EMBEDDING_PROVIDER=gemini` — not an app bug). **Historical**: Phase 11 removed Gemini entirely; `EMBEDDING_PROVIDER=mock` is now the shipped, only-supported default, so this coupling no longer exists — see `ARCHITECTURE.md`/`embeddings.py` for the current state.
 - **Frontend:** `npm run build` → clean. `npm run lint` → clean.
 - **Database integrity:** `alembic current` → head unchanged; `vector` extension present; all 28 tables and their indexes (including the KB's HNSW index) intact after the flush.
-
-**Note for future local test runs:** if `backend/.env` has
-`EMBEDDING_PROVIDER=gemini` (as this demo leaves it, see §4), run:
-```
-EMBEDDING_PROVIDER=mock ./venv/bin/python -m pytest -q
-```
-Four knowledge-retrieval tests assert exact-match behavior that only
-holds for the deterministic mock embedder (this is already documented in
-`tests/test_knowledge_retrieval.py`'s own docstring) — this is a
-pre-existing test/environment coupling, not something introduced by this
-demo.
 
 ## 15. What was NOT touched
 
@@ -365,11 +366,15 @@ server and reading the real error/response, not by code review alone.
 ## 18. Phase 7 final regression
 
 - **Backend:** `pytest -q` (full suite) → **501 passed, 4 failed** in
-  479s. `tests/test_inventory.py` alone: **48 passed, 0 failed**. The 4
-  failures are the same pre-existing `EMBEDDING_PROVIDER=gemini`-coupled
-  knowledge-retrieval tests documented in §14 above — confirmed via
-  `git stash` to fail identically on the pre-Phase-7 baseline, so they
-  are unrelated to this work.
+  479s, at the time. `tests/test_inventory.py` alone: **48 passed, 0
+  failed**. The 4 failures were the same pre-existing
+  `EMBEDDING_PROVIDER=gemini`-coupled knowledge-retrieval tests
+  documented in §14 above — confirmed via `git stash` to fail identically
+  on the pre-Phase-7 baseline, so they were unrelated to this work.
+  **Historical**: Phase 11 removed Gemini entirely (root cause: this
+  coupling was itself caused by the dev `.env`'s
+  `EMBEDDING_PROVIDER=gemini` override repeatedly exhausting Gemini's
+  free-tier daily quota); this class of failure no longer exists.
 - **Frontend:** `npm run build` (tsc -b + vite build) → clean, 0 errors.
   `npm run lint` → clean, 0 errors/warnings.
 - **Migration:** `alembic current` → `ca6e5cedb0b7 (head)`, already
