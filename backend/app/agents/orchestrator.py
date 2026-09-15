@@ -14,6 +14,9 @@ from app.agents.marketing_agent import MarketingAgent
 from app.agents.finance_agent import FinanceAgent
 from app.agents.lead_qualifier_agent import LeadQualifierAgent, EMPLOYEE_NAME as LEAD_QUALIFIER_NAME, GRANTED_TOOLS as LEAD_QUALIFIER_TOOLS
 from app.agents.property_matcher_agent import PropertyMatcherAgent, EMPLOYEE_NAME as PROPERTY_MATCHER_NAME, GRANTED_TOOLS as PROPERTY_MATCHER_TOOLS
+from app.agents.real_estate_sales_agent import RealEstateSalesAgent, EMPLOYEE_NAME as REAL_ESTATE_SALES_NAME, GRANTED_TOOLS as REAL_ESTATE_SALES_TOOLS
+from app.agents.site_visit_agent import SiteVisitAgent, EMPLOYEE_NAME as SITE_VISIT_NAME, GRANTED_TOOLS as SITE_VISIT_TOOLS
+from app.agents.customer_relations_agent import CustomerRelationsAgent, EMPLOYEE_NAME as CUSTOMER_RELATIONS_NAME, GRANTED_TOOLS as CUSTOMER_RELATIONS_TOOLS
 
 from app.tools.lead_tool import LeadTool
 from app.tools.appointment_tool import AppointmentTool
@@ -25,9 +28,11 @@ from app.tools.gmail_tool import GmailStatusTool, GmailSearchTool, GmailReadTool
 from app.tools.knowledge_tool import KnowledgeSearchTool
 from app.tools.realestate_lead_property_tools import (
     GetLeadTool, UpdateLeadQualificationTool, SearchPropertiesTool, SearchProjectsTool, GetPropertyTool,
+    GetProjectTool, GetLeadAppointmentsTool, GetLeadBookingsTool,
 )
 from app.tools.realestate_visit_followup_tools import (
-    GetAvailableSlotsTool, ProposeVisitTool, ConfirmVisitTool, CreateFollowUpTool, DraftCustomerMessageTool,
+    GetAvailableSlotsTool, ProposeVisitTool, ConfirmVisitTool, RescheduleVisitTool, CancelVisitTool,
+    CreateFollowUpTool, DraftCustomerMessageTool, ProposeSendCustomerMessageTool,
 )
 
 
@@ -80,26 +85,27 @@ class AIOrchestrator:
         # app/tools/knowledge_tool.py and ARCHITECTURE.md.
         self.registry.register_tool("knowledge_search", KnowledgeSearchTool())
 
-        # Phase 10A/10B real-estate AI-workforce tools - see
+        # Phase 10A-10C real-estate AI-workforce tools - see
         # app/tools/realestate_lead_property_tools.py and
-        # app/tools/realestate_visit_followup_tools.py. Read/low-risk-
-        # write tools are granted directly to lead_qualifier/
-        # property_matcher below; propose_visit/confirm_visit/
-        # create_follow_up/draft_customer_message are registered (so
-        # they're reachable/testable through this real Registry) but not
-        # yet granted to any employee - no 10B persona needs them, and no
-        # 10C/10D employee (Sales/Site Visit/Customer Relations) exists
-        # yet to grant them to.
+        # app/tools/realestate_visit_followup_tools.py. Granted below to
+        # exactly the employees that need them (never every workforce
+        # tool) - see each employee module's own GRANTED_TOOLS constant.
         self.registry.register_tool("get_lead", GetLeadTool(db=self.db))
         self.registry.register_tool("update_lead_qualification", UpdateLeadQualificationTool(db=self.db))
         self.registry.register_tool("search_properties", SearchPropertiesTool(db=self.db))
         self.registry.register_tool("search_projects", SearchProjectsTool(db=self.db))
         self.registry.register_tool("get_property", GetPropertyTool(db=self.db))
+        self.registry.register_tool("get_project", GetProjectTool(db=self.db))
+        self.registry.register_tool("get_lead_appointments", GetLeadAppointmentsTool(db=self.db))
+        self.registry.register_tool("get_lead_bookings", GetLeadBookingsTool(db=self.db))
         self.registry.register_tool("get_available_slots", GetAvailableSlotsTool(db=self.db))
         self.registry.register_tool("propose_visit", ProposeVisitTool(db=self.db))
         self.registry.register_tool("confirm_visit", ConfirmVisitTool(db=self.db))
+        self.registry.register_tool("reschedule_visit", RescheduleVisitTool(db=self.db))
+        self.registry.register_tool("cancel_visit", CancelVisitTool(db=self.db))
         self.registry.register_tool("create_follow_up", CreateFollowUpTool(db=self.db))
         self.registry.register_tool("draft_customer_message", DraftCustomerMessageTool(db=self.db))
+        self.registry.register_tool("propose_send_customer_message", ProposeSendCustomerMessageTool(db=self.db))
 
         # Employee agents
         self.registry.register_employee("sales", SalesAgent(self.agency, self.lead), tools=["lead", "knowledge_search"])
@@ -122,6 +128,22 @@ class AIOrchestrator:
         self.registry.register_employee(
             PROPERTY_MATCHER_NAME, PropertyMatcherAgent(self.agency, self.lead),
             tools=PROPERTY_MATCHER_TOOLS, tool_calling=True,
+        )
+        # Phase 10C: the next three real-estate specialists. Sales is
+        # registered under "real_estate_sales", NOT "sales" - see
+        # real_estate_sales_agent.py's module docstring for why (the
+        # legacy generic "sales" employee above must not be replaced).
+        self.registry.register_employee(
+            REAL_ESTATE_SALES_NAME, RealEstateSalesAgent(self.agency, self.lead),
+            tools=REAL_ESTATE_SALES_TOOLS, tool_calling=True,
+        )
+        self.registry.register_employee(
+            SITE_VISIT_NAME, SiteVisitAgent(self.agency, self.lead),
+            tools=SITE_VISIT_TOOLS, tool_calling=True,
+        )
+        self.registry.register_employee(
+            CUSTOMER_RELATIONS_NAME, CustomerRelationsAgent(self.agency, self.lead),
+            tools=CUSTOMER_RELATIONS_TOOLS, tool_calling=True,
         )
 
         # Manager gets access to all registered tools and orchestrates employees

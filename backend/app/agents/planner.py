@@ -138,6 +138,15 @@ class Planner:
                 "follow up with", "nurture the lead", "check in with the customer",
                 "stay in touch with",
             ],
+            # Phase 10C: distinct from "sales" above (generic pricing/
+            # quotation/lead-capture, any business type) - this is
+            # specifically about a real-estate lead's next-best-action/
+            # stalled status, routed to the new real_estate_sales
+            # employee, never the legacy generic "sales" one.
+            "real_estate_sales": [
+                "next best action", "recommend next action", "is this lead stalled",
+                "stalled lead", "sales recommendation for", "re-engage this lead",
+            ],
         }
 
         # Which tools are typically required per employee intent
@@ -152,12 +161,17 @@ class Planner:
             "gmail": ["gmail_search", "gmail_read", "gmail_draft", "gmail_send"],
             # Phase 10B: lead_qualifier/property_matcher are now real,
             # registered employees (app/agents/orchestrator.py) - see
-            # intent_employee below. site_visit/customer_relations have
-            # no employee yet (10C/10D), still routed to "manager".
+            # intent_employee below.
             "lead_qualification": ["update_lead_qualification"],
             "property_matching": ["search_properties"],
-            "site_visit": [],
-            "customer_relations": [],
+            # Phase 10C: site_visit/customer_relations/real_estate_sales
+            # are now real, registered employees too, and each employee
+            # name matches its intent name exactly (like receptionist/
+            # sales/finance/etc.), so no intent_employee entry is needed
+            # for any of these three - the shortcut below handles it.
+            "site_visit": ["propose_visit"],
+            "customer_relations": ["draft_customer_message"],
+            "real_estate_sales": ["update_lead_qualification"],
         }
 
         # Lower number = higher priority
@@ -172,27 +186,25 @@ class Planner:
             "site_visit": 12,
             "lead_qualification": 22,
             "property_matching": 23,
+            "real_estate_sales": 24,
             "customer_relations": 42,
             "general": 50,
         }
 
-        # Explicit intent -> employee mapping. Every intent used to
-        # implicitly assume its own name was also a valid registered
-        # employee name (receptionist/sales/analytics/marketing/support/
-        # finance all are) - "gmail" breaks that assumption (there is no
-        # "gmail" employee in the Registry, only "manager", which is
-        # granted the gmail_* tools - see AIOrchestrator/ARCHITECTURE.md),
-        # so it needs an explicit entry rather than relying on the
-        # intent-name-equals-employee-name shortcut. Same reason
-        # lead_qualification/property_matching need explicit entries:
-        # their real employee names (lead_qualifier/property_matcher,
-        # app/agents/orchestrator.py) don't match the intent name itself.
+        # Explicit intent -> employee mapping, needed ONLY when the
+        # intent name doesn't match the real registered employee name.
+        # "gmail" has no "gmail" employee (routes to "manager", granted
+        # the gmail_* tools). lead_qualification/property_matching route
+        # to lead_qualifier/property_matcher (Phase 10B) - different
+        # names by design (see those employees' own modules).
+        # site_visit/customer_relations/real_estate_sales (Phase 10C) all
+        # use the intent-name-equals-employee-name shortcut instead - see
+        # app/agents/site_visit_agent.py, customer_relations_agent.py,
+        # real_estate_sales_agent.py's EMPLOYEE_NAME constants.
         self.intent_employee = {
             "gmail": "manager",
             "lead_qualification": "lead_qualifier",
             "property_matching": "property_matcher",
-            "site_visit": "manager",
-            "customer_relations": "manager",
         }
 
     def plan(self, message: str) -> Plan:

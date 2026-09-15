@@ -1,4 +1,7 @@
-import { Bot, TrendingUp, CalendarClock, LifeBuoy, Wallet, BarChart3, Megaphone, Users2, UserCheck, SearchCheck } from "lucide-react";
+import {
+    Bot, TrendingUp, CalendarClock, LifeBuoy, Wallet, BarChart3, Megaphone, Users2,
+    UserCheck, SearchCheck, Handshake, CalendarCheck2, HeartHandshake,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import StatusIndicator from "./StatusIndicator";
@@ -14,6 +17,9 @@ const ROLE_ICONS: Record<string, LucideIcon> = {
     marketing: Megaphone,
     lead_qualifier: UserCheck,
     property_matcher: SearchCheck,
+    real_estate_sales: Handshake,
+    site_visit: CalendarCheck2,
+    customer_relations: HeartHandshake,
 };
 
 /** A distinct accent per role (order matches the real registry:
@@ -29,6 +35,9 @@ const ROLE_ACCENT: Record<string, string> = {
     marketing: "text-rose-600 bg-rose-50",
     lead_qualifier: "text-teal-600 bg-teal-50",
     property_matcher: "text-indigo-600 bg-indigo-50",
+    real_estate_sales: "text-orange-600 bg-orange-50",
+    site_visit: "text-cyan-600 bg-cyan-50",
+    customer_relations: "text-pink-600 bg-pink-50",
 };
 
 export default function EmployeeStatusCard({ employee, highlight = false }: { employee: EmployeeInfo; highlight?: boolean }) {
