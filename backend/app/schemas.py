@@ -222,6 +222,11 @@ class LeadUpdate(BaseModel):
     service_interested: str | None = None
     budget: str | None = None
     status: str | None = None
+    # Phase 10B: written only by the Lead Qualification AI employee via
+    # update_lead_qualification -> LeadService.update() - see
+    # app/models.py's Lead.qualification_score/qualification_notes.
+    qualification_score: int | None = Field(default=None, ge=0, le=100)
+    qualification_notes: str | None = None
 
 
 class LeadPropertySummaryOut(BaseModel):
@@ -256,6 +261,8 @@ class LeadOut(BaseModel):
     service_interested: str | None = None
     budget: str | None = None
     status: str
+    qualification_score: int | None = None
+    qualification_notes: str | None = None
     created_at: datetime
     updated_at: datetime
     property: LeadPropertySummaryOut | None = None

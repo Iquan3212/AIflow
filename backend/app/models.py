@@ -317,6 +317,14 @@ class Lead(Base):
     # validated-transition helper used only by Phase 9's own automatic
     # progressions, never by the existing manual PUT /leads/{id} path).
     status = Column(String(32), default="new")
+    # Phase 10B: additive, optional - written only by the Lead
+    # Qualification AI employee (app/agents/lead_qualifier_agent.py) via
+    # the update_lead_qualification tool, through LeadService.update()
+    # like every other Lead field. `status` above already IS the
+    # qualification "stage" (new/contacted/qualified/...), so no separate
+    # stage column was added - only these two genuinely new signals.
+    qualification_score = Column(Integer, nullable=True)  # 0-100, the agent's assessed lead-quality score
+    qualification_notes = Column(Text, nullable=True)  # free-text synthesis of budget/location/BHK/timeline/urgency/etc.
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -327,6 +335,10 @@ class Lead(Base):
 
     __table_args__ = (
         UniqueConstraint("buyer_id", "property_id", name="uq_lead_buyer_property"),
+        CheckConstraint(
+            "qualification_score IS NULL OR (qualification_score >= 0 AND qualification_score <= 100)",
+            name="ck_leads_qualification_score_range",
+        ),
     )
 
 

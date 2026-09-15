@@ -56,6 +56,8 @@ def _lead_summary(lead: models.Lead) -> dict:
         "service_interested": lead.service_interested,
         "budget": lead.budget,
         "status": lead.status,
+        "qualification_score": lead.qualification_score,
+        "qualification_notes": lead.qualification_notes,
         "buyer_id": lead.buyer_id,
         "property_id": lead.property_id,
         "created_at": lead.created_at.isoformat() if lead.created_at else None,
@@ -111,27 +113,45 @@ class GetLeadTool:
 
 
 class UpdateLeadQualificationTool:
-    """update_lead_qualification(lead_id, status) - moves a lead through
-    the same status vocabulary the dashboard already exposes. Direct
-    write (see module docstring for why this one doesn't need
-    AIActionApproval)."""
+    """update_lead_qualification(lead_id, status?, qualification_score?,
+    qualification_notes?) - moves a lead through the same status
+    vocabulary the dashboard already exposes, and/or records the Lead
+    Qualification employee's assessed score/notes (Phase 10B - see
+    app/models.py's Lead.qualification_score/qualification_notes; no
+    separate "stage" field was added since `status` already is one).
+    Direct write (see module docstring for why this one doesn't need
+    AIActionApproval) - never touches commercial/property/booking state."""
 
     def __init__(self, db: Session):
         self.db = db
 
     def execute(self, message: str = None, db: Session = None, agency: models.Agency = None,
-                conversation=None, lead=None, lead_id: str = None, status: str = None, **kwargs) -> dict:
+                conversation=None, lead=None, lead_id: str = None, status: str = None,
+                qualification_score: int = None, qualification_notes: str = None, **kwargs) -> dict:
         db = db or self.db
         if agency is None:
             return {"success": False, "error": "missing_agency"}
         if not lead_id:
             return {"success": False, "error": "missing_lead_id"}
-        if not status:
-            return {"success": False, "error": "missing_status"}
-        if status not in KNOWN_LEAD_STATUSES:
+        if status is None and qualification_score is None and qualification_notes is None:
+            return {"success": False, "error": "missing_arguments"}
+        if status is not None and status not in KNOWN_LEAD_STATUSES:
             return {"success": False, "error": "invalid_status", "message": f"Unknown lead status: {status!r}"}
 
-        updated = LeadService(db).update(lead_id, agency.id, schemas.LeadUpdate(status=status))
+        update_fields = {}
+        if status is not None:
+            update_fields["status"] = status
+        if qualification_score is not None:
+            update_fields["qualification_score"] = qualification_score
+        if qualification_notes is not None:
+            update_fields["qualification_notes"] = qualification_notes
+
+        try:
+            payload = schemas.LeadUpdate(**update_fields)
+        except ValidationError as exc:
+            return {"success": False, "error": "invalid_arguments", "message": str(exc)}
+
+        updated = LeadService(db).update(lead_id, agency.id, payload)
         if updated is None:
             return {"success": False, "error": "lead_not_found"}
         return {"success": True, "lead": _lead_summary(updated)}

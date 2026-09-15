@@ -31,7 +31,13 @@ REALESTATE_TOOL_SCHEMAS: dict[str, dict] = {
         "type": "function",
         "function": {
             "name": "update_lead_qualification",
-            "description": "Update a lead's qualification status (e.g. contacted, qualified, negotiating).",
+            "description": (
+                "Record lead qualification results: status (stage), a 0-100 qualification score, "
+                "and/or free-text qualification notes summarizing real signals (budget, location, "
+                "BHK, timeline, urgency) found in the actual lead/conversation. Provide at least one "
+                "of status/qualification_score/qualification_notes. Never change property, booking, "
+                "or appointment state with this tool."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -40,8 +46,10 @@ REALESTATE_TOOL_SCHEMAS: dict[str, dict] = {
                         "type": "string",
                         "enum": ["new", "contacted", "qualified", "site_visit_scheduled", "visited", "negotiating", "converted", "lost"],
                     },
+                    "qualification_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                    "qualification_notes": {"type": "string"},
                 },
-                "required": ["lead_id", "status"],
+                "required": ["lead_id"],
             },
         },
     },
