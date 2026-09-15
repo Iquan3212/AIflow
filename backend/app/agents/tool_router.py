@@ -57,6 +57,24 @@ class ToolRouter:
                         "duration_ms": round((time.perf_counter() - start) * 1000, 1),
                         "success": False,
                     }})
+                    # Phase 10C finding (live smoke test): a tool that hits
+                    # a raw DB-level error (e.g. an LLM passing a non-UUID
+                    # string as an id, tripping Postgres's
+                    # InvalidTextRepresentation) leaves the whole session
+                    # in "current transaction is aborted" state - every
+                    # later query on this same session/request (further
+                    # tool calls in the same bounded-loop turn,
+                    # AgentExecution recording afterward) would then also
+                    # fail, even though nothing about THEM was wrong. Roll
+                    # back so one bad tool call can't cascade into
+                    # poisoning the rest of the turn.
+                    if self.db is not None:
+                        try:
+                            self.db.rollback()
+                        except Exception:
+                            logger.exception("tool.rollback_failed", extra={"ctx": {
+                                "event": "tool.rollback_failed", "tool": tool_name, "employee": employee,
+                            }})
                     return {"success": False, "error": "execution_error", "message": str(exc)}
 
         logger.warning("tool.no_entrypoint", extra={"ctx": {"event": "tool.no_entrypoint", "tool": tool_name, "employee": employee}})

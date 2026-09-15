@@ -331,3 +331,37 @@ class TestApprovalGatedToolsNeverMutateRealState:
         pending = AIActionApprovalService(db).list_pending(biz.id)
         assert len(pending) == 1
         assert pending[0].action_type == "confirm_site_visit"
+
+
+class TestToolRouterRollsBackAfterADbLevelToolFailure:
+    """Phase 10C live-smoke-test finding: a real Groq call passed a
+    property's unit_number string ("G-0701") as property_id instead of
+    its real UUID - PropertyService.get()'s raw query then raised
+    psycopg2.errors.InvalidTextRepresentation, which Postgres responds
+    to by aborting the whole transaction. ToolRouter.execute() already
+    caught the exception (no crash), but never rolled back, so every
+    later query on the SAME session/request - a further tool call in
+    the same bounded-loop turn, or AgentExecution recording afterward -
+    would also fail with "current transaction is aborted", even though
+    nothing about them was wrong. Fixed by rolling back inside
+    ToolRouter.execute()'s except block."""
+
+    def test_a_non_uuid_id_argument_fails_cleanly_and_the_session_stays_usable(self, agency):
+        db, biz = agency
+        _, unit = _make_active_property(db, biz, unit_number="G-0701")
+        registry = _full_registry(db)
+        router = ToolRouter(registry, db=db, agency=biz)
+
+        # Exactly the real live failure: a unit_number string where a
+        # real UUID property_id was expected.
+        result = router.execute(employee="re_agent", tool_name="get_property", message="x", property_id="G-0701")
+        assert result["success"] is False
+        assert result["error"] == "execution_error"
+        assert "uuid" in result["message"].lower()
+
+        # The session must still be usable for a real, valid query right
+        # after - this would raise psycopg2.errors.InFailedSqlTransaction
+        # before the rollback fix.
+        recovered = router.execute(employee="re_agent", tool_name="get_property", message="x", property_id=unit.id)
+        assert recovered["result"]["success"] is True
+        assert recovered["result"]["property"]["unit_number"] == "G-0701"
