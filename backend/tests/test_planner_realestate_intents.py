@@ -1,11 +1,17 @@
 """
-Phase 10A, Step 9: Planner's new real-estate intent categories
-(lead_qualification, property_matching, site_visit, customer_relations).
-Deterministic, zero-LLM-cost keyword classification only - no employee
-exists for any of these yet, so each routes to "manager" exactly like
-the existing "gmail" intent does for the same reason (see planner.py's
-own comment). Confirms the pre-existing intents (receptionist/sales/
-support/etc.) are completely unaffected.
+Planner's real-estate intent categories (lead_qualification,
+property_matching, site_visit, customer_relations - added Phase 10A,
+Step 9). Deterministic, zero-LLM-cost keyword classification only.
+
+Phase 10B: lead_qualification and property_matching now route to real,
+registered employees (lead_qualifier/property_matcher -
+app/agents/orchestrator.py), superseding the Phase 10A placeholder that
+routed every new intent to "manager". site_visit and customer_relations
+still have no employee (that's 10C/10D) and still route to "manager",
+exactly like the existing "gmail" intent does for the same reason.
+
+Confirms the pre-existing intents (receptionist/sales/support/etc.) are
+completely unaffected.
 
 Run: python3 -m pytest tests/test_planner_realestate_intents.py -q   (from backend/)
 """
@@ -13,7 +19,22 @@ Run: python3 -m pytest tests/test_planner_realestate_intents.py -q   (from backe
 from app.agents.planner import Planner
 
 
-class TestNewRealEstateIntentsRouteToManager:
+class TestBuiltRealEstateIntentsRouteToTheirRealEmployee:
+    def test_property_matching_intent_routes_to_property_matcher(self):
+        # Deliberately avoids "buy"/"buyer" - "buy" is already a "sales"
+        # keyword and is a substring of "buyer", so a message containing
+        # it would legitimately multi-match both intents.
+        plan = Planner().plan("Can you recommend a property that matches this client's needs?")
+        assert plan.intent == "property_matching"
+        assert plan.employees == ["property_matcher"]
+
+    def test_lead_qualification_intent_routes_to_lead_qualifier(self):
+        plan = Planner().plan("Please qualify the lead before we proceed.")
+        assert plan.intent == "lead_qualification"
+        assert plan.employees == ["lead_qualifier"]
+
+
+class TestNotYetBuiltRealEstateIntentsStillRouteToManager:
     def test_site_visit_intent_detected(self):
         # "site visit" (this list) and "schedule" (receptionist's list)
         # both match - multi-intent is expected and correct; receptionist
@@ -23,31 +44,15 @@ class TestNewRealEstateIntentsRouteToManager:
         assert plan.intent == "receptionist"
         assert set(plan.employees) == {"receptionist", "manager"}
 
-    def test_property_matching_intent_detected(self):
-        # Deliberately avoids "buy"/"buyer" - "buy" is already a "sales"
-        # keyword and is a substring of "buyer", so a message containing
-        # it would legitimately multi-match both intents.
-        plan = Planner().plan("Can you recommend a property that matches this client's needs?")
-        assert plan.intent == "property_matching"
-        assert plan.employees == ["manager"]
-
-    def test_lead_qualification_intent_detected(self):
-        plan = Planner().plan("Please qualify the lead before we proceed.")
-        assert plan.intent == "lead_qualification"
-        assert plan.employees == ["manager"]
-
     def test_customer_relations_intent_detected(self):
         plan = Planner().plan("Let's follow up with this customer next week.")
         assert plan.intent == "customer_relations"
         assert plan.employees == ["manager"]
 
-    def test_no_new_employee_is_ever_returned(self):
-        for message in [
-            "site visit please", "match a property for me", "qualify the lead",
-            "follow up with the customer", "nurture the lead over time",
-        ]:
+    def test_no_10c_10d_employee_is_ever_returned(self):
+        for message in ["site visit please", "follow up with the customer", "nurture the lead over time"]:
             plan = Planner().plan(message)
-            for name in ("lead_qualification", "property_matching", "site_visit", "customer_relations"):
+            for name in ("site_visit", "customer_relations"):
                 assert name not in plan.employees
 
 
