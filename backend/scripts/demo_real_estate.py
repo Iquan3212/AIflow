@@ -907,6 +907,63 @@ def ensure_lead_qualification_and_matching_demo(owner_token: str) -> None:
         log(f"  - matched unit {unit['unit_number']!r}: price={unit['price']}, carpet_area={unit['carpet_area_sqft']} sqft")
 
 
+# --------------------------------------------------- phase 10d ai workforce chain --
+
+def demo_ai_workforce_orchestration(owner_token: str) -> None:
+    """Phase 10D: the ONE real, LLM-driven demonstration of the full AI
+    workforce chain - Lead Qualification -> Property Matching -> Sales
+    recommendation, through the real /manager/chat endpoint (real
+    Planner -> ManagerAgent.delegate() -> bounded multi-specialist
+    orchestration -> real tool calls -> real synthesis). Deliberately a
+    SEPARATE, clearly-labeled step from ensure_lead_qualification_and_
+    matching_demo() above (which stays LLM-free) - matches this script's
+    existing demo_manager_chat()/demo_customer_conversation() precedent
+    of a real, tracked LLM call for demonstration, not a new pattern.
+
+    Safe: makes NO booking/appointment/message mutation - it only asks
+    for a recommendation, and any AIActionApproval the model happens to
+    propose is left pending (never approved here), so nothing real
+    executes. Reuses the same qualified demo lead/matched inventory
+    ensure_lead_qualification_and_matching_demo() already set up."""
+    leads = api("GET", "/leads/", token=owner_token).json()
+    lead = next((l for l in leads if l.get("phone") == QUALIFICATION_LEAD_PHONE), None)
+    if lead is None:
+        log("WARNING: demo lead not found - run ensure_lead_qualification_and_matching_demo first. Skipping AI workforce orchestration demo.")
+        return
+
+    approvals_before = api("GET", "/ai-approvals", token=owner_token, params={"pending_only": False}).json()
+
+    message = (
+        f"Qualify this lead ({lead['id']}) and find three properties that fit their requirements. "
+        "Then tell me what should Sales do next."
+    )
+    resp = api("POST", "/manager/chat", token=owner_token, json={"message": message})
+    resp.raise_for_status()
+    result = resp.json()
+    PROVIDER_CALLS["llm_turns"] += 1
+
+    plan = result.get("plan") or {}
+    employees = plan.get("employees", [])
+    log(f"AI workforce orchestration -> Planner intent={plan.get('intent')} specialists={employees}")
+    log(f"Manager synthesis: {result.get('reply', '')[:400]!r}")
+
+    employee_results = (result.get("manager_result") or {}).get("employee_results", {})
+    for name, res in employee_results.items():
+        tool_calls = ((res.get("tool_result") or {}).get("tool_calls") or [])
+        tools_called = [tc.get("tool") for tc in tool_calls]
+        log(f"  specialist={name} tools_called={tools_called}")
+
+    approvals_after = api("GET", "/ai-approvals", token=owner_token, params={"pending_only": False}).json()
+    new_approvals = [a for a in approvals_after if a["id"] not in {x["id"] for x in approvals_before}]
+    for a in new_approvals:
+        log(f"  proposed action (left pending, NOT approved by this demo): {a['action_type']} - {a['summary'][:120]!r}")
+
+    appts = api("GET", "/appointments/", token=owner_token).json()
+    bookings = api("GET", "/bookings", token=owner_token).json()
+    log(f"Mutation check: {len(appts)} appointment(s), {len(bookings)} booking(s) exist for this agency "
+        "(this demo step created none of them itself, and approved zero pending actions).")
+
+
 # ---------------------------------------------------------------- verification --
 
 def verify_leads_and_analytics(token: str) -> None:
@@ -962,12 +1019,13 @@ def main():
     ensure_site_visits(OWNER_TOKEN)
     ensure_phase9_conversion(OWNER_TOKEN, buyer_token)
     ensure_lead_qualification_and_matching_demo(OWNER_TOKEN)
+    demo_ai_workforce_orchestration(OWNER_TOKEN)
 
     verify_leads_and_analytics(OWNER_TOKEN)
 
     log("---- Real LLM/provider call summary ----")
     log(f"Embedding-triggering operations (document uploads processed): {PROVIDER_CALLS['embedding_operations']}")
-    log(f"LLM chat turns (customer conversation + manager chat): {PROVIDER_CALLS['llm_turns']}")
+    log(f"LLM chat turns (customer conversation + manager chat + AI workforce orchestration): {PROVIDER_CALLS['llm_turns']}")
     log("Demo data creation complete.")
 
 
