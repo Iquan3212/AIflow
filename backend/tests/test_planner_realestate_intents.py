@@ -1,14 +1,16 @@
 """
 Planner's real-estate intent categories (lead_qualification,
 property_matching, site_visit, customer_relations - added Phase 10A,
-Step 9). Deterministic, zero-LLM-cost keyword classification only.
+Step 9; real_estate_sales added Phase 10C). Deterministic, zero-LLM-
+cost keyword classification only.
 
-Phase 10B: lead_qualification and property_matching now route to real,
-registered employees (lead_qualifier/property_matcher -
-app/agents/orchestrator.py), superseding the Phase 10A placeholder that
-routed every new intent to "manager". site_visit and customer_relations
-still have no employee (that's 10C/10D) and still route to "manager",
-exactly like the existing "gmail" intent does for the same reason.
+Phase 10C: all five now route to their real, registered employees
+(lead_qualifier, property_matcher, real_estate_sales, site_visit,
+customer_relations - app/agents/orchestrator.py), superseding every
+earlier "route to manager, no employee yet" placeholder. Note
+real_estate_sales is deliberately a DIFFERENT employee from the legacy
+generic "sales" (see app/agents/real_estate_sales_agent.py's module
+docstring) - the "sales" intent/employee is completely unaffected.
 
 Confirms the pre-existing intents (receptionist/sales/support/etc.) are
 completely unaffected.
@@ -19,7 +21,7 @@ Run: python3 -m pytest tests/test_planner_realestate_intents.py -q   (from backe
 from app.agents.planner import Planner
 
 
-class TestBuiltRealEstateIntentsRouteToTheirRealEmployee:
+class TestRealEstateIntentsRouteToTheirRealEmployee:
     def test_property_matching_intent_routes_to_property_matcher(self):
         # Deliberately avoids "buy"/"buyer" - "buy" is already a "sales"
         # keyword and is a substring of "buyer", so a message containing
@@ -33,27 +35,46 @@ class TestBuiltRealEstateIntentsRouteToTheirRealEmployee:
         assert plan.intent == "lead_qualification"
         assert plan.employees == ["lead_qualifier"]
 
+    def test_real_estate_sales_intent_routes_to_real_estate_sales_not_legacy_sales(self):
+        plan = Planner().plan("What's the next best action for this lead?")
+        assert plan.intent == "real_estate_sales"
+        assert plan.employees == ["real_estate_sales"]
 
-class TestNotYetBuiltRealEstateIntentsStillRouteToManager:
-    def test_site_visit_intent_detected(self):
+    def test_customer_relations_intent_routes_to_customer_relations(self):
+        plan = Planner().plan("Let's follow up with this customer next week.")
+        assert plan.intent == "customer_relations"
+        assert plan.employees == ["customer_relations"]
+
+    def test_site_visit_intent_routes_to_site_visit_alongside_receptionist(self):
         # "site visit" (this list) and "schedule" (receptionist's list)
         # both match - multi-intent is expected and correct; receptionist
         # has the higher priority (lower number) so it wins as primary,
-        # but "manager" must still be present for the site_visit intent.
+        # but site_visit's real employee must also be present.
         plan = Planner().plan("Can we schedule a site visit for this property?")
         assert plan.intent == "receptionist"
-        assert set(plan.employees) == {"receptionist", "manager"}
+        assert set(plan.employees) == {"receptionist", "site_visit"}
 
-    def test_customer_relations_intent_detected(self):
-        plan = Planner().plan("Let's follow up with this customer next week.")
-        assert plan.intent == "customer_relations"
-        assert plan.employees == ["manager"]
-
-    def test_no_10c_10d_employee_is_ever_returned(self):
-        for message in ["site visit please", "follow up with the customer", "nurture the lead over time"]:
+    def test_no_message_ever_routes_a_real_estate_intent_to_manager(self):
+        for message in [
+            "site visit please", "follow up with the customer", "nurture the lead over time",
+            "qualify the lead", "recommend a property that matches this client's needs",
+            "next best action for this lead",
+        ]:
             plan = Planner().plan(message)
-            for name in ("site_visit", "customer_relations"):
-                assert name not in plan.employees
+            assert "manager" not in plan.employees
+
+
+class TestRealEstateSalesNeverCollidesWithLegacySales:
+    def test_a_plain_pricing_question_still_routes_only_to_legacy_sales(self):
+        plan = Planner().plan("What's the price for this?")
+        assert plan.intent == "sales"
+        assert plan.employees == ["sales"]
+        assert "real_estate_sales" not in plan.employees
+
+    def test_next_best_action_wording_never_also_matches_legacy_sales(self):
+        plan = Planner().plan("Is this lead stalled? What's the next best action?")
+        assert "sales" not in plan.employees
+        assert plan.employees == ["real_estate_sales"]
 
 
 class TestExistingIntentsUnaffected:
