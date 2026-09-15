@@ -66,3 +66,17 @@ export interface ManagerChatResponse {
   plan?: Plan;
   manager_result?: ManagerResult;
 }
+
+// Phase 10C: app/models.py's AIActionApproval, via GET/POST /ai-approvals.
+export interface AIActionApprovalOut {
+  id: string;
+  agency_id: string;
+  action_type: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  requested_by_employee: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+  decided_at: string | null;
+  execution_result: Record<string, unknown> | null;
+}
