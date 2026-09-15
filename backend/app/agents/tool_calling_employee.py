@@ -113,7 +113,7 @@ def run_tool_calling_employee_turn(
             lead_id=getattr(lead, "id", None),
             outcome=result.terminated_reason,
             tool_calls=[
-                {"tool": tc.tool, "args": tc.args, "duration_ms": tc.duration_ms, "ok": tc.ok}
+                {"tool": tc.tool, "args": tc.args, "duration_ms": tc.duration_ms, "ok": tc.ok, "result": tc.result}
                 for tc in result.tool_calls
             ],
             duration_ms=int(duration_ms),

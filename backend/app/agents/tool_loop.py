@@ -40,6 +40,13 @@ class ToolCallRecord:
     args: dict
     duration_ms: float
     ok: bool
+    # Phase 10D: the tool's own raw result (whatever call_tool() returned -
+    # a JSON string for every real tool in this app, since ToolRouter.execute()
+    # returns a dict that call_tool() implementations json.dumps()).
+    # Added so a caller (e.g. ManagerAgent's multi-specialist orchestration)
+    # can read one specialist's real, structured tool output to pass as
+    # context to the next, without re-parsing the whole message transcript.
+    result: str = ""
 
 
 @dataclass
@@ -114,7 +121,7 @@ def run_bounded_tool_loop(
                     ok = False
                     result = json.dumps({"success": False, "error": "tool_execution_failed"})
                 duration_ms = round((time.perf_counter() - start) * 1000, 1)
-                tool_calls.append(ToolCallRecord(tool=tc.function.name, args=args, duration_ms=duration_ms, ok=ok))
+                tool_calls.append(ToolCallRecord(tool=tc.function.name, args=args, duration_ms=duration_ms, ok=ok, result=result))
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
         # Rounds exhausted: one final, tools-free synthesis call - never a

@@ -114,6 +114,6 @@ Always remain concise and professional."""
                 # match every other employee's tool_result shape.
                 "ok": result.terminated_reason != "provider_error",
                 "terminated_reason": result.terminated_reason,
-                "tool_calls": [{"tool": tc.tool, "args": tc.args, "ok": tc.ok} for tc in result.tool_calls],
+                "tool_calls": [{"tool": tc.tool, "args": tc.args, "ok": tc.ok, "result": tc.result} for tc in result.tool_calls],
             },
         }
