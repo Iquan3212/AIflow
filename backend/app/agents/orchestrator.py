@@ -12,6 +12,8 @@ from app.agents.receptionist_agent import ReceptionistAgent
 from app.agents.analytics_agent import AnalyticsAgent
 from app.agents.marketing_agent import MarketingAgent
 from app.agents.finance_agent import FinanceAgent
+from app.agents.lead_qualifier_agent import LeadQualifierAgent, EMPLOYEE_NAME as LEAD_QUALIFIER_NAME, GRANTED_TOOLS as LEAD_QUALIFIER_TOOLS
+from app.agents.property_matcher_agent import PropertyMatcherAgent, EMPLOYEE_NAME as PROPERTY_MATCHER_NAME, GRANTED_TOOLS as PROPERTY_MATCHER_TOOLS
 
 from app.tools.lead_tool import LeadTool
 from app.tools.appointment_tool import AppointmentTool
@@ -21,6 +23,12 @@ from app.tools.analytics_tool import AnalyticsTool
 from app.tools.support_ticket_tool import SupportTicketTool
 from app.tools.gmail_tool import GmailStatusTool, GmailSearchTool, GmailReadTool, GmailDraftTool, GmailSendTool
 from app.tools.knowledge_tool import KnowledgeSearchTool
+from app.tools.realestate_lead_property_tools import (
+    GetLeadTool, UpdateLeadQualificationTool, SearchPropertiesTool, SearchProjectsTool, GetPropertyTool,
+)
+from app.tools.realestate_visit_followup_tools import (
+    GetAvailableSlotsTool, ProposeVisitTool, ConfirmVisitTool, CreateFollowUpTool, DraftCustomerMessageTool,
+)
 
 
 class AIOrchestrator:
@@ -72,6 +80,27 @@ class AIOrchestrator:
         # app/tools/knowledge_tool.py and ARCHITECTURE.md.
         self.registry.register_tool("knowledge_search", KnowledgeSearchTool())
 
+        # Phase 10A/10B real-estate AI-workforce tools - see
+        # app/tools/realestate_lead_property_tools.py and
+        # app/tools/realestate_visit_followup_tools.py. Read/low-risk-
+        # write tools are granted directly to lead_qualifier/
+        # property_matcher below; propose_visit/confirm_visit/
+        # create_follow_up/draft_customer_message are registered (so
+        # they're reachable/testable through this real Registry) but not
+        # yet granted to any employee - no 10B persona needs them, and no
+        # 10C/10D employee (Sales/Site Visit/Customer Relations) exists
+        # yet to grant them to.
+        self.registry.register_tool("get_lead", GetLeadTool(db=self.db))
+        self.registry.register_tool("update_lead_qualification", UpdateLeadQualificationTool(db=self.db))
+        self.registry.register_tool("search_properties", SearchPropertiesTool(db=self.db))
+        self.registry.register_tool("search_projects", SearchProjectsTool(db=self.db))
+        self.registry.register_tool("get_property", GetPropertyTool(db=self.db))
+        self.registry.register_tool("get_available_slots", GetAvailableSlotsTool(db=self.db))
+        self.registry.register_tool("propose_visit", ProposeVisitTool(db=self.db))
+        self.registry.register_tool("confirm_visit", ConfirmVisitTool(db=self.db))
+        self.registry.register_tool("create_follow_up", CreateFollowUpTool(db=self.db))
+        self.registry.register_tool("draft_customer_message", DraftCustomerMessageTool(db=self.db))
+
         # Employee agents
         self.registry.register_employee("sales", SalesAgent(self.agency, self.lead), tools=["lead", "knowledge_search"])
         self.registry.register_employee(
@@ -83,6 +112,17 @@ class AIOrchestrator:
         self.registry.register_employee("analytics", AnalyticsAgent(self.agency, self.lead), tools=["dashboard", "knowledge_search"])
         self.registry.register_employee("marketing", MarketingAgent(self.agency, self.lead), tools=["campaign", "knowledge_search"])
         self.registry.register_employee("finance", FinanceAgent(self.agency, self.lead), tools=["quotation", "knowledge_search"])
+        # Phase 10B: the first two real, tool-calling-capable real-estate
+        # specialists. Each is granted ONLY the tools its own module
+        # declares (GRANTED_TOOLS) - never every workforce tool.
+        self.registry.register_employee(
+            LEAD_QUALIFIER_NAME, LeadQualifierAgent(self.agency, self.lead),
+            tools=LEAD_QUALIFIER_TOOLS, tool_calling=True,
+        )
+        self.registry.register_employee(
+            PROPERTY_MATCHER_NAME, PropertyMatcherAgent(self.agency, self.lead),
+            tools=PROPERTY_MATCHER_TOOLS, tool_calling=True,
+        )
 
         # Manager gets access to all registered tools and orchestrates employees
         self.router = ToolRouter(

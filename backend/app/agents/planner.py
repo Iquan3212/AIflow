@@ -150,9 +150,12 @@ class Planner:
             "finance": ["quotation"],
             "manager": [],
             "gmail": ["gmail_search", "gmail_read", "gmail_draft", "gmail_send"],
-            # No dedicated employee/tool set yet - see intent_keywords comment above.
-            "lead_qualification": [],
-            "property_matching": [],
+            # Phase 10B: lead_qualifier/property_matcher are now real,
+            # registered employees (app/agents/orchestrator.py) - see
+            # intent_employee below. site_visit/customer_relations have
+            # no employee yet (10C/10D), still routed to "manager".
+            "lead_qualification": ["update_lead_qualification"],
+            "property_matching": ["search_properties"],
             "site_visit": [],
             "customer_relations": [],
         }
@@ -180,11 +183,14 @@ class Planner:
         # "gmail" employee in the Registry, only "manager", which is
         # granted the gmail_* tools - see AIOrchestrator/ARCHITECTURE.md),
         # so it needs an explicit entry rather than relying on the
-        # intent-name-equals-employee-name shortcut.
+        # intent-name-equals-employee-name shortcut. Same reason
+        # lead_qualification/property_matching need explicit entries:
+        # their real employee names (lead_qualifier/property_matcher,
+        # app/agents/orchestrator.py) don't match the intent name itself.
         self.intent_employee = {
             "gmail": "manager",
-            "lead_qualification": "manager",
-            "property_matching": "manager",
+            "lead_qualification": "lead_qualifier",
+            "property_matching": "property_matcher",
             "site_visit": "manager",
             "customer_relations": "manager",
         }

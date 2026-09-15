@@ -16,6 +16,8 @@ _DISPLAY_NAMES = {
     "marketing": "Marketing AI",
     "analytics": "Analytics AI",
     "manager": "Manager AI",
+    "lead_qualifier": "Lead Qualification AI",
+    "property_matcher": "Property Matching AI",
 }
 
 
