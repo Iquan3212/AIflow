@@ -1,21 +1,19 @@
 """
-Embedding provider abstraction - mock provider is exercised for real
-(deterministic, zero network); the real Gemini provider is exercised only
-with its SDK call mocked out, matching the whole project's convention of
-never spending real tokens/quota in the test suite. Zero LLM tokens.
+Embedding provider abstraction - mock is the only registered provider
+(Phase 11 removed the Gemini provider - see embeddings.py's module
+docstring for the quota-exhaustion rationale). Exercised for real:
+deterministic, zero network, zero LLM tokens.
 
 Run: python3 -m pytest tests/test_knowledge_embeddings.py -q   (from backend/)
 """
 
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.services.knowledge.config import EMBEDDING_DIMENSION
 from app.services.knowledge.embeddings import (
     EmbeddingError,
-    GeminiEmbeddingProvider,
     MockEmbeddingProvider,
     create_embedding_provider,
 )
@@ -80,67 +78,21 @@ class TestMockEmbeddingProvider:
         assert MockEmbeddingProvider().relevance_threshold == MOCK_RELEVANCE_THRESHOLD
 
 
-class TestGeminiEmbeddingProvider:
-    def test_real_sdk_call_is_never_made_here(self):
-        """The SDK's HTTP layer is mocked - if this test somehow reached a
-        real network call, it would fail loudly (no real API key), not
-        silently succeed - confirming this test truly costs zero tokens."""
-        with patch("google.genai.Client") as MockClient:
-            fake_embedding = SimpleNamespace(values=[0.1] * EMBEDDING_DIMENSION)
-            MockClient.return_value.models.embed_content.return_value = SimpleNamespace(embeddings=[fake_embedding])
-
-            provider = GeminiEmbeddingProvider(api_key="fake-key-never-used")
-            vectors = provider.embed(["What is the refund policy?"])
-
-            assert len(vectors) == 1
-            assert len(vectors[0]) == EMBEDDING_DIMENSION
-            MockClient.return_value.models.embed_content.assert_called_once()
-
-    def test_provider_error_is_wrapped_not_raw_sdk_exception(self):
-        with patch("google.genai.Client") as MockClient:
-            MockClient.return_value.models.embed_content.side_effect = RuntimeError("network boom")
-            provider = GeminiEmbeddingProvider(api_key="fake-key")
-            with pytest.raises(EmbeddingError):
-                provider.embed(["text"])
-
-    def test_wrong_dimension_response_is_a_real_error_not_silently_accepted(self):
-        with patch("google.genai.Client") as MockClient:
-            wrong_dim_embedding = SimpleNamespace(values=[0.1] * 10)  # not EMBEDDING_DIMENSION
-            MockClient.return_value.models.embed_content.return_value = SimpleNamespace(embeddings=[wrong_dim_embedding])
-            provider = GeminiEmbeddingProvider(api_key="fake-key")
-            with pytest.raises(EmbeddingError):
-                provider.embed(["text"])
-
-
 class TestFactory:
     def test_default_mock_provider(self):
         settings = MagicMock(embedding_provider="mock")
         provider = create_embedding_provider(settings)
         assert isinstance(provider, MockEmbeddingProvider)
 
-    def test_gemini_provider_requires_api_key(self):
-        settings = MagicMock(embedding_provider="gemini", gemini_api_key="")
+    def test_gemini_no_longer_supported(self):
+        """Phase 11 removed Gemini as an EMBEDDING_PROVIDER - selecting it
+        must fail the same generic way any other unknown provider name
+        would, never silently fall through to a working provider."""
+        settings = MagicMock(embedding_provider="gemini")
         with pytest.raises(EmbeddingError):
             create_embedding_provider(settings)
-
-    def test_gemini_provider_selected_with_key_present(self):
-        settings = MagicMock(embedding_provider="gemini", gemini_api_key="real-key-value")
-        with patch("google.genai.Client"):
-            provider = create_embedding_provider(settings)
-        assert isinstance(provider, GeminiEmbeddingProvider)
 
     def test_unknown_provider_raises(self):
         settings = MagicMock(embedding_provider="not-a-real-provider")
         with pytest.raises(EmbeddingError):
             create_embedding_provider(settings)
-
-    def test_mock_and_gemini_have_different_relevance_thresholds(self):
-        """A sparse hashed bag-of-words vector (mock) and a dense neural
-        embedding (Gemini) have fundamentally different cosine-similarity
-        scales for a genuine match - one global threshold can't correctly
-        serve both, so each provider must carry its own."""
-        with patch("google.genai.Client"):
-            gemini = create_embedding_provider(MagicMock(embedding_provider="gemini", gemini_api_key="fake-key"))
-        mock = create_embedding_provider(MagicMock(embedding_provider="mock"))
-        assert mock.relevance_threshold != gemini.relevance_threshold
-        assert mock.relevance_threshold < gemini.relevance_threshold

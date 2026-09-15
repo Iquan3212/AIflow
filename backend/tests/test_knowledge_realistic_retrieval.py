@@ -189,11 +189,15 @@ class TestRelevanceThresholdBehavior:
     """Step 13.11: the threshold correctly separates a genuine match from
     noise, and is provider-specific (not one blind global cutoff)."""
 
-    def test_mock_provider_relevance_threshold_is_lower_than_the_global_gemini_calibrated_default(self):
-        from app.services.knowledge.config import MOCK_RELEVANCE_THRESHOLD, RELEVANCE_THRESHOLD
+    def test_mock_provider_uses_its_own_calibrated_relevance_threshold(self):
+        """Phase 11 removed Gemini (the only other embedding provider that
+        ever existed here), but relevance_threshold stays a per-provider
+        attribute rather than one bare module constant - see
+        MockEmbeddingProvider's own value being read from config, not
+        hardcoded twice."""
+        from app.services.knowledge.config import MOCK_RELEVANCE_THRESHOLD
         from app.services.knowledge.embeddings import MockEmbeddingProvider
         assert MockEmbeddingProvider().relevance_threshold == MOCK_RELEVANCE_THRESHOLD
-        assert MOCK_RELEVANCE_THRESHOLD < RELEVANCE_THRESHOLD
 
     def test_retrieve_defaults_to_the_active_providers_threshold_when_none_given(self, biryani_style_agency):
         db, biz, _ = biryani_style_agency

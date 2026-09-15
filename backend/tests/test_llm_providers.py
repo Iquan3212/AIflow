@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, patch
 import httpx
 import openai
 import pytest
-from google.genai import errors as genai_errors
 
 from app.services.llm.base import (
     ChatResult,
@@ -31,8 +30,6 @@ from app.services.llm.base import (
     FALLBACK_ELIGIBLE_REASONS,
 )
 from app.services.llm.openai_compatible import OpenAICompatibleProvider
-from app.services.llm import gemini_provider as gp
-from app.services.llm.gemini_provider import GeminiProvider
 from app.services.llm.factory import (
     create_llm_provider,
     UnsupportedProviderError,
@@ -53,7 +50,6 @@ def _settings(**overrides) -> SimpleNamespace:
         llm_base_url="",  # real default (config.py) - see test_groq_default_base_url_is_groqs_not_openais
         groq_api_key="",
         groq_base_url="",
-        gemini_api_key="",
         openrouter_api_key="",
         openrouter_base_url="",
         ollama_base_url="http://127.0.0.1:11434",
@@ -269,149 +265,6 @@ class TestOpenAICompatibleProvider:
 
 
 # =====================================================================
-# GEMINI
-# =====================================================================
-
-class TestGeminiProvider:
-    def test_configuration(self):
-        with patch("app.services.llm.gemini_provider.genai") as mock_genai:
-            GeminiProvider(api_key="test-gemini-key", model="gemini-2.0-flash")
-            _, kwargs = mock_genai.Client.call_args
-            assert kwargs["api_key"] == "test-gemini-key"
-
-    def test_configuration_sets_explicit_timeout_and_no_sdk_retries(self):
-        """Same reasoning as the OpenAI-compatible adapter's equivalent
-        test - see its docstring."""
-        with patch("app.services.llm.gemini_provider.genai") as mock_genai:
-            GeminiProvider(api_key="test-gemini-key", model="gemini-2.0-flash")
-            _, kwargs = mock_genai.Client.call_args
-            http_options = kwargs["http_options"]
-            assert http_options.timeout == 30000
-            assert http_options.retry_options.attempts == 1
-
-    def test_request_mapping_system_messages_concatenated(self):
-        """Multiple system-role messages (hardened prompt, known facts,
-        tool-result grounding, injection reminder) must all end up in one
-        system_instruction string, in order - Gemini has no per-message
-        system role to put them in individually."""
-        messages = [
-            {"role": "system", "content": "You are the assistant."},
-            {"role": "system", "content": "Known facts: name=Sam"},
-            {"role": "user", "content": "hi"},
-        ]
-        system_instruction, contents = gp._to_gemini_contents(messages)
-        assert system_instruction == "You are the assistant.\n\nKnown facts: name=Sam"
-        assert len(contents) == 1
-        assert contents[0].role == "user"
-
-    def test_request_mapping_role_translation(self):
-        messages = [
-            {"role": "user", "content": "hi"},
-            {"role": "assistant", "content": "hello"},
-        ]
-        _, contents = gp._to_gemini_contents(messages)
-        assert [c.role for c in contents] == ["user", "model"]
-
-    def test_request_mapping_tool_round_trip(self):
-        """assistant message with a tool_call, followed by a tool-role
-        result (the OpenAI shape every caller already builds) must become
-        a function_call Content followed by a function_response Content
-        carrying the CORRECT function name - which the tool-role message
-        alone doesn't have, only the tool_call_id."""
-        messages = [
-            {"role": "user", "content": "book a haircut"},
-            {"role": "assistant", "content": "", "tool_calls": [
-                {"id": "call_1", "function": {"name": "check_availability", "arguments": '{"date": "2026-08-04"}'}}
-            ]},
-            {"role": "tool", "tool_call_id": "call_1", "content": '{"ok": true, "available": true}'},
-        ]
-        _, contents = gp._to_gemini_contents(messages)
-
-        assert len(contents) == 3
-        call_part = contents[1].parts[0]
-        assert call_part.function_call.name == "check_availability"
-        assert call_part.function_call.args == {"date": "2026-08-04"}
-
-        response_part = contents[2].parts[0]
-        assert response_part.function_response.name == "check_availability"
-        assert response_part.function_response.response == {"ok": True, "available": True}
-
-    def test_tool_definition_mapping(self):
-        openai_tools = [{
-            "type": "function",
-            "function": {
-                "name": "book_appointment",
-                "description": "Books a slot",
-                "parameters": {"type": "object", "properties": {"time": {"type": "string"}}},
-            },
-        }]
-        tool = gp._to_gemini_tool(openai_tools)
-        assert len(tool.function_declarations) == 1
-        decl = tool.function_declarations[0]
-        assert decl.name == "book_appointment"
-        assert decl.description == "Books a slot"
-
-    def test_response_mapping_text_only(self):
-        response = SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(
-            parts=[SimpleNamespace(text="Hi there!", function_call=None)]
-        ))])
-        result = gp._from_gemini_response(response)
-        assert result.content == "Hi there!"
-        assert result.tool_calls is None
-
-    def test_response_mapping_function_call(self):
-        fc = SimpleNamespace(id="fc1", name="check_availability", args={"date": "2026-08-04"})
-        response = SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(
-            parts=[SimpleNamespace(text=None, function_call=fc)]
-        ))])
-        result = gp._from_gemini_response(response)
-        assert result.content is None
-        assert result.tool_calls == [ToolCall(id="fc1", function=ToolCallFunction(name="check_availability", arguments='{"date": "2026-08-04"}'))]
-
-    def test_response_mapping_no_candidates(self):
-        response = SimpleNamespace(candidates=[])
-        result = gp._from_gemini_response(response)
-        assert result == ChatResult(content=None, tool_calls=None)
-
-    @pytest.mark.parametrize("code,expected_reason", [
-        (429, RATE_LIMITED),
-        (401, AUTHENTICATION_ERROR),
-        (403, AUTHENTICATION_ERROR),
-        (400, INVALID_REQUEST),
-        (408, TIMEOUT),
-        (504, TIMEOUT),
-        (500, UNAVAILABLE),
-        (503, UNAVAILABLE),
-        (418, PROVIDER_ERROR),
-    ])
-    def test_error_classification(self, code, expected_reason):
-        exc = genai_errors.APIError(code, {"error": {"message": "boom"}})
-        reason, _ = gp._classify_api_error(exc)
-        assert reason == expected_reason
-
-    def test_chat_wraps_api_error(self):
-        with patch("app.services.llm.gemini_provider.genai") as mock_genai:
-            provider = GeminiProvider(api_key="k", model="m")
-            mock_genai.Client.return_value.models.generate_content.side_effect = genai_errors.APIError(429, {"error": {}})
-            with pytest.raises(LLMProviderError) as excinfo:
-                provider.chat([{"role": "user", "content": "hi"}])
-            assert excinfo.value.reason == RATE_LIMITED
-            assert excinfo.value.provider == "gemini"
-
-    def test_chat_wraps_connection_failure_as_unavailable(self):
-        """A network-level failure (DNS, refused connection, TLS) doesn't
-        subclass genai_errors.APIError - there's no status code to read a
-        category from, so it must still become a clean, classified
-        LLMProviderError, never a raw exception escaping the adapter."""
-        with patch("app.services.llm.gemini_provider.genai") as mock_genai:
-            provider = GeminiProvider(api_key="k", model="m")
-            mock_genai.Client.return_value.models.generate_content.side_effect = ConnectionError("refused")
-            with pytest.raises(LLMProviderError) as excinfo:
-                provider.chat([{"role": "user", "content": "hi"}])
-            assert excinfo.value.reason == UNAVAILABLE
-
-
-# =====================================================================
 # FACTORY
 # =====================================================================
 
@@ -448,15 +301,12 @@ class TestFactory:
             _, kwargs = MockOpenAI.call_args
             assert kwargs["base_url"] == "https://api.groq.com/openai/v1"
 
-    def test_gemini_selected_correctly(self):
-        settings = _settings(llm_provider="gemini", gemini_api_key="gem-key")
-        with patch("app.services.llm.gemini_provider.genai"):
-            provider = create_llm_provider(settings)
-        assert provider.name == "gemini"
-
-    def test_gemini_missing_key_raises(self):
-        settings = _settings(llm_provider="gemini", gemini_api_key="")
-        with pytest.raises(ProviderNotConfiguredError):
+    def test_gemini_no_longer_supported(self):
+        """Phase 11 removed Gemini as an LLM_PROVIDER - selecting it must
+        fail the same generic way any other unknown provider name would,
+        never silently fall through to a working provider."""
+        settings = _settings(llm_provider="primary-provider")
+        with pytest.raises(UnsupportedProviderError):
             create_llm_provider(settings)
 
     def test_openrouter_selected_correctly(self):
@@ -489,10 +339,9 @@ class TestFactory:
             create_llm_provider(settings)
 
     def test_only_selected_providers_credentials_required(self):
-        """Selecting groq must never require GEMINI_API_KEY/
-        OPENROUTER_API_KEY to be set - unused providers' settings are
-        allowed to stay blank."""
-        settings = _settings(llm_provider="groq", groq_api_key="gk", gemini_api_key="", openrouter_api_key="")
+        """Selecting groq must never require OPENROUTER_API_KEY to be
+        set - unused providers' settings are allowed to stay blank."""
+        settings = _settings(llm_provider="groq", groq_api_key="gk", openrouter_api_key="")
         provider = create_llm_provider(settings)  # must not raise
         assert provider.name == "groq"
 
@@ -512,9 +361,9 @@ class TestFallback:
 
     def test_fallback_used_for_eligible_reason(self):
         primary = MagicMock(name="primary")
-        primary.name = "gemini"
-        primary.model_name.return_value = "gemini-model"
-        primary.chat.side_effect = LLMProviderError(RATE_LIMITED, "busy", provider="gemini")
+        primary.name = "primary-provider"
+        primary.model_name.return_value = "primary-model"
+        primary.chat.side_effect = LLMProviderError(RATE_LIMITED, "busy", provider="primary-provider")
 
         fallback = MagicMock(name="fallback")
         fallback.name = "groq"
@@ -528,9 +377,9 @@ class TestFallback:
 
     def test_no_fallback_configured_reraises(self):
         primary = MagicMock(name="primary")
-        primary.name = "gemini"
-        primary.model_name.return_value = "gemini-model"
-        primary.chat.side_effect = LLMProviderError(UNAVAILABLE, "down", provider="gemini")
+        primary.name = "primary-provider"
+        primary.model_name.return_value = "primary-model"
+        primary.chat.side_effect = LLMProviderError(UNAVAILABLE, "down", provider="primary-provider")
 
         with pytest.raises(LLMProviderError):
             self._run_with_providers(primary, None)
@@ -543,9 +392,9 @@ class TestFallback:
         assert reason not in FALLBACK_ELIGIBLE_REASONS
 
         primary = MagicMock(name="primary")
-        primary.name = "gemini"
-        primary.model_name.return_value = "gemini-model"
-        primary.chat.side_effect = LLMProviderError(reason, "nope", provider="gemini")
+        primary.name = "primary-provider"
+        primary.model_name.return_value = "primary-model"
+        primary.chat.side_effect = LLMProviderError(reason, "nope", provider="primary-provider")
 
         fallback = MagicMock(name="fallback")
         fallback.name = "groq"
@@ -558,9 +407,9 @@ class TestFallback:
         """Exactly one fallback attempt - if IT also fails, that failure
         propagates; there is no third provider, no retry loop."""
         primary = MagicMock(name="primary")
-        primary.name = "gemini"
-        primary.model_name.return_value = "gemini-model"
-        primary.chat.side_effect = LLMProviderError(TIMEOUT, "slow", provider="gemini")
+        primary.name = "primary-provider"
+        primary.model_name.return_value = "primary-model"
+        primary.chat.side_effect = LLMProviderError(TIMEOUT, "slow", provider="primary-provider")
 
         fallback = MagicMock(name="fallback")
         fallback.name = "groq"
