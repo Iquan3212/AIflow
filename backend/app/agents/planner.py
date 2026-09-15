@@ -13,7 +13,25 @@ from typing import List
 # deterministic tracing (Planner intent=general, employees=["manager"],
 # Manager's own _gmail_tool_for() returning None) - not a synthesis,
 # memory, or provider bug.
-GMAIL_KEYWORDS = ("gmail", "email", "inbox", "mail", "message")
+#
+# Phase 10D: split into STRONG and WEAK signals. "gmail"/"email"/"inbox"
+# essentially always mean the agency's connected inbox in this product's
+# domain - always a real Gmail match. "mail" is one edge softer (kept
+# strong - this product has no other "mail" concept to collide with) but
+# "message" is genuinely ambiguous natural English: it's also the
+# ordinary word for a customer-relations/sales draft ("draft a check-in
+# message" - confirmed live, Phase 10C's smoke test routed this to
+# Manager/Gmail alongside the correct customer_relations employee, purely
+# because "message" is a GMAIL_KEYWORDS substring). Planner.plan() below
+# only treats a WEAK-only match as the "gmail" intent when nothing more
+# specific ALSO matched in the same message - preserving the original
+# "find my most recent message"/"tell me my most recent mail" fix (where
+# nothing else matches, so the weak signal is all there is) while no
+# longer letting "message" hijack a message that's clearly about a real,
+# more specific intent (site visits, customer relations, sales, etc.).
+GMAIL_STRONG_KEYWORDS = ("gmail", "email", "inbox", "mail")
+GMAIL_WEAK_KEYWORDS = ("message",)
+GMAIL_KEYWORDS = GMAIL_STRONG_KEYWORDS + GMAIL_WEAK_KEYWORDS
 
 
 @dataclass
@@ -123,20 +141,31 @@ class Planner:
             # multi-word phrases so they don't collide with the existing
             # single-word keyword lists above.
             "lead_qualification": [
-                "qualify the lead", "lead qualification", "how qualified is",
+                "qualify the lead", "qualify this lead", "qualify this buyer",
+                "lead qualification", "how qualified is",
                 "is this lead qualified", "buying stage", "ready to buy",
             ],
             "property_matching": [
                 "match a property", "matching property", "suitable property",
                 "recommend a property", "which property fits", "property match",
+                # Phase 10D: covers the spec's own composite-request
+                # phrasing ("find three properties that fit their
+                # requirements" / "find available matches") without
+                # touching the existing single-property phrases above.
+                "properties that fit", "find matching properties", "available matches",
+                "find available matches", "matching properties",
             ],
             "site_visit": [
                 "site visit", "property tour", "site tour",
-                "visit the property", "visit the site",
+                "visit the property", "visit the site", "arrange a site visit",
             ],
             "customer_relations": [
                 "follow up with", "nurture the lead", "check in with the customer",
                 "stay in touch with",
+                # Phase 10D: covers the spec's own composite-request
+                # phrasing ("summarize this buyer... since their
+                # inquiry").
+                "summarize this buyer", "summarize this lead", "since their inquiry",
             ],
             # Phase 10C: distinct from "sales" above (generic pricing/
             # quotation/lead-capture, any business type) - this is
@@ -146,6 +175,7 @@ class Planner:
             "real_estate_sales": [
                 "next best action", "recommend next action", "is this lead stalled",
                 "stalled lead", "sales recommendation for", "re-engage this lead",
+                "should sales do next", "what should sales do",
             ],
         }
 
@@ -212,8 +242,22 @@ class Planner:
         detected = set()
 
         for intent, keywords in self.intent_keywords.items():
+            if intent == "gmail":
+                continue  # decided separately below - see GMAIL_STRONG/WEAK_KEYWORDS
             if any(k in text for k in keywords):
                 detected.add(intent)
+
+        # A STRONG signal ("gmail"/"email"/"inbox"/"mail") always means
+        # Gmail. A WEAK-only signal ("message") is genuinely ambiguous
+        # with ordinary real-estate/CRM language ("draft a ... message"
+        # for a lead) - only treated as the "gmail" intent when nothing
+        # more specific already matched; a strong signal always wins
+        # regardless of what else matched (the original multi-intent
+        # collision fix - see test_planner_gmail_multi_intent.py).
+        if any(k in text for k in GMAIL_STRONG_KEYWORDS):
+            detected.add("gmail")
+        elif any(k in text for k in GMAIL_WEAK_KEYWORDS) and not detected:
+            detected.add("gmail")
 
         if not detected:
             # default to manager/general
