@@ -1381,10 +1381,20 @@ class AIActionApproval(Base):
     """A pending (or decided) request for a human to approve an action an
     AI-workforce tool proposed - e.g. scheduling a site visit, confirming
     one, or sending a drafted customer message. `payload` carries
-    whatever the proposing tool needs to actually perform the action if
-    a later phase wires up execution; this table itself never performs
-    it. `requested_by_employee` is the AI Workforce employee name (e.g.
-    "sales"), never a human user."""
+    whatever the proposing tool needs to actually perform the action.
+    `requested_by_employee` is the AI Workforce employee name (e.g.
+    "sales"), never a human user.
+
+    Phase 10C: `execution_result` is set only when this approval's
+    action_type has a registered handler
+    (app.services.ai_workforce.action_execution.ACTION_HANDLERS) AND a
+    human actually approved it via
+    AIActionApprovalService.approve_and_execute() - never populated
+    merely because status became "approved". Not every action_type is
+    wired to execution (e.g. schedule_site_visit/create_follow_up/
+    customer_message_draft remain proposal-only) - this column stays
+    NULL for those even once approved, which is the correct, honest
+    state, not a bug."""
 
     __tablename__ = "ai_action_approvals"
 
@@ -1401,6 +1411,7 @@ class AIActionApproval(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     decided_at = Column(DateTime, nullable=True)
     decided_by_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    execution_result = Column(JSON, nullable=True)  # {"executed": bool, "service": str, "outcome": str, ...} - see action_execution.py
 
     agency = relationship("Agency")
     decided_by = relationship("User")

@@ -698,6 +698,23 @@ class ApprovalDecisionRequest(BaseModel):
     approve: bool
 
 
+class AIActionApprovalOut(BaseModel):
+    """Phase 10C: app/models.py's AIActionApproval, for the minimal
+    approval inbox (GET/POST /ai-approvals)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    agency_id: UUID
+    action_type: str
+    summary: str
+    payload: dict
+    requested_by_employee: str
+    status: str
+    created_at: datetime
+    decided_at: datetime | None
+    execution_result: dict | None = None
+
+
 # =====================================================
 # REAL ESTATE INVENTORY (Phase 7)
 # =====================================================
