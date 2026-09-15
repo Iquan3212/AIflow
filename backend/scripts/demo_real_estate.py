@@ -849,6 +849,58 @@ def ensure_phase9_conversion(owner_token: str, buyer_token: str) -> None:
     log(f"Buyer's own bookings visible via GET /buyer/bookings: {len(my_bookings)}.")
 
 
+# ------------------------------------------------------- phase 10b workforce --
+
+QUALIFICATION_LEAD_PHONE = "+91-98450-77001"
+
+
+def ensure_lead_qualification_and_matching_demo(owner_token: str) -> None:
+    """Phase 10B: demonstrates a real buyer/lead with stated requirements
+    being qualified, then matched against actual inventory - using only
+    the real, existing HTTP endpoints (PUT /leads/{id}, GET /properties)
+    that the Lead Qualification and Property Matching AI employees'
+    tools (update_lead_qualification, search_properties) themselves sit
+    on top of. Deliberately does NOT call the AI employees themselves
+    (no /employee/chat request here) - that would trigger a real, paid
+    LLM call on every demo run, which this script's own docstring
+    promises never to do repeatedly. This shows the real DATA SHAPE the
+    two agents produce/consume, using real DB state, zero LLM tokens."""
+    leads = api("GET", "/leads/", token=owner_token).json()
+    lead = next((l for l in leads if l.get("phone") == QUALIFICATION_LEAD_PHONE), None)
+    if lead is None:
+        created = api("POST", "/leads/", token=owner_token, json={
+            "name": "Ananya Rao", "phone": QUALIFICATION_LEAD_PHONE, "email": "ananya.rao@example.com",
+            "service_interested": "3 BHK apartment", "budget": "1.4 Cr",
+        })
+        created.raise_for_status()
+        lead = created.json()
+        log(f"Created demo lead {lead['name']!r} with a stated 3 BHK / 1.4 Cr requirement.")
+    else:
+        log(f"Demo lead {lead['name']!r} already exists — skipping create.")
+
+    if lead.get("qualification_score") is None:
+        # This is exactly what the Lead Qualification AI employee's
+        # update_lead_qualification tool would write - see
+        # app/tools/realestate_lead_property_tools.py.
+        qualified = api("PUT", f"/leads/{lead['id']}", token=owner_token, json={
+            "status": "qualified", "qualification_score": 85,
+            "qualification_notes": "3 BHK requirement, ~1.4 Cr budget, actively comparing projects - high intent.",
+        })
+        qualified.raise_for_status()
+        lead = qualified.json()
+        log(f"Lead {lead['name']!r} qualified: score={lead['qualification_score']}, status={lead['status']}.")
+    else:
+        log(f"Lead {lead['name']!r} already qualified (score={lead['qualification_score']}) — skipping.")
+
+    # This is exactly what the Property Matching AI employee's
+    # search_properties tool would call, filtered by the lead's real,
+    # already-qualified requirement (3 BHK) - never invented.
+    matches = api("GET", "/properties", token=owner_token, params={"bhk": 3, "status": "active"}).json()
+    log(f"Real inventory match for lead {lead['name']!r}'s 3 BHK requirement: {len(matches)} active unit(s).")
+    for unit in matches[:5]:
+        log(f"  - matched unit {unit['unit_number']!r}: price={unit['price']}, carpet_area={unit['carpet_area_sqft']} sqft")
+
+
 # ---------------------------------------------------------------- verification --
 
 def verify_leads_and_analytics(token: str) -> None:
@@ -903,6 +955,7 @@ def main():
 
     ensure_site_visits(OWNER_TOKEN)
     ensure_phase9_conversion(OWNER_TOKEN, buyer_token)
+    ensure_lead_qualification_and_matching_demo(OWNER_TOKEN)
 
     verify_leads_and_analytics(OWNER_TOKEN)
 
