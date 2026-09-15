@@ -183,7 +183,13 @@ INVENTORY = [
         "properties": [
             {"building": "Tower 1", "floor": 9, "unit_number": "U-UC-0912", "bhk": 3,
              "carpet_area_sqft": "1320.00", "facing": "west", "price": "12200000.00",
-             "target_status": "active", "description": "3 BHK, Tower 1, 9th floor, West-facing."},
+             # Found sold on the real dev DB (updated_at 2026-09-14) during
+             # Phase 10C's demo verification, from earlier dev/testing
+             # activity this script's target_status was never updated to
+             # match - `sold` is deliberately one-way (Phase 7), so this
+             # reflects permanent reality, not a bug to hide (same pattern
+             # as U-UC-0603/U-UC-1105 below).
+             "target_status": "sold", "description": "3 BHK, Tower 1, 9th floor, West-facing."},
             {"building": "Tower 1", "floor": 6, "unit_number": "U-UC-0603", "bhk": 1,
              "carpet_area_sqft": "640.00", "facing": "south", "price": "5200000.00",
              # Sold via a real, completed Phase 9 buyer-conversion smoke
