@@ -1,24 +1,34 @@
 """
-Phase 10A, Step 1: site-visit and customer-outreach tools for new,
-tool-calling-capable AI Workforce employees.
+Phase 10A, Step 1 (extended Phase 10C): site-visit and customer-outreach
+tools for tool-calling-capable AI Workforce employees.
 
 get_available_slots is read-only (real availability, via
 app.services.scheduling.appointment_service.AppointmentService - the
 same rules engine the customer-widget booking flow and the dashboard
 already use).
 
-The other four tools - propose_visit, confirm_visit, create_follow_up,
-draft_customer_message - never mutate a real Appointment/Booking and
-never send a real customer communication. Each one only creates a
-pending app.services.ai_workforce.approval_service.AIActionApproval
-record describing the proposed action (see Phase 10A spec Step 6: the
-approval primitive "must NOT automatically perform an action merely
-because a record is approved", and must not yet be wired to real
-booking mutation or external communication). Booking a real site visit
-still goes through AppointmentService.book()/.confirm() exactly as it
-already does today (dashboard actions, the customer widget's
-save_lead_info/schedule_visit tool flow) - this module adds a *second*,
-human-gated path for the new AI employees, not a replacement for those.
+Every other tool here - propose_visit, confirm_visit, reschedule_visit,
+cancel_visit, create_follow_up, draft_customer_message,
+propose_send_customer_message - never mutates a real Appointment/
+Booking and never sends a real customer communication itself. Each one
+only creates a pending
+app.services.ai_workforce.approval_service.AIActionApproval record
+describing the proposed action. As of Phase 10C, an APPROVED action of
+one of the "consequential" types (reschedule_site_visit,
+confirm_site_visit, cancel_site_visit, send_customer_message) IS wired
+to real execution - see app.services.ai_workforce.action_execution's
+explicit action-type -> handler registry, invoked only by
+AIActionApprovalService.approve_and_execute(), never automatically. A
+human approving is a necessary but not sufficient condition: execution
+still re-validates against the current DB state through the same
+authoritative service (AppointmentService/GmailService) a human
+dashboard action would use - never a raw ORM/SQL mutation, never
+eval()/arbitrary dispatch of the stored payload.
+
+schedule_site_visit and create_follow_up/customer_message_draft remain
+proposal-only with no execution wiring (Phase 10A/10C's booking
+boundary: creating a brand-new booking-adjacent commitment is
+recommendation-only, never auto-executed even after approval).
 
 Same ToolRouter calling convention as every other tool in app/tools/:
 execute(message, db, agency, conversation, lead, **kwargs). `agency` is
@@ -112,6 +122,79 @@ class ProposeVisitTool:
         return {
             "success": True, "proposed": True, "approval_id": approval.id, "status": approval.status.value,
             "message": "Site visit proposed - pending human approval. No appointment has been booked yet.",
+        }
+
+
+class RescheduleVisitTool:
+    """reschedule_visit(appointment_id, new_start_local_iso) - proposes
+    (never performs) moving an already-scheduled site visit to a new
+    time. Creates a pending AIActionApproval; the Appointment's time is
+    not changed by this tool (Phase 10C: rescheduling is consequential -
+    it re-checks availability and notifies the customer via
+    AppointmentService.reschedule() - so it is approval-gated, same as
+    confirm/cancel)."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def execute(self, message: str = None, db: Session = None, agency: models.Agency = None,
+                conversation=None, lead=None, appointment_id: str = None, new_start_local_iso: str = None,
+                requested_by_employee: str = _DEFAULT_EMPLOYEE, **kwargs) -> dict:
+        db = db or self.db
+        if agency is None:
+            return {"success": False, "error": "missing_agency"}
+        if not (appointment_id and new_start_local_iso):
+            return {"success": False, "error": "missing_arguments"}
+
+        appt = AppointmentService(db).repo.get(agency.id, appointment_id)
+        if appt is None:
+            return {"success": False, "error": "appointment_not_found"}
+        try:
+            parse_local_iso(new_start_local_iso, agency.timezone)
+        except (ValueError, TypeError):
+            return {"success": False, "error": "invalid_datetime"}
+
+        summary = f"AI proposes rescheduling site visit {appointment_id} to {new_start_local_iso}."
+        approval = AIActionApprovalService(db).request(
+            agency.id, action_type="reschedule_site_visit", summary=summary,
+            payload={"appointment_id": str(appointment_id), "new_start_local_iso": new_start_local_iso},
+            requested_by_employee=requested_by_employee,
+        )
+        return {
+            "success": True, "proposed": True, "approval_id": approval.id, "status": approval.status.value,
+            "message": "Reschedule proposed - pending human approval. The appointment time has not changed.",
+        }
+
+
+class CancelVisitTool:
+    """cancel_visit(appointment_id) - proposes (never performs) cancelling
+    an already-scheduled site visit. Creates a pending AIActionApproval;
+    the Appointment's status is not changed by this tool."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def execute(self, message: str = None, db: Session = None, agency: models.Agency = None,
+                conversation=None, lead=None, appointment_id: str = None,
+                requested_by_employee: str = _DEFAULT_EMPLOYEE, **kwargs) -> dict:
+        db = db or self.db
+        if agency is None:
+            return {"success": False, "error": "missing_agency"}
+        if not appointment_id:
+            return {"success": False, "error": "missing_appointment_id"}
+
+        appt = AppointmentService(db).repo.get(agency.id, appointment_id)
+        if appt is None:
+            return {"success": False, "error": "appointment_not_found"}
+
+        summary = f"AI proposes cancelling site visit {appointment_id} scheduled for {appt.scheduled_at}."
+        approval = AIActionApprovalService(db).request(
+            agency.id, action_type="cancel_site_visit", summary=summary,
+            payload={"appointment_id": str(appointment_id)}, requested_by_employee=requested_by_employee,
+        )
+        return {
+            "success": True, "proposed": True, "approval_id": approval.id, "status": approval.status.value,
+            "message": "Cancellation proposed - pending human approval. The appointment status has not changed.",
         }
 
 
@@ -213,4 +296,51 @@ class DraftCustomerMessageTool:
         return {
             "success": True, "proposed": True, "approval_id": approval.id, "status": approval.status.value,
             "message": "Draft saved for human review. Nothing was sent.",
+        }
+
+
+class ProposeSendCustomerMessageTool:
+    """propose_send_customer_message(lead_id, message_body) - Phase 10C:
+    proposes ACTUALLY SENDING a message to a lead, unlike
+    DraftCustomerMessageTool above (which only ever creates a
+    reviewable draft). Creates a pending AIActionApproval with
+    action_type="send_customer_message"; nothing is sent by this tool.
+    Only once a human approves it does execution attempt a real send -
+    via GmailService.send() (see app.services.ai_workforce.
+    action_execution), which enforces the agency's own existing Gmail
+    send_mode/GmailPendingAction control exactly as it already does for
+    every other Gmail-originated send. Requires the lead to have a real
+    email address on file - never invents one."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def execute(self, message: str = None, db: Session = None, agency: models.Agency = None,
+                conversation=None, lead=None, lead_id: str = None, message_body: str = None,
+                subject: str = None, requested_by_employee: str = _DEFAULT_EMPLOYEE, **kwargs) -> dict:
+        db = db or self.db
+        if agency is None:
+            return {"success": False, "error": "missing_agency"}
+        if not (lead_id and message_body):
+            return {"success": False, "error": "missing_arguments"}
+
+        lead_row = LeadService(db).get(lead_id, agency.id)
+        if lead_row is None:
+            return {"success": False, "error": "lead_not_found"}
+        if not lead_row.email:
+            return {"success": False, "error": "lead_has_no_email", "message": "This lead has no email on file to send to."}
+
+        who = lead_row.name or lead_row.phone or lead_row.email
+        summary = f"AI proposes sending an email to lead {who} ({lead_row.email})."
+        approval = AIActionApprovalService(db).request(
+            agency.id, action_type="send_customer_message", summary=summary,
+            payload={
+                "lead_id": str(lead_id), "to": lead_row.email,
+                "subject": subject or f"Following up - {agency.name}", "body": message_body,
+            },
+            requested_by_employee=requested_by_employee,
+        )
+        return {
+            "success": True, "proposed": True, "approval_id": approval.id, "status": approval.status.value,
+            "message": "Send proposed - pending human approval. Nothing has been sent yet.",
         }

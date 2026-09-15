@@ -35,6 +35,8 @@ from app import models, schemas
 from app.services.lead_service import LeadService
 from app.services.inventory.project_service import ProjectService
 from app.services.inventory.property_service import PropertyService
+from app.services.marketplace.booking_service import BookingService
+from app.services.scheduling.appointment_service import AppointmentService
 
 # Mirrors frontend/src/types/lead.ts's LEAD_STATUSES - Lead.status has no
 # DB-level enum/CHECK constraint (unlike Property/Booking/Appointment),
@@ -234,3 +236,90 @@ class GetPropertyTool:
         if row is None:
             return {"success": False, "error": "property_not_found"}
         return {"success": True, "property": _property_summary(row)}
+
+
+class GetProjectTool:
+    """get_project(project_id) - real, agency-scoped project detail
+    (app.services.inventory.project_service.ProjectService.get)."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def execute(self, message: str = None, db: Session = None, agency: models.Agency = None,
+                conversation=None, lead=None, project_id: str = None, **kwargs) -> dict:
+        db = db or self.db
+        if agency is None:
+            return {"success": False, "error": "missing_agency"}
+        if not project_id:
+            return {"success": False, "error": "missing_project_id"}
+
+        row = ProjectService(db).get(project_id, agency.id)
+        if row is None:
+            return {"success": False, "error": "project_not_found"}
+        return {"success": True, "project": _project_summary(row)}
+
+
+def _appointment_summary(a: models.Appointment) -> dict:
+    return {
+        "id": a.id,
+        "lead_id": a.lead_id,
+        "property_id": a.property_id,
+        "customer_name": a.customer_name,
+        "scheduled_at": a.scheduled_at.isoformat() if a.scheduled_at else None,
+        "status": a.status.value if a.status else None,
+        "source": a.source,
+    }
+
+
+def _booking_summary(b: models.Booking) -> dict:
+    return {
+        "id": b.id,
+        "lead_id": b.lead_id,
+        "property_id": b.property_id,
+        "appointment_id": b.appointment_id,
+        "status": b.status.value if b.status else None,
+        "agreed_price": float(b.agreed_price) if b.agreed_price is not None else None,
+        "created_at": b.created_at.isoformat() if b.created_at else None,
+    }
+
+
+class GetLeadAppointmentsTool:
+    """get_lead_appointments(lead_id) - real, agency-scoped site-visit
+    (Appointment) history for one lead - DB status is authoritative,
+    never inferred (Phase 10C: Sales/Site Visit/Customer Relations must
+    never claim a visit is confirmed/cancelled/completed unless this
+    real status actually says so)."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def execute(self, message: str = None, db: Session = None, agency: models.Agency = None,
+                conversation=None, lead=None, lead_id: str = None, **kwargs) -> dict:
+        db = db or self.db
+        if agency is None:
+            return {"success": False, "error": "missing_agency"}
+        if not lead_id:
+            return {"success": False, "error": "missing_lead_id"}
+
+        rows = [a for a in AppointmentService(db).repo.get_all(agency.id) if a.lead_id == lead_id]
+        return {"success": True, "count": len(rows), "appointments": [_appointment_summary(a) for a in rows]}
+
+
+class GetLeadBookingsTool:
+    """get_lead_bookings(lead_id) - real, agency-scoped Booking history
+    for one lead (app.services.marketplace.booking_service.BookingService),
+    never invented."""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def execute(self, message: str = None, db: Session = None, agency: models.Agency = None,
+                conversation=None, lead=None, lead_id: str = None, **kwargs) -> dict:
+        db = db or self.db
+        if agency is None:
+            return {"success": False, "error": "missing_agency"}
+        if not lead_id:
+            return {"success": False, "error": "missing_lead_id"}
+
+        rows = BookingService(db).get_all(agency.id, lead_id=lead_id)
+        return {"success": True, "count": len(rows), "bookings": [_booking_summary(b) for b in rows]}

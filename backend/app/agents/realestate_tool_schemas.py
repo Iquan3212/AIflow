@@ -169,4 +169,84 @@ REALESTATE_TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
+    # ---- Phase 10C additions ----
+    "get_project": {
+        "type": "function",
+        "function": {
+            "name": "get_project",
+            "description": "Get the real, current detail for one project by id.",
+            "parameters": {
+                "type": "object",
+                "properties": {"project_id": {"type": "string"}},
+                "required": ["project_id"],
+            },
+        },
+    },
+    "get_lead_appointments": {
+        "type": "function",
+        "function": {
+            "name": "get_lead_appointments",
+            "description": "Get the real, current site-visit (appointment) history for one lead. Status here is authoritative - never assume a visit is confirmed/cancelled/completed without checking this.",
+            "parameters": {
+                "type": "object",
+                "properties": {"lead_id": {"type": "string"}},
+                "required": ["lead_id"],
+            },
+        },
+    },
+    "get_lead_bookings": {
+        "type": "function",
+        "function": {
+            "name": "get_lead_bookings",
+            "description": "Get the real, current booking history for one lead. Never assume a booking exists or its status without checking this.",
+            "parameters": {
+                "type": "object",
+                "properties": {"lead_id": {"type": "string"}},
+                "required": ["lead_id"],
+            },
+        },
+    },
+    "reschedule_visit": {
+        "type": "function",
+        "function": {
+            "name": "reschedule_visit",
+            "description": "Propose rescheduling an already-scheduled site visit to a new time. Does NOT change anything - creates a pending request for a human to approve.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "appointment_id": {"type": "string"},
+                    "new_start_local_iso": {"type": "string", "description": "YYYY-MM-DDTHH:MM in the agency's local time"},
+                },
+                "required": ["appointment_id", "new_start_local_iso"],
+            },
+        },
+    },
+    "cancel_visit": {
+        "type": "function",
+        "function": {
+            "name": "cancel_visit",
+            "description": "Propose cancelling an already-scheduled site visit. Does NOT change anything - creates a pending request for a human to approve.",
+            "parameters": {
+                "type": "object",
+                "properties": {"appointment_id": {"type": "string"}},
+                "required": ["appointment_id"],
+            },
+        },
+    },
+    "propose_send_customer_message": {
+        "type": "function",
+        "function": {
+            "name": "propose_send_customer_message",
+            "description": "Propose ACTUALLY SENDING an email to a lead (not just drafting). Does NOT send anything itself - creates a pending request for a human to approve before anything goes out.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lead_id": {"type": "string"},
+                    "message_body": {"type": "string"},
+                    "subject": {"type": "string"},
+                },
+                "required": ["lead_id", "message_body"],
+            },
+        },
+    },
 }
