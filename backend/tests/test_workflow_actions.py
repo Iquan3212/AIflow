@@ -77,6 +77,33 @@ class TestSendNotificationAction:
         assert outcome.status == "succeeded"
 
 
+class TestPhase11BookingNotificationEvents:
+    """Phase 11 added booking_confirmed/booking_completed as real,
+    registered notification event types (preferences.py) - proves
+    send_notification actually accepts them now, not just that they're
+    listed somewhere."""
+
+    def test_booking_confirmed_event_type_dispatches(self):
+        with patch("app.services.workflows.actions.NotificationDispatcher") as MockDispatcher:
+            MockDispatcher.return_value.notify_owner.return_value = [NotifyResult(ok=True, channel="email")]
+            outcome = execute_action(
+                "send_notification", db=MagicMock(), agency=_agency(),
+                trigger_data={"booking": {"id": "b1", "property_id": "p1"}},
+                config={"event_type": "booking_confirmed", "audience": "owner", "subject": "s", "body_template": "b"},
+            )
+        assert outcome.status == "succeeded"
+
+    def test_booking_completed_event_type_dispatches(self):
+        with patch("app.services.workflows.actions.NotificationDispatcher") as MockDispatcher:
+            MockDispatcher.return_value.notify_owner.return_value = [NotifyResult(ok=True, channel="email")]
+            outcome = execute_action(
+                "send_notification", db=MagicMock(), agency=_agency(),
+                trigger_data={"booking": {"id": "b1", "property_id": "p1"}},
+                config={"event_type": "booking_completed", "audience": "owner", "subject": "s", "body_template": "b"},
+            )
+        assert outcome.status == "succeeded"
+
+
 class TestGmailDraftAction:
     def test_no_recipient_fails_cleanly(self):
         outcome = execute_action(

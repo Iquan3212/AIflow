@@ -44,6 +44,14 @@ class TestChannelsForEvent:
         assert notif_prefs.channels_for_event(notif_prefs.NEW_LEAD) == ("email",)
         assert notif_prefs.channels_for_event(notif_prefs.SUPPORT_ESCALATION) == ("email",)
 
+    def test_phase11_booking_events_are_registered_owner_events(self):
+        assert notif_prefs.BOOKING_CONFIRMED in notif_prefs.OWNER_EVENTS
+        assert notif_prefs.BOOKING_COMPLETED in notif_prefs.OWNER_EVENTS
+        assert notif_prefs.channels_for_event(notif_prefs.BOOKING_CONFIRMED) == ("email",)
+        assert notif_prefs.channels_for_event(notif_prefs.BOOKING_COMPLETED) == ("email",)
+        assert notif_prefs.EVENT_LABELS[notif_prefs.BOOKING_CONFIRMED]
+        assert notif_prefs.EVENT_LABELS[notif_prefs.BOOKING_COMPLETED]
+
     def test_customer_events_support_email_sms_whatsapp(self):
         for event in notif_prefs.CUSTOMER_EVENTS:
             assert notif_prefs.channels_for_event(event) == ("email", "sms", "whatsapp")
