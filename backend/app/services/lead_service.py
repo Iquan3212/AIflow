@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app import models, schemas
 
 from app.services.lead_ai_service import extract_lead_information
-from app.services.workflows.triggers import fire_trigger, lead_created_data
+from app.services.workflows.triggers import fire_trigger, lead_created_data, lead_data
 
 
 class LeadService:
@@ -82,11 +82,36 @@ class LeadService:
         if not lead:
             return None
 
-        for key, value in payload.model_dump(exclude_unset=True).items():
+        changed_fields = payload.model_dump(exclude_unset=True)
+        previous_status = lead.status
+        previous_score = lead.qualification_score
+
+        for key, value in changed_fields.items():
             setattr(lead, key, value)
 
         self.db.commit()
         self.db.refresh(lead)
+
+        # Phase 11: fires from the ONE generic update path both the
+        # dashboard's PUT /leads/{id} and the Lead Qualification AI
+        # employee's update_lead_qualification tool already go through
+        # (see realestate_lead_property_tools.py) - no separate wiring
+        # needed for either caller. Event ids include the new value AND
+        # lead.updated_at (fresh from the commit above) so a genuine
+        # repeated transition (e.g. new -> qualified -> new -> qualified)
+        # is never treated as a duplicate of an earlier, different one -
+        # only an identical retried call within the same commit shares an
+        # id.
+        if "status" in changed_fields and lead.status != previous_status:
+            fire_trigger(
+                self.db, agency_id, models.WorkflowTriggerType.lead_status_changed,
+                lead_data(lead), event_id=f"{lead.id}:{lead.status}:{lead.updated_at.isoformat()}",
+            )
+        if "qualification_score" in changed_fields and lead.qualification_score != previous_score:
+            fire_trigger(
+                self.db, agency_id, models.WorkflowTriggerType.lead_qualified,
+                lead_data(lead), event_id=f"{lead.id}:{lead.qualification_score}:{lead.updated_at.isoformat()}",
+            )
 
         return lead
 

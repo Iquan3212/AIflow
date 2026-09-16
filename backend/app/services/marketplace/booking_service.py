@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session, joinedload
 from app import models, schemas
 from app.services.inventory.status import validate_status_transition
 from app.services.inventory.status import InvalidStatusTransitionError as InvalidPropertyTransitionError
+from app.services.workflows.triggers import booking_data, fire_trigger
 
 ALLOWED_BOOKING_TRANSITIONS: dict[models.BookingStatus, frozenset[models.BookingStatus]] = {
     models.BookingStatus.initiated: frozenset({models.BookingStatus.pending, models.BookingStatus.cancelled}),
@@ -255,6 +256,10 @@ class BookingService:
 
         self.db.commit()
         self.db.refresh(booking)
+        fire_trigger(
+            self.db, agency_id, models.WorkflowTriggerType.booking_initiated,
+            booking_data(booking), event_id=str(booking.id),
+        )
         return booking
 
     def update_status(self, booking_id: str, agency_id: UUID, new_status: str) -> models.Booking:
@@ -304,4 +309,26 @@ class BookingService:
 
         self.db.commit()
         self.db.refresh(booking)
+
+        # Phase 11: booking.initiated (the create()-time transition) is
+        # already covered above; confirmed/cancelled/completed are the
+        # other three lifecycle stages the spec calls out (there is
+        # deliberately no separate trigger for the intermediate
+        # "pending" status - not one of the named workflow categories).
+        # Event id includes the target status so a genuinely later
+        # transition back through the same status (blocked by
+        # ALLOWED_BOOKING_TRANSITIONS today, but not something this
+        # trigger call should assume) is never conflated with an earlier
+        # one at the DB idempotency layer.
+        _BOOKING_TRIGGER_BY_STATUS = {
+            models.BookingStatus.confirmed: models.WorkflowTriggerType.booking_confirmed,
+            models.BookingStatus.cancelled: models.WorkflowTriggerType.booking_cancelled,
+            models.BookingStatus.completed: models.WorkflowTriggerType.booking_completed,
+        }
+        trigger_type = _BOOKING_TRIGGER_BY_STATUS.get(requested)
+        if trigger_type is not None:
+            fire_trigger(
+                self.db, agency_id, trigger_type,
+                booking_data(booking), event_id=f"{booking.id}:{requested.value}",
+            )
         return booking

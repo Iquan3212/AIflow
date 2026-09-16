@@ -60,7 +60,16 @@ def fire_trigger(db: Session, agency_id: str, trigger_type: models.WorkflowTrigg
 # Every field here is real, already-persisted data - never inferred,
 # never fabricated. Conditions/actions only ever read from this shape.
 
-def lead_created_data(lead: models.Lead) -> dict:
+def lead_data(lead: models.Lead) -> dict:
+    """Shared by every lead_* trigger (Phase 5's lead_created, Phase 11's
+    lead_status_changed/lead_qualified) - one shape, so a workflow's
+    conditions/templates behave identically regardless of which lead
+    event fired them. buyer_id/property_id (Phase 11, additive) let a
+    workflow scope itself to marketplace-sourced leads only (e.g. a
+    condition on `lead.buyer_id` `is_set`) without a separate
+    "marketplace_inquiry" trigger type - get_or_create_marketplace_lead()
+    already fires lead_created through LeadService.create() exactly like
+    every other lead."""
     return {
         "lead": {
             "id": lead.id,
@@ -70,8 +79,18 @@ def lead_created_data(lead: models.Lead) -> dict:
             "service_interested": lead.service_interested,
             "budget": lead.budget,
             "status": lead.status,
+            "buyer_id": lead.buyer_id,
+            "property_id": lead.property_id,
+            "qualification_score": lead.qualification_score,
+            "qualification_notes": lead.qualification_notes,
         }
     }
+
+
+# Old name kept as an alias - every existing call site (lead_service.py,
+# lead_tool.py, scheduling/tools.py) fires lead_created specifically, and
+# this is the exact shape they already relied on, now just extended.
+lead_created_data = lead_data
 
 
 def appointment_data(appt: models.Appointment) -> dict:
@@ -85,6 +104,15 @@ def appointment_data(appt: models.Appointment) -> dict:
             "scheduled_at": appt.scheduled_at.isoformat() if appt.scheduled_at else None,
             "status": appt.status.value if hasattr(appt.status, "value") else appt.status,
             "source": appt.source,
+            # Phase 11, additive: lets a site-visit workflow reach the
+            # associated marketplace buyer/property (e.g. to notify the
+            # buyer, or to condition on `appointment.property_id`
+            # is_set to scope a workflow to real-estate site visits
+            # only, vs. a non-marketplace appointment where both stay
+            # null exactly as they always have).
+            "buyer_id": appt.buyer_id,
+            "property_id": appt.property_id,
+            "lead_id": appt.lead_id,
         }
     }
 
@@ -96,5 +124,22 @@ def support_escalated_data(ticket: models.SupportTicket) -> dict:
             "issue_summary": ticket.issue_summary,
             "priority": ticket.priority,
             "status": ticket.status,
+        }
+    }
+
+
+def booking_data(booking: models.Booking) -> dict:
+    """Phase 11: the commercial-conversion counterpart to appointment_data
+    above - see models.py's Booking docstring for why this is a distinct
+    business concept from Appointment, never a relabeling of it."""
+    return {
+        "booking": {
+            "id": booking.id,
+            "property_id": booking.property_id,
+            "buyer_id": booking.buyer_id,
+            "lead_id": booking.lead_id,
+            "appointment_id": booking.appointment_id,
+            "status": booking.status.value if hasattr(booking.status, "value") else booking.status,
+            "agreed_price": str(booking.agreed_price) if booking.agreed_price is not None else None,
         }
     }

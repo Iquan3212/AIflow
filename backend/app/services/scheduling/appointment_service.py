@@ -289,6 +289,10 @@ class AppointmentService:
         appt = self.repo.save(appt)
         if not already_confirmed:
             self._send_visit_confirmed(agency, appt)
+            fire_trigger(
+                self.db, agency.id, models.WorkflowTriggerType.appointment_confirmed,
+                appointment_data(appt), event_id=str(appt.id),
+            )
         return BookingOutcome(True, appointment=appt, message="Site visit confirmed.")
 
     def complete(self, agency: models.Agency, appointment_id: str) -> BookingOutcome:
@@ -302,6 +306,10 @@ class AppointmentService:
 
         appt.status = models.AppointmentStatus.completed
         appt = self.repo.save(appt)
+        fire_trigger(
+            self.db, agency.id, models.WorkflowTriggerType.appointment_completed,
+            appointment_data(appt), event_id=str(appt.id),
+        )
         return BookingOutcome(True, appointment=appt, message="Site visit marked completed.")
 
     def mark_no_show(self, agency: models.Agency, appointment_id: str) -> BookingOutcome:
@@ -315,6 +323,10 @@ class AppointmentService:
 
         appt.status = models.AppointmentStatus.no_show
         appt = self.repo.save(appt)
+        fire_trigger(
+            self.db, agency.id, models.WorkflowTriggerType.appointment_no_show,
+            appointment_data(appt), event_id=str(appt.id),
+        )
         return BookingOutcome(True, appointment=appt, message="Site visit marked as a no-show.")
 
     def find_for_customer(self, agency: models.Agency, *, phone=None, email=None, conversation_id=None):

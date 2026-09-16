@@ -29,11 +29,16 @@ APPOINTMENT_REMINDER = "appointment_reminder"
 APPOINTMENT_CANCELLED = "appointment_cancelled"
 APPOINTMENT_RESCHEDULED = "appointment_rescheduled"
 SUPPORT_ESCALATION = "support_escalation"
+# Phase 11: booking lifecycle - owner-facing (the agency's own commercial
+# record; there is no "the buyer's booking changed" customer channel
+# distinct from what the marketplace UI already shows them live).
+BOOKING_CONFIRMED = "booking_confirmed"
+BOOKING_COMPLETED = "booking_completed"
 
 CUSTOMER_EVENTS = frozenset({
     APPOINTMENT_CONFIRMED, APPOINTMENT_REMINDER, APPOINTMENT_CANCELLED, APPOINTMENT_RESCHEDULED,
 })
-OWNER_EVENTS = frozenset({NEW_LEAD, SUPPORT_ESCALATION})
+OWNER_EVENTS = frozenset({NEW_LEAD, SUPPORT_ESCALATION, BOOKING_CONFIRMED, BOOKING_COMPLETED})
 ALL_EVENTS = CUSTOMER_EVENTS | OWNER_EVENTS
 
 CUSTOMER_CHANNELS = ("email", "sms", "whatsapp")
@@ -46,6 +51,8 @@ EVENT_LABELS = {
     APPOINTMENT_CANCELLED: "Appointment cancelled",
     APPOINTMENT_RESCHEDULED: "Appointment rescheduled",
     SUPPORT_ESCALATION: "Support ticket escalated",
+    BOOKING_CONFIRMED: "Booking confirmed",
+    BOOKING_COMPLETED: "Booking completed",
 }
 
 

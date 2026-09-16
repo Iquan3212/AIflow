@@ -824,6 +824,22 @@ class WorkflowTriggerType(str, enum.Enum):
     appointment_rescheduled = "appointment_rescheduled"
     appointment_cancelled = "appointment_cancelled"
     support_escalated = "support_escalated"
+    # Phase 11: real-estate workflow triggers, additive to the Phase 5 set
+    # above - see app/services/workflows/triggers.py for the real call
+    # sites. lead_created's own trigger_data (see lead_data() there) was
+    # extended with buyer_id/property_id rather than adding a separate
+    # "marketplace_inquiry" trigger type - a workflow author scopes a
+    # marketplace-only automation via a condition on lead.buyer_id
+    # instead (see config.py's TRIGGER_FIELDS).
+    lead_status_changed = "lead_status_changed"
+    lead_qualified = "lead_qualified"
+    appointment_confirmed = "appointment_confirmed"
+    appointment_completed = "appointment_completed"
+    appointment_no_show = "appointment_no_show"
+    booking_initiated = "booking_initiated"
+    booking_confirmed = "booking_confirmed"
+    booking_cancelled = "booking_cancelled"
+    booking_completed = "booking_completed"
 
 
 class WorkflowRunStatus(str, enum.Enum):
