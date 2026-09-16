@@ -636,6 +636,84 @@ def ensure_workflows(token: str) -> None:
                 "requires_approval": False,
             }],
         },
+        # ---- Phase 11: real-estate workflow triggers -----------------------
+        {
+            "name": "Site visit confirmed by agency -> notify customer",
+            "description": "When the agency explicitly confirms a site visit (distinct from the automatic booking-receipt notification above), let the customer know.",
+            "trigger_type": "appointment_confirmed",
+            "conditions": [],
+            "actions": [{
+                "type": "send_notification",
+                "config": {
+                    "audience": "customer", "event_type": "appointment_confirmed",
+                    "name_field": "appointment.customer_name",
+                    "email_field": "appointment.customer_email",
+                    "phone_field": "appointment.customer_phone",
+                    "subject": "Your site visit is confirmed",
+                    "body_template": "Hi {appointment_customer_name}, we've confirmed your site visit.",
+                },
+                "requires_approval": False,
+            }],
+        },
+        {
+            "name": "Lead status changed -> notify owner",
+            "description": "When a lead's status changes (e.g. new -> qualified), notify the owner.",
+            "trigger_type": "lead_status_changed",
+            "conditions": [],
+            "actions": [{
+                "type": "send_notification",
+                "config": {
+                    "audience": "owner", "event_type": "new_lead",
+                    "subject": "Lead status changed: {lead_name}",
+                    "body_template": "{lead_name}'s status is now {lead_status}.",
+                },
+                "requires_approval": False,
+            }],
+        },
+        {
+            "name": "Lead qualified -> AI finds matching properties",
+            "description": "When the Lead Qualification AI (or the dashboard) records a qualification score, run the Property Matching AI to suggest units - gated behind an explicit owner approval before the AI ever runs.",
+            "trigger_type": "lead_qualified",
+            "conditions": [{"field": "lead.qualification_score", "op": "is_set", "value": None}],
+            "actions": [{
+                "type": "run_ai_specialist",
+                "config": {
+                    "specialist": "property_matcher",
+                    "message_template": "Lead {lead_name} was just qualified (score {lead_qualification_score}). Find properties matching their stated requirements: {lead_qualification_notes}",
+                },
+                "requires_approval": True,
+            }],
+        },
+        {
+            "name": "Booking confirmed -> notify owner",
+            "description": "When a booking is confirmed (the unit is sold), notify the owner.",
+            "trigger_type": "booking_confirmed",
+            "conditions": [],
+            "actions": [{
+                "type": "send_notification",
+                "config": {
+                    "audience": "owner", "event_type": "booking_confirmed",
+                    "subject": "Booking confirmed",
+                    "body_template": "A booking (id {booking_id}) for property {booking_property_id} was confirmed.",
+                },
+                "requires_approval": False,
+            }],
+        },
+        {
+            "name": "Booking completed -> notify owner",
+            "description": "When a booking reaches its terminal completed state, notify the owner.",
+            "trigger_type": "booking_completed",
+            "conditions": [],
+            "actions": [{
+                "type": "send_notification",
+                "config": {
+                    "audience": "owner", "event_type": "booking_completed",
+                    "subject": "Booking completed",
+                    "body_template": "Booking {booking_id} for property {booking_property_id} is now complete.",
+                },
+                "requires_approval": False,
+            }],
+        },
     ]
 
     for wf in workflows:
@@ -751,6 +829,16 @@ def ensure_site_visits(token: str) -> None:
         if cancel_resp.status_code == 200:
             log(f"Cancelled site-visit appointment for Sneha Reddy (id={a3['id']}) to demonstrate the cancel path.")
 
+    # Phase 11: confirms Ananya Iyer's site visit (the agency-confirm
+    # action, distinct from the automatic booking-receipt notification
+    # above) - fires the real appointment_confirmed trigger. Idempotent:
+    # confirm() on an already-confirmed appointment is a documented
+    # no-op (see appointment_status.py).
+    if a1 and a1.get("status") == "scheduled":
+        confirm_resp = api("PUT", f"/appointments/{a1['id']}/confirm", token=token)
+        if confirm_resp.status_code == 200:
+            log(f"Confirmed site-visit appointment for Ananya Iyer (id={a1['id']}) — fires appointment_confirmed.")
+
 
 # --------------------------------------------------- Phase 9 conversion flow --
 
@@ -776,7 +864,15 @@ def ensure_phase9_conversion(owner_token: str, buyer_token: str) -> None:
         None,
     )
     if already_done:
-        log(f"Phase 9 conversion demo for U-LH-1102 already completed (booking status={already_done['status']}) — skipping.")
+        log(f"Phase 9 conversion demo for U-LH-1102 already completed (booking status={already_done['status']}) — skipping the rest of the flow.")
+        # Phase 11: this booking may have reached "confirmed" in an
+        # EARLIER session, before the booking_confirmed/booking_completed
+        # workflow triggers existed - still progress it the rest of the
+        # way here (idempotent: update_status() on the same status is a
+        # documented no-op) so those triggers get a real, live chance to
+        # fire, rather than silently never firing again just because the
+        # commercial flow itself was already done.
+        _progress_booking_to_completed(owner_token, already_done["booking_id"])
         return
 
     props = api("GET", "/marketplace/properties", params={"limit": 100}).json()["results"]
@@ -840,16 +936,36 @@ def ensure_phase9_conversion(owner_token: str, buyer_token: str) -> None:
     else:
         log(f"Booking for {target['unit_number']} already exists (status={booking['status']}) — skipping create.")
 
-    for step_status in ("pending", "confirmed"):
-        if booking["status"] == step_status:
-            continue
-        progressed = api("PUT", f"/bookings/{booking['id']}/status", token=owner_token, json={"status": step_status})
-        progressed.raise_for_status()
-        booking = progressed.json()
-        log(f"Booking status -> {booking['status']}.")
+    # Phase 11: progresses all the way to "completed" (previously stopped
+    # at "confirmed") - synthetic data only, no external send - so the
+    # booking_confirmed AND booking_completed workflow triggers (see
+    # ensure_workflows()) both fire for real in this same demo run.
+    booking = _progress_booking_to_completed(owner_token, booking["id"])
 
     prop_after = api("GET", f"/properties/{property_id}", token=owner_token).json()
     log(f"Property {target['unit_number']} status after booking confirmed: {prop_after['status']}.")
+
+
+def _progress_booking_to_completed(owner_token: str, booking_id: str) -> dict:
+    """Idempotently walks a booking forward through pending -> confirmed
+    -> completed (update_status() on the booking's own current status is
+    a documented no-op - see booking_service.py's validate_booking_
+    transition), firing the real booking_confirmed/booking_completed
+    triggers along the way. Shared by ensure_phase9_conversion()'s
+    fresh-flow path and its already-done early-return path, so a rerun
+    against a booking that only reached "confirmed" in an earlier
+    session (before these Phase 11 triggers existed) still gets a real
+    chance to fire booking_completed."""
+    order = ("initiated", "pending", "confirmed", "completed")
+    booking = api("GET", f"/bookings/{booking_id}", token=owner_token).json()
+    if booking["status"] not in order:
+        return booking  # "cancelled" or anything else terminal/unrecognized - nothing to progress
+    for step_status in order[order.index(booking["status"]) + 1:]:
+        progressed = api("PUT", f"/bookings/{booking_id}/status", token=owner_token, json={"status": step_status})
+        progressed.raise_for_status()
+        booking = progressed.json()
+        log(f"Booking status -> {booking['status']}.")
+    return booking
 
     my_bookings = api("GET", "/buyer/bookings", token=buyer_token).json()
     log(f"Buyer's own bookings visible via GET /buyer/bookings: {len(my_bookings)}.")
@@ -905,6 +1021,103 @@ def ensure_lead_qualification_and_matching_demo(owner_token: str) -> None:
     log(f"Real inventory match for lead {lead['name']!r}'s 3 BHK requirement: {len(matches)} active unit(s).")
     for unit in matches[:5]:
         log(f"  - matched unit {unit['unit_number']!r}: price={unit['price']}, carpet_area={unit['carpet_area_sqft']} sqft")
+
+
+# ------------------------------------------------- phase 11 run_ai_specialist --
+
+AI_SPECIALIST_DEMO_LEAD_PHONE = "+91-98450-77002"
+
+
+def demo_workflow_triggered_ai_specialist(owner_token: str) -> None:
+    """Phase 11: proves the NEW run_ai_specialist workflow action
+    end-to-end through the real approval-gated path. Uses its OWN
+    dedicated lead (a different phone number from
+    ensure_lead_qualification_and_matching_demo()'s "Ananya Rao") rather
+    than reusing that one - on a rerun against an already-progressed
+    demo database, that lead's qualification_score was very likely
+    already set in an EARLIER session, before this Phase 11 workflow
+    ever existed, so lead_qualified would never fire for it again (the
+    real, correct idempotency behavior - not a bug), and this
+    end-to-end check would silently never run. A fresh, dedicated lead
+    means this step's own idempotency (checked below, by workflow-run
+    outcome) is the only thing gating a repeat.
+
+    Approving the resulting pending approval makes exactly ONE real LLM
+    call (property_matcher's own bounded turn) - the ONLY new live call
+    this Phase 11 work adds; every other Phase 11 trigger demonstrated
+    in this script (site visit confirm/complete, booking initiated/
+    confirmed/completed, lead status change) is zero-LLM-cost,
+    notification-only automation."""
+    workflows = api("GET", "/workflows", token=owner_token).json()
+    wf = next((w for w in workflows if w["name"] == "Lead qualified -> AI finds matching properties"), None)
+    if wf is None:
+        log("WARNING: AI-specialist demo workflow not found — skipping.")
+        return
+
+    runs = api("GET", f"/workflows/{wf['id']}/runs", token=owner_token).json()
+    already_done = next((r for r in runs if r["status"] == "succeeded"), None)
+    if already_done:
+        result = already_done["steps"][0].get("result") or {}
+        log(f"run_ai_specialist workflow already completed (specialist={result.get('specialist')}) — skipping re-run.")
+        return
+
+    leads = api("GET", "/leads/", token=owner_token).json()
+    lead = next((l for l in leads if l.get("phone") == AI_SPECIALIST_DEMO_LEAD_PHONE), None)
+    if lead is None:
+        created = api("POST", "/leads/", token=owner_token, json={
+            "name": "Vikram Shah", "phone": AI_SPECIALIST_DEMO_LEAD_PHONE, "email": "vikram.shah@example.com",
+            "service_interested": "2 BHK apartment", "budget": "1.2 Cr",
+        })
+        created.raise_for_status()
+        lead = created.json()
+        log(f"Created dedicated demo lead {lead['name']!r} for the run_ai_specialist smoke test.")
+
+    if lead["status"] == "new":
+        # Phase 11: a real, zero-LLM-cost status transition on this same
+        # fresh lead - fires lead_status_changed for real, distinct from
+        # the qualification-score change below (lead_qualified).
+        contacted = api("PUT", f"/leads/{lead['id']}", token=owner_token, json={"status": "contacted"})
+        contacted.raise_for_status()
+        lead = contacted.json()
+        log(f"Lead {lead['name']!r} status -> {lead['status']} — fires lead_status_changed.")
+
+    if lead.get("qualification_score") is None:
+        qualified = api("PUT", f"/leads/{lead['id']}", token=owner_token, json={
+            "qualification_score": 78,
+            "qualification_notes": "2 BHK requirement, ~1.2 Cr budget, comparing 2-3 projects.",
+        })
+        qualified.raise_for_status()
+        log(f"Qualified lead {lead['name']!r} (score=78) — this real lead_qualified trigger fires the AI-specialist workflow.")
+    else:
+        log(f"Lead {lead['name']!r} already qualified — the earlier trigger fire should already have a run.")
+
+    runs = api("GET", f"/workflows/{wf['id']}/runs", token=owner_token).json()
+    pending_run = next((r for r in runs if r["status"] == "waiting_approval"), None)
+    if pending_run is None:
+        log("WARNING: no waiting_approval run found for the AI-specialist workflow after qualifying the dedicated lead — skipping.")
+        return
+
+    approvals = api("GET", "/workflow-approvals", token=owner_token).json()
+    approval = next(
+        (a for a in approvals if a["workflow_step_run_id"] == pending_run["steps"][0]["id"] and a["status"] == "pending"),
+        None,
+    )
+    if approval is None:
+        log("WARNING: no pending workflow approval found for the AI-specialist run — skipping.")
+        return
+
+    log(f"Approving workflow-gated AI-specialist action (approval id={approval['id']}) — this makes ONE real LLM call.")
+    decided = api("POST", f"/workflow-approvals/{approval['id']}/decide", token=owner_token, json={"approve": True})
+    decided.raise_for_status()
+    PROVIDER_CALLS["llm_turns"] += 1
+
+    final_run = api("GET", f"/workflow-runs/{pending_run['id']}", token=owner_token).json()
+    step = final_run["steps"][0]
+    log(f"AI-specialist workflow run status={final_run['status']}, step status={step['status']}.")
+    if step.get("result"):
+        log(f"  specialist={step['result'].get('specialist')}, reply={str(step['result'].get('reply'))[:200]!r}")
+    if step.get("error"):
+        log(f"  step error: {step['error']}")
 
 
 # --------------------------------------------------- phase 10d ai workforce chain --
@@ -1019,13 +1232,14 @@ def main():
     ensure_site_visits(OWNER_TOKEN)
     ensure_phase9_conversion(OWNER_TOKEN, buyer_token)
     ensure_lead_qualification_and_matching_demo(OWNER_TOKEN)
+    demo_workflow_triggered_ai_specialist(OWNER_TOKEN)
     demo_ai_workforce_orchestration(OWNER_TOKEN)
 
     verify_leads_and_analytics(OWNER_TOKEN)
 
     log("---- Real LLM/provider call summary ----")
     log(f"Embedding-triggering operations (document uploads processed): {PROVIDER_CALLS['embedding_operations']}")
-    log(f"LLM chat turns (customer conversation + manager chat + AI workforce orchestration): {PROVIDER_CALLS['llm_turns']}")
+    log(f"LLM chat turns (customer conversation + manager chat + AI workforce orchestration + workflow-triggered AI specialist): {PROVIDER_CALLS['llm_turns']}")
     log("Demo data creation complete.")
 
 
