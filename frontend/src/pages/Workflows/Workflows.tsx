@@ -62,12 +62,32 @@ const RUN_STATUS_TONE: Record<WorkflowRunStatus, BadgeTone> = {
 // Mirrors backend/app/services/workflows/config.py's TRIGGER_FIELDS -
 // the condition-field vocabulary is validated server-side regardless;
 // this only limits what the form offers, for a non-technical owner.
+const LEAD_FIELDS = [
+    "lead.status", "lead.service_interested", "lead.name", "lead.phone", "lead.email", "lead.budget",
+    "lead.buyer_id", "lead.property_id", "lead.qualification_score", "lead.qualification_notes",
+];
+const APPOINTMENT_FIELDS = [
+    "appointment.status", "appointment.service", "appointment.customer_name", "appointment.source",
+    "appointment.buyer_id", "appointment.property_id", "appointment.lead_id",
+];
+const BOOKING_FIELDS = ["booking.status", "booking.property_id", "booking.buyer_id", "booking.lead_id", "booking.appointment_id"];
+
 const TRIGGER_FIELDS: Record<WorkflowTriggerType, string[]> = {
-    lead_created: ["lead.status", "lead.service_interested", "lead.name", "lead.phone", "lead.email", "lead.budget"],
-    appointment_created: ["appointment.status", "appointment.service", "appointment.customer_name", "appointment.source"],
-    appointment_rescheduled: ["appointment.status", "appointment.service", "appointment.customer_name", "appointment.source"],
-    appointment_cancelled: ["appointment.status", "appointment.service", "appointment.customer_name", "appointment.source"],
+    lead_created: LEAD_FIELDS,
+    appointment_created: APPOINTMENT_FIELDS,
+    appointment_rescheduled: APPOINTMENT_FIELDS,
+    appointment_cancelled: APPOINTMENT_FIELDS,
     support_escalated: ["support.priority", "support.status", "support.issue_summary"],
+    // Phase 11
+    lead_status_changed: LEAD_FIELDS,
+    lead_qualified: LEAD_FIELDS,
+    appointment_confirmed: APPOINTMENT_FIELDS,
+    appointment_completed: APPOINTMENT_FIELDS,
+    appointment_no_show: APPOINTMENT_FIELDS,
+    booking_initiated: BOOKING_FIELDS,
+    booking_confirmed: BOOKING_FIELDS,
+    booking_cancelled: BOOKING_FIELDS,
+    booking_completed: BOOKING_FIELDS,
 };
 
 const TEMPLATES: Array<{
@@ -127,6 +147,42 @@ const TEMPLATES: Array<{
                     subject: "Support escalation",
                     body_template: "A high-priority support issue was reported: {support_issue_summary}",
                 },
+            },
+        ],
+    },
+    {
+        label: "Site visit confirmed → notify customer",
+        description: "When an agency confirms a site visit, let the customer know.",
+        trigger_type: "appointment_confirmed",
+        conditions: [],
+        actions: [
+            {
+                type: "send_notification",
+                config: {
+                    event_type: "appointment_confirmed",
+                    audience: "customer",
+                    name_field: "appointment.customer_name",
+                    email_field: "appointment.customer_email",
+                    phone_field: "appointment.customer_phone",
+                    subject: "Your site visit is confirmed",
+                    body_template: "Hi {appointment_customer_name}, your site visit is confirmed for {appointment_service}.",
+                },
+            },
+        ],
+    },
+    {
+        label: "Lead qualified → AI finds matching properties (approval required)",
+        description: "When the Lead Qualification AI records a score, run the Property Matching AI to suggest units - gated behind an explicit approval before the AI ever runs.",
+        trigger_type: "lead_qualified",
+        conditions: [{ field: "lead.qualification_score", op: "is_set" }],
+        actions: [
+            {
+                type: "run_ai_specialist",
+                config: {
+                    specialist: "property_matcher",
+                    message_template: "Lead {lead_name} was just qualified (score {lead_qualification_score}). Find properties matching their stated requirements: {lead_qualification_notes}",
+                },
+                requires_approval: true,
             },
         ],
     },
