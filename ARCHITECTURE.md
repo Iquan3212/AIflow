@@ -1088,10 +1088,114 @@ a support ticket escalated to high priority)
   never arbitrary code, shell commands, URL requests, or raw SQL.
 - **Frontend** (`frontend/src/pages/Workflows/Workflows.tsx`) - list/
   create/enable/disable/delete, a form-based (not a drag-and-drop
-  automation IDE) trigger/conditions/actions builder, three ready-to-edit
-  quick-start templates matching the three examples above, an approvals
-  panel, and per-workflow expandable run history - matching this
-  dashboard's existing `AppShell`/`Card`/`Badge`/`States` conventions.
+  automation IDE) trigger/conditions/actions builder, five ready-to-edit
+  quick-start templates (the original three plus two Phase 11 real-estate
+  ones), an approvals panel, and per-workflow expandable run history -
+  matching this dashboard's existing `AppShell`/`Card`/`Badge`/`States`
+  conventions.
+
+### Phase 11 — real-estate workflow triggers and the AI-workforce action
+
+Extends every piece above additively - no second workflow engine, no
+second notification system, no second approval system. Migration
+`13ee8f6d5556` adds nine `workflow_trigger_type` enum values (Postgres
+`ALTER TYPE ... ADD VALUE`, no data migration needed - `Workflow.actions`/
+`conditions` are JSON, not typed columns).
+
+- **New triggers** (`triggers.py`/`config.py`) - `lead_status_changed` and
+  `lead_qualified` fire from the ONE existing generic
+  `LeadService.update()` path (so the dashboard's `PUT /leads/{id}` and
+  the Lead Qualification AI employee's `update_lead_qualification` tool
+  both fire it identically, no separate wiring), only when the relevant
+  field actually changed (never on a same-value no-op update).
+  `appointment_confirmed`/`appointment_completed`/`appointment_no_show`
+  fire from `AppointmentService.confirm()`/`.complete()`/`.mark_no_show()`
+  (Phase 9 actions that previously fired nothing).
+  `booking_initiated`/`booking_confirmed`/`booking_cancelled`/
+  `booking_completed` fire from `BookingService.create()`/
+  `.update_status()`. There is deliberately no separate
+  "marketplace_inquiry" trigger type - `lead_created`'s own trigger data
+  was extended with `buyer_id`/`property_id` (and `appointment_data()`
+  likewise), so a workflow scopes itself to marketplace-sourced leads via
+  a condition (`lead.buyer_id` `is_set`) instead of a new trigger.
+- **Idempotency** - every new call site follows the exact same pattern
+  the Phase 5 triggers already established: a stable `event_id` (the
+  row's own id, or id+new-status-value for a transition that can recur)
+  feeds `WorkflowRun`'s real `UNIQUE(workflow_id, trigger_event_id)`
+  constraint. Several of these actions (`confirm()`/`complete()`/
+  `mark_no_show()`/booking `update_status()` to the SAME status) are
+  themselves documented no-ops on a repeat call (see
+  `appointment_status.py`/`validate_booking_transition`) - the trigger
+  call still executes on a harmless repeat, but the engine's own
+  idempotency check (a single indexed lookup) absorbs it as a no-op,
+  exactly as `book()`/`cancel()` already relied on before Phase 11.
+- **New action: `run_ai_specialist`** (`actions.py`'s
+  `_action_run_ai_specialist`) - runs exactly ONE bounded turn of one of
+  the five existing Phase 10 real-estate specialists
+  (`app.agents.manager_agent.SPECIALIST_ORDER` - never "manager" itself,
+  never a legacy generic employee) through the SAME
+  `AIOrchestrator`/`Registry`/`ToolRouter` pipeline a live chat turn
+  uses - never a second AI brain, never a chain/loop (that bounded-chain
+  behavior stays `ManagerAgent.delegate()`'s own concern for a live
+  turn). Config: `specialist` (validated against `SPECIALIST_ORDER` at
+  RUN time, matching this module's existing pattern of leaving
+  action-type-specific config to the executor rather than save-time
+  validation - see `send_notification`'s `event_type`), `message_template`
+  (rendered via the same `render_template()` every action already uses),
+  and an optional `lead_id_field` (default `"lead.id"`) resolving which
+  real `Lead` row (re-fetched fresh, tenant-scoped - never trusted from
+  `trigger_data`) the specialist's turn is bound to. Never bypasses
+  `AIActionApproval` - whatever the specialist's own tools do (a direct
+  write for a non-commercial field, or a proposal that creates a real,
+  pending `AIActionApproval` for anything consequential) happens exactly
+  as it would in a live chat turn; this executor only runs the turn and
+  records its real, structured result, never itself confirming/
+  cancelling a booking or appointment or sending anything. A workflow
+  author can additionally set this action's own `requires_approval: true`
+  (the existing generic `ApprovalRequest` gate, unrelated to
+  `AIActionApproval`) to require a human decision before the specialist
+  is even allowed to run - no new gating code needed, it already works
+  for any action type. `AgentExecutionService` recording happens for
+  free (it lives inside `run_tool_calling_employee_turn`, not this
+  executor), so no speculative schema was added.
+- **Security** - `test_workflow_security.py`'s existing static-analysis
+  guard (no `app/agents`/`app/tools` module imports `WorkflowService`/
+  `WorkflowEngine`) is a one-directional check and remains satisfied:
+  `actions.py` importing FROM `app.agents.manager_agent`/
+  `app.agents.orchestrator` is workflows calling INTO the AI Workforce
+  (the intended direction), never the reverse. The specialists
+  `run_ai_specialist` can target are granted no workflow-related tool at
+  all (see each employee's own `GRANTED_TOOLS`), so an LLM-driven turn
+  has no code path back into workflow mutation regardless.
+- **Notifications** - two new owner-facing event types,
+  `booking_confirmed`/`booking_completed` (`preferences.py`), added the
+  same way every existing event was - automatically covered by
+  `get_preference_matrix()`'s existing generic iteration over
+  `ALL_EVENTS`, so the Settings page's notification-preferences table and
+  `GET /notifications/preferences` needed zero code changes to display
+  or toggle them.
+- **Frontend** - `types/workflow.ts` extended with the new trigger/action
+  types and `AI_SPECIALIST_LABELS`; `Workflows.tsx`'s condition-field
+  mirror (`TRIGGER_FIELDS`) and two new quick-start templates ("Site
+  visit confirmed → notify customer", "Lead qualified → AI finds
+  matching properties [approval required]") - the only way to actually
+  populate `run_ai_specialist`'s config through this UI today, since the
+  manual "build your own" form has never had a way to edit action config
+  beyond picking a type (a pre-existing Phase 5 limitation, not
+  introduced here).
+- **Channels** - no new channel code. `send_notification`'s existing
+  `NotificationDispatcher` (email/SMS/WhatsApp for customer events,
+  email for owner events) and `create_gmail_draft`/`send_gmail`'s
+  existing `GmailService` are reused exactly as-is for every new trigger.
+  WhatsApp/Instagram (`backend/app/services/channels/`) are real,
+  already-implemented two-way adapters (inbound webhook + outbound send,
+  wired to the same customer-conversation pipeline the website widget
+  uses) - not a Phase 11 addition, and not exercised live in this dev
+  environment since no real Meta credentials are configured here
+  (`WHATSAPP_PHONE_ID`/`WHATSAPP_TOKEN` blank in `.env`;
+  `WHATSAPP_APP_SECRET`/`INSTAGRAM_APP_SECRET` are test-only webhook-
+  signature values). Nothing beyond Gmail and the existing notification/
+  conversation channels was built or claimed for Phase 11.
 
 ## Logging & observability (`backend/app/logging_config.py`)
 
