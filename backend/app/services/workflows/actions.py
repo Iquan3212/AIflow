@@ -30,6 +30,7 @@ from app.services.notifications import preferences as notif_prefs
 from app.services.workflows.config import (
     ACTION_CREATE_GMAIL_DRAFT,
     ACTION_REQUEST_APPROVAL,
+    ACTION_RUN_AI_SPECIALIST,
     ACTION_SEND_GMAIL,
     ACTION_SEND_NOTIFICATION,
 )
@@ -171,11 +172,81 @@ def _action_request_approval(db: Session, agency: models.Agency, trigger_data: d
     return ActionOutcome(status="waiting_approval", result={"note": "Awaiting explicit owner approval."})
 
 
+def _action_run_ai_specialist(db: Session, agency: models.Agency, trigger_data: dict, config: dict) -> ActionOutcome:
+    """Phase 11: runs exactly ONE bounded turn of one existing real-estate
+    AI Workforce specialist (Phase 10B/10C) through the SAME
+    ManagerAgent/Registry/ToolRouter pipeline every other AI Workforce
+    call already goes through - never a second AI brain, never a
+    specialist chain/loop here (that bounded-chain behavior is
+    ManagerAgent.delegate()'s own concern for a live chat turn; a
+    workflow action runs one specialist, one turn, deterministically).
+
+    Never bypasses AIActionApproval: whatever the specialist's own tools
+    do (e.g. update_lead_qualification writes directly, since it never
+    touches commercial state; a site-visit/booking-affecting tool
+    proposes via AIActionApproval instead - see each tool's own
+    docstring) happens exactly as it would in a live chat turn. This
+    executor only runs the turn and records its real, structured
+    result - it never itself confirms/cancels a booking or appointment,
+    and never sends anything on its own.
+
+    A workflow author can additionally set this action's own
+    `requires_approval: true` (engine.py's existing generic
+    ApprovalRequest gate, unrelated to AIActionApproval) to require a
+    human decision before the specialist is even allowed to run at all -
+    no new gating code needed for that; it already works for any action
+    type.
+    """
+    # Lazy import: keeps this module's top-level import surface limited
+    # to what every OTHER action already needs (Gmail/notifications), and
+    # avoids the AI Workforce agent stack loading for every unrelated
+    # action type. Confirmed no import cycle: app/agents/* never imports
+    # app.services.workflows.
+    from app.agents.manager_agent import SPECIALIST_ORDER
+    from app.agents.orchestrator import AIOrchestrator
+
+    specialist = config.get("specialist")
+    if specialist not in SPECIALIST_ORDER:
+        return ActionOutcome(
+            status="failed",
+            error=f"Unknown or unsupported specialist: {specialist!r}. Must be one of {list(SPECIALIST_ORDER)}.",
+        )
+
+    message = render_template(config.get("message_template", ""), trigger_data)
+    if not message.strip():
+        return ActionOutcome(status="failed", error="No message_template configured for this action.")
+
+    lead_id_field = config.get("lead_id_field", "lead.id")
+    lead_id = resolve_field(trigger_data, lead_id_field)
+    lead = None
+    if lead_id:
+        lead = (
+            db.query(models.Lead)
+            .filter(models.Lead.id == lead_id, models.Lead.agency_id == agency.id)
+            .first()
+        )
+        if lead is None:
+            return ActionOutcome(status="failed", error=f"No lead {lead_id!r} found for this agency.")
+
+    orchestrator = AIOrchestrator(db, agency, conversation=None, lead=lead)
+    result = orchestrator.manager._run_one_employee(specialist, message, history=[])
+
+    if result.get("error"):
+        return ActionOutcome(status="failed", error=f"{specialist} failed: {result['error']}")
+
+    return ActionOutcome(status="succeeded", result={
+        "specialist": specialist,
+        "reply": result.get("reply"),
+        "tool_result": result.get("tool_result"),
+    })
+
+
 ACTION_EXECUTORS = {
     ACTION_SEND_NOTIFICATION: _action_send_notification,
     ACTION_CREATE_GMAIL_DRAFT: _action_create_gmail_draft,
     ACTION_SEND_GMAIL: _action_send_gmail,
     ACTION_REQUEST_APPROVAL: _action_request_approval,
+    ACTION_RUN_AI_SPECIALIST: _action_run_ai_specialist,
 }
 
 
