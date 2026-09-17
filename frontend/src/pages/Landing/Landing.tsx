@@ -86,11 +86,15 @@ export default function Landing() {
                             ))}
                         </nav>
 
-                        <div className="hidden md:flex items-center gap-2">
+                        <div className="hidden md:flex items-center gap-1">
+                            <Link to="/buyer/login" className="text-sm font-semibold text-slate-700 hover:text-ink-950 px-3.5 py-2 transition-colors">
+                                Buyer Sign In
+                            </Link>
+                            <span className="w-px h-4 bg-slate-200" aria-hidden="true" />
                             <Link to="/login" className="text-sm font-semibold text-slate-700 hover:text-ink-950 px-3.5 py-2 transition-colors">
                                 Agency Sign In
                             </Link>
-                            <Link to="/register">
+                            <Link to="/register" className="ml-1">
                                 <Button size="sm">For Agencies</Button>
                             </Link>
                         </div>
@@ -119,6 +123,14 @@ export default function Landing() {
                                 </a>
                             ))}
                             <div className="border-t border-slate-100 mt-2 pt-3 flex flex-col gap-2">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 px-2">For buyers</p>
+                                <Link to="/buyer/login" onClick={() => setMobileOpen(false)}>
+                                    <Button variant="secondary" className="w-full">Buyer Sign In</Button>
+                                </Link>
+                                <Link to="/buyer/register" onClick={() => setMobileOpen(false)}>
+                                    <Button variant="flare" className="w-full">Create a buyer account</Button>
+                                </Link>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 px-2 mt-2">For agencies</p>
                                 <Link to="/login" onClick={() => setMobileOpen(false)}>
                                     <Button variant="secondary" className="w-full">Agency Sign In</Button>
                                 </Link>
@@ -482,6 +494,11 @@ export default function Landing() {
                                 <li>
                                     <Link to="/discover" className="text-sm text-slate-600 hover:text-ink-950 transition-colors">
                                         Buyer: Explore properties
+                                    </Link>
+                                </li>
+                                <li>
+                                    <Link to="/buyer/login" className="text-sm text-slate-600 hover:text-ink-950 transition-colors">
+                                        Buyer: Sign in
                                     </Link>
                                 </li>
                                 <li>

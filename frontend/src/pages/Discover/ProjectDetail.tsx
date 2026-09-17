@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Building2, MapPin } from "lucide-react";
+import { ArrowLeft, Bot, Building2, MapPin } from "lucide-react";
 
-import MarketplaceHeader from "../../components/marketplace/MarketplaceHeader";
+import BuyerLayout from "../../components/layout/BuyerLayout";
 import PropertyCard from "../../components/marketplace/PropertyCard";
 import Card from "../../components/ui/Card";
+import Button from "../../components/ui/Button";
 import { LoadingState, ErrorState } from "../../components/ui/States";
 import { getErrorMessage } from "../../services/api";
 import { getProject, projectMediaUrl } from "../../services/marketplace";
+import { useCompare } from "../../context/CompareContext";
 import { AMENITY_LABELS } from "../../types/inventory";
 import { formatPossessionDate } from "../../utils/inventoryFormat";
 import type { MarketplaceProjectDetail } from "../../types/marketplace";
@@ -15,6 +17,7 @@ import type { MarketplaceProjectDetail } from "../../types/marketplace";
 export default function ProjectDetail() {
     const { projectId } = useParams<{ projectId: string }>();
     const navigate = useNavigate();
+    const { isSelected, toggle, isFull } = useCompare();
     const [project, setProject] = useState<MarketplaceProjectDetail | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -34,9 +37,7 @@ export default function ProjectDetail() {
     }, [projectId]);
 
     return (
-        <div className="min-h-screen bg-stone-50">
-            <MarketplaceHeader />
-            <main className="max-w-6xl mx-auto px-5 sm:px-8 py-9">
+        <BuyerLayout>
                 <button
                     onClick={() => navigate("/discover")}
                     className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-ink-950 mb-5 transition-colors"
@@ -88,6 +89,13 @@ export default function ProjectDetail() {
                                     )}
                                 </div>
                                 <p className="text-xs text-slate-400 pt-2 border-t border-slate-100">Listed by {project.agency_name}</p>
+                                <Button
+                                    variant="secondary"
+                                    className="w-full"
+                                    onClick={() => navigate(`/buyer/assistant?projectId=${project.id}`)}
+                                >
+                                    <Bot size={16} /> Ask AI about this project
+                                </Button>
                             </Card>
                         </div>
 
@@ -120,13 +128,16 @@ export default function ProjectDetail() {
                                         key={property.id}
                                         property={property}
                                         onClick={() => navigate(`/discover/properties/${property.id}`)}
+                                        compareEnabled
+                                        inCompare={isSelected(property.id)}
+                                        onToggleCompare={() => toggle(property.id)}
+                                        compareDisabled={isFull}
                                     />
                                 ))}
                             </div>
                         )}
                     </>
                 )}
-            </main>
-        </div>
+        </BuyerLayout>
     );
 }

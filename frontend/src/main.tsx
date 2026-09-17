@@ -7,6 +7,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { AuthProvider } from "./context/AuthContext";
 import { AgencyProvider } from "./context/AgencyContext";
 import { BuyerAuthProvider } from "./context/BuyerAuthContext";
+import { CompareProvider } from "./context/CompareContext";
 
 import "./index.css";
 
@@ -24,7 +25,11 @@ ReactDOM.createRoot(
 
                     <BuyerAuthProvider>
 
-                        <App />
+                        <CompareProvider>
+
+                            <App />
+
+                        </CompareProvider>
 
                     </BuyerAuthProvider>
 

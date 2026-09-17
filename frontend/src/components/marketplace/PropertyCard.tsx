@@ -1,4 +1,4 @@
-import { Bookmark, Building2, Compass, LayoutGrid, MapPin } from "lucide-react";
+import { Bookmark, Building2, Compass, LayoutGrid, MapPin, Scale } from "lucide-react";
 
 import Card from "../ui/Card";
 import { propertyMediaUrl } from "../../services/marketplace";
@@ -10,11 +10,25 @@ export default function PropertyCard({
     onClick,
     saved,
     onToggleSave,
+    compareEnabled,
+    inCompare,
+    onToggleCompare,
+    compareDisabled,
 }: {
     property: MarketplaceProperty;
     onClick: () => void;
     saved?: boolean;
     onToggleSave?: () => void;
+    /** Shows the compare checkbox at all (Discover/Saved/project detail);
+     * omitted anywhere compare doesn't make sense, e.g. inside the
+     * comparison table itself. */
+    compareEnabled?: boolean;
+    inCompare?: boolean;
+    onToggleCompare?: () => void;
+    /** True once the compare list is full and this card isn't already in
+     * it - disables the checkbox rather than hiding it, so the limit is
+     * visible instead of silently unresponsive. */
+    compareDisabled?: boolean;
 }) {
     const cover = property.media.find((m) => m.media_type === "image") ?? null;
     const bhk = formatBhk(property.bhk);
@@ -46,6 +60,24 @@ export default function PropertyCard({
                     }`}
                 >
                     <Bookmark size={15} fill={saved ? "currentColor" : "none"} aria-hidden="true" />
+                </button>
+            )}
+
+            {compareEnabled && onToggleCompare && (
+                <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onToggleCompare(); }}
+                    disabled={!inCompare && compareDisabled}
+                    aria-label={inCompare ? "Remove from comparison" : "Add to comparison"}
+                    aria-pressed={inCompare}
+                    title={!inCompare && compareDisabled ? "You can compare up to 4 properties at a time" : undefined}
+                    className={`absolute top-3 left-3 h-8 px-2.5 rounded-full flex items-center gap-1.5 text-xs font-semibold transition-colors ${
+                        inCompare
+                            ? "bg-ink-950 text-white"
+                            : "bg-white/90 text-slate-600 hover:text-ink-950 disabled:opacity-50 disabled:cursor-not-allowed"
+                    }`}
+                >
+                    <Scale size={13} aria-hidden="true" /> {inCompare ? "Comparing" : "Compare"}
                 </button>
             )}
 

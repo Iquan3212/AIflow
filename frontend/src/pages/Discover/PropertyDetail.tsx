@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Bookmark, Bot, Building2, CalendarClock, Heart, MapPin } from "lucide-react";
+import { ArrowLeft, Bookmark, Bot, Building2, CalendarClock, Heart, MapPin, Scale } from "lucide-react";
 
-import MarketplaceHeader from "../../components/marketplace/MarketplaceHeader";
+import BuyerLayout from "../../components/layout/BuyerLayout";
 import TalkToAIPanel from "../../components/marketplace/TalkToAIPanel";
 import SiteVisitModal from "../../components/marketplace/SiteVisitModal";
 import Card from "../../components/ui/Card";
@@ -13,6 +13,7 @@ import {
     getProperty, inquireAboutProperty, listSavedProperties, propertyMediaUrl, removeSavedProperty, saveProperty,
 } from "../../services/marketplace";
 import { useBuyerAuth } from "../../context/BuyerAuthContext";
+import { useCompare } from "../../context/CompareContext";
 import { AMENITY_LABELS } from "../../types/inventory";
 import {
     formatArea, formatBhk, formatFacing, formatFurnishing, formatINR, formatPossessionDate, formatPropertyType,
@@ -23,6 +24,7 @@ export default function PropertyDetail() {
     const { propertyId } = useParams<{ propertyId: string }>();
     const navigate = useNavigate();
     const { isAuthenticated } = useBuyerAuth();
+    const { isSelected, toggle, isFull } = useCompare();
 
     const [property, setProperty] = useState<MarketplaceProperty | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -105,30 +107,27 @@ export default function PropertyDetail() {
 
     if (error) {
         return (
-            <div className="min-h-screen bg-stone-50">
-                <MarketplaceHeader />
-                <main className="max-w-6xl mx-auto px-5 sm:px-8 py-9"><ErrorState message={error} onRetry={load} /></main>
-            </div>
+            <BuyerLayout>
+                <ErrorState message={error} onRetry={load} />
+            </BuyerLayout>
         );
     }
 
     if (!property) {
         return (
-            <div className="min-h-screen bg-stone-50">
-                <MarketplaceHeader />
-                <main className="max-w-6xl mx-auto px-5 sm:px-8 py-9"><LoadingState label="Loading listing…" /></main>
-            </div>
+            <BuyerLayout>
+                <LoadingState label="Loading listing…" />
+            </BuyerLayout>
         );
     }
 
     const images = property.media.filter((m) => m.media_type === "image");
     const floorPlans = property.media.filter((m) => m.media_type === "floor_plan");
     const unitLabel = [property.building, property.unit_number ? `Unit ${property.unit_number}` : null].filter(Boolean).join(" · ");
+    const contextLabel = `${property.project_name}${unitLabel ? ` — ${unitLabel}` : ""}`;
 
     return (
-        <div className="min-h-screen bg-stone-50">
-            <MarketplaceHeader />
-            <main className="max-w-6xl mx-auto px-5 sm:px-8 py-9">
+        <BuyerLayout>
                 <button
                     onClick={() => navigate(`/discover/projects/${property.project_id}`)}
                     className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-ink-950 mb-5 transition-colors"
@@ -176,18 +175,39 @@ export default function PropertyDetail() {
                                         <MapPin size={13} /> {[property.locality, property.city].filter(Boolean).join(", ")}
                                     </p>
                                 </div>
-                                <button
-                                    onClick={handleToggleSave}
-                                    aria-pressed={saved}
-                                    className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-colors ${
-                                        saved ? "bg-flare-500 text-ink-950" : "bg-white border border-slate-200 text-slate-500 hover:text-flare-600"
-                                    }`}
-                                    aria-label={saved ? "Remove from saved" : "Save property"}
-                                >
-                                    <Bookmark size={16} fill={saved ? "currentColor" : "none"} />
-                                </button>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                        onClick={() => toggle(property.id)}
+                                        disabled={!isSelected(property.id) && isFull}
+                                        aria-pressed={isSelected(property.id)}
+                                        title={!isSelected(property.id) && isFull ? "You can compare up to 4 properties at a time" : undefined}
+                                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                                            isSelected(property.id) ? "bg-ink-950 text-white" : "bg-white border border-slate-200 text-slate-500 hover:text-ink-950"
+                                        }`}
+                                        aria-label={isSelected(property.id) ? "Remove from comparison" : "Add to comparison"}
+                                    >
+                                        <Scale size={15} />
+                                    </button>
+                                    <button
+                                        onClick={handleToggleSave}
+                                        aria-pressed={saved}
+                                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                                            saved ? "bg-flare-500 text-ink-950" : "bg-white border border-slate-200 text-slate-500 hover:text-flare-600"
+                                        }`}
+                                        aria-label={saved ? "Remove from saved" : "Save property"}
+                                    >
+                                        <Bookmark size={16} fill={saved ? "currentColor" : "none"} />
+                                    </button>
+                                </div>
                             </div>
-                            <p className="text-3xl font-semibold text-ink-950 mt-4">{formatINR(property.price)}</p>
+                            <div className="flex items-center gap-3 mt-4">
+                                <p className="text-3xl font-semibold text-ink-950">{formatINR(property.price)}</p>
+                                {!property.is_available && (
+                                    <span className="text-xs font-semibold text-slate-500 bg-slate-100 rounded-full px-3 py-1">
+                                        Not available
+                                    </span>
+                                )}
+                            </div>
                         </div>
 
                         <Card className="p-5">
@@ -255,12 +275,18 @@ export default function PropertyDetail() {
                         <Card className="p-6 space-y-3">
                             <p className="text-xs text-slate-400">Listed by</p>
                             <p className="font-semibold text-ink-950">{property.agency_name}</p>
+                            {!property.is_available && (
+                                <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+                                    This unit is no longer available - inquiries and site visits are closed, but you
+                                    can still ask the AI Assistant about similar units.
+                                </p>
+                            )}
                             <Button
                                 variant="secondary"
                                 className="w-full"
                                 onClick={handleInquire}
                                 loading={inquiring}
-                                disabled={inquiring}
+                                disabled={inquiring || !property.is_available}
                             >
                                 <Heart size={16} /> Inquire
                             </Button>
@@ -272,25 +298,30 @@ export default function PropertyDetail() {
                             <Button className="w-full" onClick={handleTalkToAI}>
                                 <Bot size={16} /> Talk to AI Assistant
                             </Button>
-                            <Button variant="secondary" className="w-full" onClick={handleRequestVisit}>
+                            <Button
+                                variant="secondary"
+                                className="w-full"
+                                onClick={handleRequestVisit}
+                                disabled={!property.is_available}
+                            >
                                 <CalendarClock size={16} /> Request a site visit
                             </Button>
                         </Card>
                     </div>
                 </div>
-            </main>
 
             {showAI && (
                 <TalkToAIPanel
                     agencySlug={property.agency_slug}
                     agencyName={property.agency_name}
                     propertyId={property.id}
+                    contextLabel={contextLabel}
                     onClose={() => setShowAI(false)}
                 />
             )}
             {showSiteVisit && (
                 <SiteVisitModal propertyId={property.id} onClose={() => setShowSiteVisit(false)} />
             )}
-        </div>
+        </BuyerLayout>
     );
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Filter, Search, SlidersHorizontal, X } from "lucide-react";
 
-import MarketplaceHeader from "../../components/marketplace/MarketplaceHeader";
+import BuyerLayout from "../../components/layout/BuyerLayout";
 import PropertyCard from "../../components/marketplace/PropertyCard";
 import FilterPanel, { EMPTY_FILTERS, filtersToQuery, type FilterFormState } from "../../components/marketplace/FilterPanel";
 import Button from "../../components/ui/Button";
@@ -12,6 +12,7 @@ import { LoadingState, ErrorState, EmptyState } from "../../components/ui/States
 import { getErrorMessage } from "../../services/api";
 import { listSavedProperties, saveProperty, removeSavedProperty, searchProperties } from "../../services/marketplace";
 import { useBuyerAuth } from "../../context/BuyerAuthContext";
+import { useCompare } from "../../context/CompareContext";
 import { SORT_OPTIONS } from "../../types/marketplace";
 import type { MarketplaceProperty, SortOption } from "../../types/marketplace";
 
@@ -41,6 +42,7 @@ function filtersFromParams(params: URLSearchParams): FilterFormState {
 export default function Discover() {
     const navigate = useNavigate();
     const { isAuthenticated } = useBuyerAuth();
+    const { isSelected, toggle, isFull } = useCompare();
     const [params, setParams] = useSearchParams();
 
     const [rawSearch, setRawSearch] = useState(params.get("q") ?? "");
@@ -147,9 +149,7 @@ export default function Discover() {
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
     return (
-        <div className="min-h-screen bg-stone-50">
-            <MarketplaceHeader />
-
+        <BuyerLayout bare>
             <section className="border-b border-slate-200/70 bg-white">
                 <div className="max-w-6xl mx-auto px-5 sm:px-8 py-14">
                     <p className="text-xs font-semibold uppercase tracking-wide text-flare-600">For buyers</p>
@@ -243,6 +243,10 @@ export default function Discover() {
                                             saved={savedIds.has(property.id)}
                                             onToggleSave={() => handleToggleSave(property)}
                                             onClick={() => navigate(`/discover/properties/${property.id}`)}
+                                            compareEnabled
+                                            inCompare={isSelected(property.id)}
+                                            onToggleCompare={() => toggle(property.id)}
+                                            compareDisabled={isFull}
                                         />
                                     ))}
                                 </div>
@@ -272,6 +276,6 @@ export default function Discover() {
                     </Button>
                 </Modal>
             )}
-        </div>
+        </BuyerLayout>
     );
 }

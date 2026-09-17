@@ -1,27 +1,32 @@
 """
-Buyer-authenticated, read-only views of the buyer's own marketplace
-conversion journey (Phase 9, Steps 16-19) - authenticated via
-get_current_buyer only, exactly like every other /buyer/* endpoint.
-Every query is scoped to the authenticated buyer's own id; none of them
-ever accept a buyer_id from the client for authorization.
+Buyer-authenticated views of the buyer's own marketplace conversion
+journey (Phase 9, Steps 16-19; site-visit cancellation added in the
+Buyer UI phase) - authenticated via get_current_buyer only, exactly like
+every other /buyer/* endpoint. Every query is scoped to the
+authenticated buyer's own id; none of them ever accept a buyer_id from
+the client for authorization.
 
-  GET /buyer/inquiries
-  GET /buyer/site-visits
-  GET /buyer/bookings
+  GET    /buyer/inquiries
+  GET    /buyer/site-visits
+  DELETE /buyer/site-visits/{appointment_id}
+  GET    /buyer/bookings
 """
 
 from __future__ import annotations
 
 from sqlalchemy.orm import Session, joinedload
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from app import models, schemas
 from app.database import get_db
 from app.deps import get_current_buyer
 from app.services.marketplace.booking_service import BookingService
 from app.services.marketplace.property_service import MarketplacePropertyService
+from app.services.scheduling.appointment_service import AppointmentService
 
 router = APIRouter(prefix="/buyer", tags=["buyer-marketplace"])
+
+_TERMINAL_STATUSES = {models.AppointmentStatus.completed, models.AppointmentStatus.no_show}
 
 
 def _property_out(db: Session, property_row: models.Property | None) -> schemas.MarketplacePropertyOut | None:
@@ -82,6 +87,43 @@ def list_my_site_visits(
         )
         for appt in appointments
     ]
+
+
+@router.delete("/site-visits/{appointment_id}", response_model=schemas.BuyerSiteVisitOut)
+def cancel_my_site_visit(
+    appointment_id: str,
+    buyer: models.Buyer = Depends(get_current_buyer),
+    db: Session = Depends(get_db),
+):
+    """Reuses AppointmentService.cancel() exactly as the agency-side
+    cancel path does (same calendar sync, customer notification, and
+    `appointment_cancelled` workflow trigger) - only the lookup/ownership
+    check here is buyer-specific. No reschedule endpoint exists yet (see
+    ROADMAP/report) - rescheduling needs real slot re-validation against
+    the agency's business hours/conflicts, a bigger change than this
+    phase's scope."""
+    appt = (
+        db.query(models.Appointment)
+        .filter(models.Appointment.id == appointment_id, models.Appointment.buyer_id == buyer.id)
+        .first()
+    )
+    if appt is None:
+        raise HTTPException(status_code=404, detail="Site visit not found")
+    if appt.status in _TERMINAL_STATUSES:
+        raise HTTPException(status_code=400, detail="This site visit has already happened and can't be cancelled.")
+
+    agency = db.query(models.Agency).filter(models.Agency.id == appt.agency_id).first()
+    outcome = AppointmentService(db).cancel(agency, appointment_id)
+    if not outcome.ok:
+        raise HTTPException(status_code=400, detail=outcome.message)
+
+    db.refresh(appt)
+    return schemas.BuyerSiteVisitOut(
+        appointment_id=appt.id, status=appt.status.value,
+        scheduled_at=appt.scheduled_at, end_at=appt.end_at,
+        service=appt.service, created_at=appt.created_at,
+        property=_property_out(db, appt.property),
+    )
 
 
 @router.get("/bookings", response_model=list[schemas.BuyerBookingOut])

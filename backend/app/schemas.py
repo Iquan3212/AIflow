@@ -1128,6 +1128,51 @@ class BuyerBookingOut(BaseModel):
     property: "MarketplacePropertyOut | None"
 
 
+class BuyerProfileOut(BaseModel):
+    """GET /buyer/profile - the buyer's own account, never another
+    buyer's. Notification/preference fields are opt-out-by-design
+    (missing/default is always `True`), matching NotificationPreference's
+    existing shape on the agency side."""
+    id: UUID
+    name: str | None
+    email: str
+    phone: str | None
+    preferred_city: str | None
+    preferred_locality: str | None
+    preferred_bhk: int | None
+    budget_min: Decimal | None
+    budget_max: Decimal | None
+    preferred_property_type: str | None
+    preferred_furnishing: str | None
+    notify_site_visit_updates: bool
+    notify_inquiry_updates: bool
+    notify_booking_updates: bool
+    notify_property_alerts: bool
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BuyerProfileUpdate(BaseModel):
+    """PATCH /buyer/profile - every field optional (a partial update);
+    `email` is deliberately not editable here (it's the login identity -
+    changing it is a bigger, unbuilt flow, same as the platform having no
+    change-password endpoint anywhere yet)."""
+    name: str | None = None
+    phone: str | None = None
+    preferred_city: str | None = None
+    preferred_locality: str | None = None
+    preferred_bhk: int | None = None
+    budget_min: Decimal | None = None
+    budget_max: Decimal | None = None
+    preferred_property_type: str | None = None
+    preferred_furnishing: str | None = None
+    notify_site_visit_updates: bool | None = None
+    notify_inquiry_updates: bool | None = None
+    notify_booking_updates: bool | None = None
+    notify_property_alerts: bool | None = None
+
+
 class AskAssistantRequest(BaseModel):
     """Powers the marketplace's 'Talk to AI Assistant' - always scoped to
     ONE property, so the agency's real assistant can ground its answer in

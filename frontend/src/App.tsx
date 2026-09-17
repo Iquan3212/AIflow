@@ -30,6 +30,15 @@ import DiscoverPropertyDetail from "./pages/Discover/PropertyDetail";
 import BuyerLogin from "./pages/Buyer/BuyerLogin";
 import BuyerRegister from "./pages/Buyer/BuyerRegister";
 import BuyerHome from "./pages/Buyer/BuyerHome";
+import BuyerSaved from "./pages/Buyer/BuyerSaved";
+import BuyerCompare from "./pages/Buyer/BuyerCompare";
+import BuyerActivity from "./pages/Buyer/BuyerActivity";
+import BuyerInquiries from "./pages/Buyer/BuyerInquiries";
+import BuyerSiteVisits from "./pages/Buyer/BuyerSiteVisits";
+import BuyerBookings from "./pages/Buyer/BuyerBookings";
+import BuyerAssistant from "./pages/Buyer/BuyerAssistant";
+import BuyerProfile from "./pages/Buyer/BuyerProfile";
+import NotFoundRedirect from "./layouts/NotFoundRedirect";
 
 export default function App() {
     return (
@@ -45,16 +54,31 @@ export default function App() {
 
                 {/* Buyer marketplace — genuinely separate auth/session from the
                     agency dashboard above (see BuyerAuthContext), so an agency
-                    session never grants buyer routes or vice versa. */}
+                    session never grants buyer routes or vice versa. Discover and
+                    the AI Assistant stay public (no buyer session required to
+                    browse or ask a question); everything under BuyerProtectedLayout
+                    requires a signed-in buyer. */}
                 <Route path="/discover" element={<Discover />} />
                 <Route path="/discover/projects/:projectId" element={<DiscoverProjectDetail />} />
                 <Route path="/discover/properties/:propertyId" element={<DiscoverPropertyDetail />} />
+                <Route path="/buyer/assistant" element={<BuyerAssistant />} />
                 <Route element={<BuyerPublicOnlyLayout />}>
                     <Route path="/buyer/login" element={<BuyerLogin />} />
                     <Route path="/buyer/register" element={<BuyerRegister />} />
                 </Route>
                 <Route element={<BuyerProtectedLayout />}>
                     <Route path="/buyer/home" element={<BuyerHome />} />
+                    <Route path="/buyer/saved" element={<BuyerSaved />} />
+                    <Route path="/buyer/compare" element={<BuyerCompare />} />
+                    <Route path="/buyer/activity" element={<BuyerActivity />} />
+                    <Route path="/buyer/inquiries" element={<BuyerInquiries />} />
+                    <Route path="/buyer/site-visits" element={<BuyerSiteVisits />} />
+                    <Route path="/buyer/bookings" element={<BuyerBookings />} />
+                    <Route path="/buyer/profile" element={<BuyerProfile />} />
+                    {/* No separate Settings screen - Notifications/Security live
+                        as tabs inside Profile, so this is a redirect rather than
+                        a second page with the same content. */}
+                    <Route path="/buyer/settings" element={<Navigate to="/buyer/profile" replace />} />
                 </Route>
 
                 {/* Protected routes — redirect to /login if signed out */}
@@ -77,8 +101,10 @@ export default function App() {
                     <Route path="/settings" element={<Settings />} />
                 </Route>
 
-                {/* Anything else falls back to the dashboard (or login, via ProtectedLayout) */}
-                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                {/* Anything else: a signed-in buyer goes to their home, an
+                    agency user to the dashboard (or /login, via ProtectedLayout,
+                    if neither session exists). */}
+                <Route path="*" element={<NotFoundRedirect />} />
 
             </Routes>
         </BrowserRouter>

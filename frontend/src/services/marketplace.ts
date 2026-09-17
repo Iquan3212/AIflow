@@ -68,14 +68,17 @@ export async function askAssistant(payload: {
     visitorId: string;
     conversationId: string | null;
     message: string;
-    propertyId: string;
+    /** Grounds the reply in one exact listing; omit for a general
+     * question about the agency (still grounded in its knowledge base,
+     * just not one specific unit's live price/availability). */
+    propertyId?: string;
 }): Promise<AskAssistantResult> {
     const response = await marketplaceApi.post<AskAssistantResult>("/conversation/send", {
         agency_slug: payload.agencySlug,
         visitor_id: payload.visitorId,
         conversation_id: payload.conversationId,
         message: payload.message,
-        property_id: payload.propertyId,
+        property_id: payload.propertyId || undefined,
     });
     return response.data;
 }
@@ -107,6 +110,14 @@ export async function listMySiteVisits(): Promise<MySiteVisit[]> {
 
 export async function listMyBookings(): Promise<MyBooking[]> {
     const response = await buyerApi.get<MyBooking[]>("/buyer/bookings");
+    return response.data;
+}
+
+/** Cancels the buyer's own upcoming site visit - a completed/no-show
+ * visit is rejected by the backend as terminal. No reschedule endpoint
+ * exists yet (see the Buyer UI completion report). */
+export async function cancelSiteVisit(appointmentId: string): Promise<MySiteVisit> {
+    const response = await buyerApi.delete<MySiteVisit>(`/buyer/site-visits/${appointmentId}`);
     return response.data;
 }
 

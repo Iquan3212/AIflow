@@ -195,6 +195,29 @@ class Buyer(Base):
     phone = Column(String(32), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # Buyer product, Buyer UI phase: search preferences a buyer sets once
+    # from their profile - all nullable/optional (a buyer who never visits
+    # Profile behaves exactly as before). Read by nothing but the buyer's
+    # own profile page today; intentionally the same shape the future
+    # recommendation surfaces on Buyer Home would read from, so that work
+    # never has to invent a second preferences store.
+    preferred_city = Column(String(255), nullable=True)
+    preferred_locality = Column(String(255), nullable=True)
+    preferred_bhk = Column(Integer, nullable=True)
+    budget_min = Column(Numeric(14, 2), nullable=True)
+    budget_max = Column(Numeric(14, 2), nullable=True)
+    preferred_property_type = Column(String(32), nullable=True)
+    preferred_furnishing = Column(String(32), nullable=True)
+
+    # Per-buyer notification opt-outs, mirroring the opt-out-by-design
+    # shape agencies already get from NotificationPreference (missing row
+    # / column default = enabled, so nothing changes for an existing
+    # buyer until they actually flip a toggle).
+    notify_site_visit_updates = Column(Boolean, nullable=False, default=True, server_default="true")
+    notify_inquiry_updates = Column(Boolean, nullable=False, default=True, server_default="true")
+    notify_booking_updates = Column(Boolean, nullable=False, default=True, server_default="true")
+    notify_property_alerts = Column(Boolean, nullable=False, default=True, server_default="true")
+
     sessions = relationship(
         "BuyerSession",
         back_populates="buyer",
