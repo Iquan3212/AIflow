@@ -89,6 +89,13 @@ def _cleanup(db, agency):
     # could race with another test's own webhook rows.
     db.query(models.Subscription).filter(models.Subscription.agency_id == agency.id).delete()
     db.query(models.Agency).filter(models.Agency.id == agency.id).delete()
+    # ProviderPlan IS global/shared with production (see _ensure_provider_plan) -
+    # a fake plan_id cached here would be reused against the REAL Razorpay
+    # API by real checkout traffic and rejected as invalid (confirmed: this
+    # happened during real sandbox testing). Only ever delete rows this
+    # FakeRazorpayClient itself created (the "plan_fake_" prefix is never
+    # produced by the real RazorpayClient), never a real cached plan.
+    db.query(models.ProviderPlan).filter(models.ProviderPlan.provider_plan_id.like("plan_fake_%")).delete(synchronize_session=False)
     db.commit()
     db.close()
 
