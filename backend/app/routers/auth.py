@@ -11,6 +11,7 @@ from app.deps import get_current_user
 from app.logging_config import get_logger
 from app.rate_limit import limiter, LOGIN_RATE_LIMIT, SIGNUP_RATE_LIMIT
 from app.security import create_access_token, create_refresh_token, decode_access_token, hash_password, verify_password
+from app.services.billing.plans import TRIAL_DAYS
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = get_logger(__name__)
@@ -73,6 +74,24 @@ def signup(payload: schemas.AgencySignup, request: Request, db: Session = Depend
     # Every agency gets a default, empty chatbot config it can fill in
     # right away — via the API today, via the dashboard's settings page.
     db.add(models.ChatbotConfig(agency_id=agency.id))
+
+    # Trial begins at signup, on Starter by default - the pricing page
+    # lets them upgrade to Growth/Professional (or downgrade back) before
+    # any card is ever charged; see EntitlementService for how this is
+    # enforced and services/billing/subscription_service.py for how
+    # checkout later attaches a real Razorpay subscription to this row.
+    trial_start = datetime.now(timezone.utc).replace(tzinfo=None)
+    trial_end = trial_start + timedelta(days=TRIAL_DAYS)
+    db.add(models.Subscription(
+        agency_id=agency.id,
+        plan=models.SubscriptionPlan.starter,
+        billing_interval=models.BillingInterval.monthly,
+        status=models.SubscriptionStatus.trialing,
+        trial_start=trial_start,
+        trial_end=trial_end,
+        current_period_start=trial_start,
+        current_period_end=trial_end,
+    ))
 
     user = models.User(
         agency_id=agency.id,

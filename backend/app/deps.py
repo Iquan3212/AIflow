@@ -103,3 +103,18 @@ def get_current_buyer(
         logger.warning("auth.buyer_not_found", extra={"ctx": {"event": "auth.buyer_not_found", "buyer_id": buyer_id}})
         raise unauthorized
     return buyer
+
+
+def require_billing_owner(
+    agency: models.Agency = Depends(get_current_agency),
+    user: models.User = Depends(get_current_user),
+) -> models.Agency:
+    """Billing mutations (checkout, plan changes, cancellation) are
+    owner-only - every User row created by this app's own signup flow
+    already has role="owner" (there is no staff-invite feature yet, see
+    the Monetization report), so this changes nothing for any agency
+    that exists today; it only matters once a real multi-user feature
+    exists. Viewing billing (GET endpoints) has no such restriction."""
+    if user.role != "owner":
+        raise HTTPException(status_code=403, detail="Only an agency owner can manage billing.")
+    return agency
