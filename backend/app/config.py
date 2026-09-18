@@ -207,6 +207,21 @@ class Settings(BaseSettings):
     knowledge_storage_dir: str = "./data/knowledge"
 
     # =====================================================
+    # BILLING (Razorpay — optional)
+    #
+    # No real Razorpay account exists for this repository yet - every
+    # RazorpayClient call fails with a clear "payments not configured"
+    # error until an operator sets these from a real (test or live)
+    # Razorpay dashboard. RAZORPAY_WEBHOOK_SECRET is configured
+    # separately from RAZORPAY_KEY_SECRET in Razorpay's own dashboard
+    # (Settings -> Webhooks), even though both are simple opaque strings.
+    # =====================================================
+
+    razorpay_key_id: str = ""
+    razorpay_key_secret: str = ""
+    razorpay_webhook_secret: str = ""
+
+    # =====================================================
     # CORS
     # =====================================================
 

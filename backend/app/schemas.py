@@ -1182,3 +1182,91 @@ class AskAssistantRequest(BaseModel):
     visitor_id: str
     conversation_id: str | None = None
     message: str = Field(min_length=1)
+
+
+# ======================================================================
+# Monetization / Billing
+# ======================================================================
+
+class PlanOut(BaseModel):
+    id: str
+    name: str
+    tagline: str
+    price_monthly: int | None
+    price_annual: int | None
+    active_property_limit: int | None
+    user_limit: int | None
+    project_limit: int | None
+    ai_action_limit: int | None
+    features: list[str]
+    highlighted: bool
+    annual_savings: dict | None
+
+
+class UsageMetricOut(BaseModel):
+    used: int
+    limit: int | None
+
+
+class UsageSummaryOut(BaseModel):
+    active_properties: UsageMetricOut
+    projects: UsageMetricOut
+    users: UsageMetricOut
+    ai_actions: UsageMetricOut
+
+
+class SubscriptionOut(BaseModel):
+    plan: str
+    billing_interval: str
+    status: str
+    provider: str | None
+    current_period_start: datetime | None
+    current_period_end: datetime | None
+    trial_start: datetime | None
+    trial_end: datetime | None
+    cancel_at_period_end: bool
+    cancelled_at: datetime | None
+    usage: UsageSummaryOut
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CheckoutRequest(BaseModel):
+    plan: str
+    billing_interval: str = "monthly"
+
+
+class CheckoutResponse(BaseModel):
+    provider_subscription_id: str
+    key_id: str
+    amount: int
+    currency: str
+    plan: str
+    billing_interval: str
+
+
+class ConfirmPaymentRequest(BaseModel):
+    razorpay_payment_id: str
+    razorpay_subscription_id: str
+    razorpay_signature: str
+
+
+class ChangePlanRequest(BaseModel):
+    plan: str
+    billing_interval: str = "monthly"
+
+
+class ChangePlanResponse(BaseModel):
+    requires_checkout: bool
+    subscription: SubscriptionOut | None = None
+
+
+class PaymentOut(BaseModel):
+    id: UUID
+    amount: Decimal
+    currency: str
+    status: str
+    description: str | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

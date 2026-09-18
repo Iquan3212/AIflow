@@ -64,6 +64,9 @@ class Agency(Base):
     )
     projects = relationship("Project", back_populates="agency", cascade="all, delete-orphan")
     properties = relationship("Property", back_populates="agency", cascade="all, delete-orphan")
+    subscription = relationship(
+        "Subscription", back_populates="agency", uselist=False, cascade="all, delete-orphan"
+    )
 
 
 class User(Base):
@@ -1490,4 +1493,159 @@ class AgentExecution(Base):
     agency = relationship("Agency")
     conversation = relationship("Conversation")
     lead = relationship("Lead")
+
+
+# ======================================================================
+# Monetization / Agency subscription (Billing phase)
+#
+# Deliberately a NEW, separate plan vocabulary (SubscriptionPlan) rather
+# than repurposing the pre-existing Agency.plan/PlanTier column -
+# PlanTier predates any real billing system (see
+# services/inventory/config.py's own docstring: "no billing/payment
+# system exists... provisional defaults") and two existing tests
+# (test_inventory.py's TestListingCapacity) assert its exact old
+# free/enterprise numbers. Agency.plan is left untouched; every
+# entitlement check in this phase prefers the real Subscription row and
+# only ever falls back to the old PlanTier hook when an agency genuinely
+# has no Subscription yet (see services/billing/entitlement_service.py).
+# ======================================================================
+
+class SubscriptionPlan(str, enum.Enum):
+    starter = "starter"
+    growth = "growth"
+    professional = "professional"
+    enterprise = "enterprise"
+
+
+class BillingInterval(str, enum.Enum):
+    monthly = "monthly"
+    annual = "annual"
+
+
+class SubscriptionStatus(str, enum.Enum):
+    """trialing -> active (first successful payment) -> past_due (a
+    renewal charge failed - grace period, access unchanged) ->
+    active again or cancelled/expired. cancelled = the agency (or an
+    owner) ended it; expired = a trial ran out with no payment method,
+    or a past_due subscription was never recovered. No `paused` state -
+    Razorpay subscriptions support pausing, but nothing in this product
+    exposes or needs it yet."""
+    trialing = "trialing"
+    active = "active"
+    past_due = "past_due"
+    cancelled = "cancelled"
+    expired = "expired"
+
+
+class Subscription(Base):
+    """One row per Agency (never per User - billing is an agency-level
+    concern). The provider (Razorpay) is the authoritative source for
+    whether a payment actually happened; this row is AIFlow's own
+    projection of that state, updated only from a verified webhook or a
+    verified checkout confirmation - never from a bare frontend request."""
+
+    __tablename__ = "subscriptions"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    agency_id = Column(
+        UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"),
+        unique=True, nullable=False, index=True,
+    )
+
+    plan = Column(SAEnum(SubscriptionPlan, name="subscription_plan"), nullable=False)
+    billing_interval = Column(SAEnum(BillingInterval, name="billing_interval"), nullable=False, default=BillingInterval.monthly)
+    status = Column(SAEnum(SubscriptionStatus, name="subscription_status"), nullable=False, default=SubscriptionStatus.trialing, index=True)
+
+    # Null while trialing with no payment method on file yet.
+    provider = Column(String(32), nullable=True)
+    provider_customer_id = Column(String(128), nullable=True, index=True)
+    provider_subscription_id = Column(String(128), nullable=True, unique=True, index=True)
+
+    current_period_start = Column(DateTime, nullable=True)
+    current_period_end = Column(DateTime, nullable=True)
+    trial_start = Column(DateTime, nullable=True)
+    trial_end = Column(DateTime, nullable=True)
+
+    cancel_at_period_end = Column(Boolean, nullable=False, default=False)
+    cancelled_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    agency = relationship("Agency", back_populates="subscription")
+
+
+class PaymentStatus(str, enum.Enum):
+    created = "created"
+    authorized = "authorized"
+    captured = "captured"
+    failed = "failed"
+    refunded = "refunded"
+
+
+class Payment(Base):
+    """A real payment-history row per provider charge - never a card
+    number or bank credential (Razorpay's hosted checkout is the only
+    thing that ever sees those). `subscription_id` SET NULL so a
+    payment record outlives a since-changed/cancelled subscription."""
+
+    __tablename__ = "payments"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
+    subscription_id = Column(UUID(as_uuid=False), ForeignKey("subscriptions.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    provider = Column(String(32), nullable=False, default="razorpay")
+    provider_payment_id = Column(String(128), nullable=True, unique=True, index=True)
+    provider_order_id = Column(String(128), nullable=True, index=True)
+    provider_subscription_id = Column(String(128), nullable=True, index=True)
+
+    amount = Column(Numeric(12, 2), nullable=False)
+    currency = Column(String(8), nullable=False, default="INR")
+    status = Column(SAEnum(PaymentStatus, name="payment_status"), nullable=False, default=PaymentStatus.created, index=True)
+    description = Column(String(255), nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    agency = relationship("Agency")
+    subscription = relationship("Subscription")
+
+
+class WebhookEvent(Base):
+    """Idempotency ledger for inbound payment-provider webhooks -
+    Razorpay retries a delivery whenever it doesn't get a 2xx response,
+    so the exact same event can arrive more than once. Deduplicated by
+    the raw request body's hash (always available regardless of which
+    event type/payload shape it is), not by a payload field, since not
+    every Razorpay event payload carries a stable top-level id."""
+
+    __tablename__ = "webhook_events"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    provider = Column(String(32), nullable=False)
+    event_type = Column(String(64), nullable=False)
+    body_sha256 = Column(String(64), nullable=False, unique=True, index=True)
+    payload = Column(JSON, nullable=False)
+    processed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ProviderPlan(Base):
+    """Caches Razorpay's own Plan object id for each (our plan, billing
+    interval) pair - created lazily on that combination's first-ever
+    checkout rather than requiring a manual dashboard/setup step."""
+
+    __tablename__ = "provider_plans"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    provider = Column(String(32), nullable=False)
+    plan = Column(SAEnum(SubscriptionPlan, name="subscription_plan"), nullable=False)
+    billing_interval = Column(SAEnum(BillingInterval, name="billing_interval"), nullable=False)
+    provider_plan_id = Column(String(128), nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("provider", "plan", "billing_interval", name="uq_provider_plan_interval"),
+    )
 
