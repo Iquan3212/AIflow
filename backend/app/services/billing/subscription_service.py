@@ -98,7 +98,15 @@ class SubscriptionService:
         returns exactly what the frontend needs to open Razorpay
         Checkout. The price is looked up here, server-side, from
         app.services.billing.plans - the client only ever sends which
-        plan/interval it wants, never an amount."""
+        plan/interval it wants, never an amount.
+
+        CRITICAL: creating a Razorpay Subscription object is not proof of
+        payment. This method must NEVER write the entitlement-bearing
+        `subscription.plan`/`billing_interval` fields - only
+        `provider_plan_id` (a plain reference, not itself entitlement-
+        bearing). The real plan/interval are applied only inside
+        _activate(), resolved FROM provider_plan_id, only after a
+        verified checkout confirmation or webhook - see that method."""
         if plan == SubscriptionPlan.enterprise:
             raise CheckoutNotPossibleError("Enterprise plans go through Contact Sales, not self-serve checkout.")
 
@@ -106,9 +114,34 @@ class SubscriptionService:
         if amount is None:
             raise CheckoutNotPossibleError(f"{plan.value} has no public self-serve price.")
 
+        # The downgrade/usage guard must apply here too, not just inside
+        # change_plan() - this is the ONLY path that used to be able to
+        # skip it entirely (a still-trialing agency's very first checkout).
+        violations = self.entitlements.validate_plan_change(agency, plan)
+        if violations:
+            raise PlanChangeBlockedError(violations)
+
         provider_plan_id = self._ensure_provider_plan(plan, interval)
 
         subscription = self.get(agency)
+
+        # Switching plans while already really paying for a DIFFERENT
+        # Razorpay plan - cancel that old subscription first so the
+        # agency is never billed for two plans at once. Never touches
+        # local plan/status - only _activate() ever changes those, and
+        # only after the NEW checkout is itself verified.
+        if (
+            subscription is not None
+            and subscription.status in (SubscriptionStatus.active, SubscriptionStatus.past_due)
+            and subscription.provider_subscription_id
+            and subscription.provider_plan_id != provider_plan_id
+            and self.razorpay.is_configured
+        ):
+            try:
+                self.razorpay.cancel_subscription(subscription.provider_subscription_id, at_cycle_end=False)
+            except PaymentsNotConfiguredError:
+                pass
+
         customer_id = subscription.provider_customer_id if subscription else None
         if not customer_id:
             customer_id = self.razorpay.create_customer(name=agency.name, email=agency.contact_email)
@@ -124,14 +157,20 @@ class SubscriptionService:
         )
 
         if subscription is None:
-            subscription = models.Subscription(agency_id=agency.id, plan=plan, billing_interval=interval)
-        subscription.plan = plan
-        subscription.billing_interval = interval
+            # Every real agency already gets a Subscription row at signup
+            # (see routers/auth.py) - this branch is a defensive fallback
+            # for a legacy/pre-billing agency with none yet, not the
+            # normal path. Deliberately defaults to the LOWEST tier
+            # (Starter), never the plan being checked out - the same
+            # "never grant entitlements before payment" rule this whole
+            # method exists to enforce applies here too.
+            subscription = models.Subscription(agency_id=agency.id, plan=SubscriptionPlan.starter, billing_interval=BillingInterval.monthly)
+        # Deliberately NOT touching subscription.plan/billing_interval/status
+        # here - see docstring. Only provider-reference fields.
         subscription.provider = "razorpay"
         subscription.provider_customer_id = customer_id
         subscription.provider_subscription_id = provider_subscription["id"]
-        if subscription.status not in (SubscriptionStatus.active,):
-            subscription.status = SubscriptionStatus.trialing if trial_end else subscription.status
+        subscription.provider_plan_id = provider_plan_id
         self.db.add(subscription)
         self.db.commit()
         self.db.refresh(subscription)
@@ -166,16 +205,37 @@ class SubscriptionService:
             raise InvalidPaymentSignatureError()
 
         now = datetime.utcnow()
-        self._activate(
-            subscription, provider_payment_id=razorpay_payment_id,
-            period_start=now, period_end=_period_end(now, subscription.billing_interval),
-        )
+        self._activate(subscription, provider_payment_id=razorpay_payment_id, period_start=now)
         return subscription
 
     def _activate(
         self, subscription: models.Subscription, *,
-        provider_payment_id: str | None, period_start: datetime, period_end: datetime,
+        provider_payment_id: str | None, period_start: datetime, period_end: datetime | None = None,
     ) -> None:
+        """The ONLY place Subscription.status is ever set to `active`,
+        and the only place `plan`/`billing_interval` change as a result
+        of a checkout (never inside start_checkout - a Razorpay
+        Subscription object existing is not proof of payment; see that
+        method's docstring). The real plan/interval are resolved here,
+        from `provider_plan_id` via the ProviderPlan cache - server-side
+        data set by OUR OWN earlier start_checkout call, never anything
+        a client could influence at confirmation time."""
+        if subscription.provider_plan_id:
+            provider_plan = (
+                self.db.query(models.ProviderPlan)
+                .filter(
+                    models.ProviderPlan.provider == "razorpay",
+                    models.ProviderPlan.provider_plan_id == subscription.provider_plan_id,
+                )
+                .first()
+            )
+            if provider_plan is not None:
+                subscription.plan = provider_plan.plan
+                subscription.billing_interval = provider_plan.billing_interval
+
+        if period_end is None:
+            period_end = _period_end(period_start, subscription.billing_interval)
+
         subscription.status = SubscriptionStatus.active
         subscription.current_period_start = period_start
         subscription.current_period_end = period_end
@@ -254,9 +314,14 @@ class SubscriptionService:
                 datetime.utcfromtimestamp(subscription_entity["current_start"])
                 if subscription_entity.get("current_start") else datetime.utcnow()
             )
+            # None (not a stale-interval fallback) when Razorpay's payload
+            # doesn't include current_end - _activate() resolves the real
+            # interval from provider_plan_id first, then computes this
+            # itself, so the fallback is never based on a pre-activation
+            # (possibly still-old) subscription.billing_interval value.
             period_end = (
                 datetime.utcfromtimestamp(subscription_entity["current_end"])
-                if subscription_entity.get("current_end") else _period_end(period_start, subscription.billing_interval)
+                if subscription_entity.get("current_end") else None
             )
             self._activate(
                 subscription,
@@ -290,14 +355,20 @@ class SubscriptionService:
     # ---- upgrade / downgrade -----------------------------------------------
 
     def change_plan(self, agency: models.Agency, new_plan: SubscriptionPlan, new_interval: BillingInterval) -> dict:
-        """Never silently deactivates existing resources to force a fit -
-        see EntitlementService.validate_plan_change. A still-trialing (no
-        real payment yet) agency switches plans immediately, free. An
-        already-paying agency's plan/price change requires a fresh
-        checkout (this app does not implement Razorpay proration math) -
-        the caller is told to call start_checkout() for the new plan;
-        the old paid subscription is cancelled effective immediately so
-        the agency is never charged twice."""
+        """ALWAYS requires a fresh, real checkout - a Razorpay Subscription
+        being created, a plan being "selected", or an agency merely being
+        on its free trial are never treated as proof of payment (a real
+        billing-flow defect confirmed during Razorpay sandbox testing:
+        this method used to apply a still-trialing agency's chosen plan/
+        interval directly, for free, with no checkout at all - see git
+        history for the incident). The only two real actions here are:
+        (1) block the change if current usage wouldn't fit the new plan
+        (EntitlementService.validate_plan_change - never silently
+        deactivates resources to force a fit), and (2) if a real paid
+        Razorpay subscription already exists, cancel it immediately so
+        the agency is never charged twice for two plans at once. Every
+        actual plan/entitlement change happens only inside _activate(),
+        after start_checkout() + a verified payment - never here."""
         if new_plan == SubscriptionPlan.enterprise:
             raise CheckoutNotPossibleError("Enterprise plans are arranged directly with sales - contact us to change to this plan.")
 
@@ -306,32 +377,12 @@ class SubscriptionService:
             raise PlanChangeBlockedError(violations)
 
         subscription = self.get(agency)
-        has_real_paid_subscription = (
+        if (
             subscription is not None
             and subscription.status in (SubscriptionStatus.active, SubscriptionStatus.past_due)
-            and subscription.provider_subscription_id is not None
-        )
-
-        if not has_real_paid_subscription:
-            now = datetime.utcnow()
-            if subscription is None:
-                subscription = models.Subscription(
-                    agency_id=agency.id, plan=new_plan, billing_interval=new_interval,
-                    status=SubscriptionStatus.trialing,
-                    trial_start=now, trial_end=now + timedelta(days=TRIAL_DAYS),
-                    current_period_start=now, current_period_end=now + timedelta(days=TRIAL_DAYS),
-                )
-                self.db.add(subscription)
-            else:
-                subscription.plan = new_plan
-                subscription.billing_interval = new_interval
-                subscription.updated_at = now
-                self.db.add(subscription)
-            self.db.commit()
-            self.db.refresh(subscription)
-            return {"requires_checkout": False, "subscription": subscription}
-
-        if subscription.provider_subscription_id and self.razorpay.is_configured:
+            and subscription.provider_subscription_id
+            and self.razorpay.is_configured
+        ):
             try:
                 self.razorpay.cancel_subscription(subscription.provider_subscription_id, at_cycle_end=False)
             except PaymentsNotConfiguredError:

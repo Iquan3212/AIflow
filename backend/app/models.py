@@ -1560,6 +1560,15 @@ class Subscription(Base):
     provider = Column(String(32), nullable=True)
     provider_customer_id = Column(String(128), nullable=True, index=True)
     provider_subscription_id = Column(String(128), nullable=True, unique=True, index=True)
+    # The Razorpay Plan id this subscription is CHECKING OUT for - set the
+    # instant a Razorpay Subscription object is created (start_checkout),
+    # well before any payment. Deliberately NOT entitlement-bearing by
+    # itself: `plan`/`billing_interval` above are only ever updated inside
+    # _activate() (a verified checkout confirmation or webhook), resolved
+    # FROM this column via the ProviderPlan cache - never written directly
+    # by start_checkout. This is what stops "a Razorpay Subscription was
+    # created" from ever being treated as "the customer paid."
+    provider_plan_id = Column(String(128), nullable=True)
 
     current_period_start = Column(DateTime, nullable=True)
     current_period_end = Column(DateTime, nullable=True)

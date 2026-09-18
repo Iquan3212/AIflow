@@ -143,9 +143,49 @@ class TestCheckoutCreation:
         service.start_checkout(biz, models.SubscriptionPlan.starter, models.BillingInterval.monthly)
         sub = service.get(biz)
         assert sub is not None
-        assert sub.plan == models.SubscriptionPlan.starter
         assert sub.provider == "razorpay"
         assert sub.provider_subscription_id is not None
+
+    def test_creating_a_razorpay_subscription_does_not_activate_or_change_plan(self, env):
+        """The exact regression this whole test class exists to prevent:
+        a Razorpay Subscription object being created (start_checkout
+        alone, before Checkout even opens, let alone before payment)
+        must never grant the new plan's entitlements or flip status -
+        this fixture's agency has NO subscription row yet (the real,
+        common case: a brand-new agency's very first checkout attempt)."""
+        db, biz, razorpay, service = env
+        assert service.get(biz) is None  # no subscription exists yet
+
+        result = service.start_checkout(biz, models.SubscriptionPlan.professional, models.BillingInterval.monthly)
+        assert result["provider_subscription_id"]  # a real Razorpay Subscription WAS created
+
+        after = service.get(biz)
+        assert after is not None
+        assert after.plan == models.SubscriptionPlan.starter  # the safe default, NEVER "professional"
+        assert after.status == models.SubscriptionStatus.trialing  # NEVER "active"
+        assert after.provider_plan_id is not None  # the pending target IS tracked, just not applied yet
+
+    def test_creating_a_razorpay_subscription_for_an_already_trialing_agency_does_not_change_its_plan(self, env):
+        db, biz, razorpay, service = env
+        # First checkout establishes a real subscription row (still trialing).
+        service.start_checkout(biz, models.SubscriptionPlan.starter, models.BillingInterval.monthly)
+        before = service.get(biz)
+        assert before.plan == models.SubscriptionPlan.starter
+        assert before.status == models.SubscriptionStatus.trialing
+
+        # A SECOND checkout, for a different (higher) plan, must not
+        # apply that plan either - only a verified payment can.
+        service.start_checkout(biz, models.SubscriptionPlan.professional, models.BillingInterval.annual)
+        after = service.get(biz)
+        assert after.plan == models.SubscriptionPlan.starter  # unchanged
+        assert after.status == models.SubscriptionStatus.trialing  # unchanged
+
+    def test_opening_checkout_twice_never_activates_either_attempt(self, env):
+        db, biz, razorpay, service = env
+        service.start_checkout(biz, models.SubscriptionPlan.starter, models.BillingInterval.monthly)
+        service.start_checkout(biz, models.SubscriptionPlan.professional, models.BillingInterval.annual)
+        after = service.get(biz)
+        assert after.status == models.SubscriptionStatus.trialing  # neither checkout activated anything
 
     def test_provider_plan_is_cached_not_recreated_on_second_checkout(self, env):
         db, biz, razorpay, service = env
@@ -311,6 +351,59 @@ class TestWebhookSecurity:
         service.handle_webhook(body, "sig")
         assert service.get(biz).status == models.SubscriptionStatus.active
 
+    def test_webhook_arrives_before_the_checkout_confirm_callback(self, env):
+        """The reverse ordering of test_payment_succeeds_before_webhook_
+        reaches_the_frontend - the webhook (authoritative) activates
+        first; the frontend's own confirm_checkout call for the SAME
+        payment arriving afterward must not double-charge or error."""
+        db, biz, razorpay, service = env
+        checkout = service.start_checkout(biz, models.SubscriptionPlan.growth, models.BillingInterval.monthly)
+        body = _webhook_body("subscription.activated", checkout["provider_subscription_id"], payment_id="pay_webhook_first")
+        service.handle_webhook(body, "sig")
+        assert service.get(biz).status == models.SubscriptionStatus.active
+
+        sub = service.confirm_checkout(
+            biz, razorpay_payment_id="pay_webhook_first",
+            razorpay_subscription_id=checkout["provider_subscription_id"], razorpay_signature="sig",
+        )
+        assert sub.status == models.SubscriptionStatus.active
+        assert db.query(models.Payment).filter(models.Payment.provider_payment_id == "pay_webhook_first").count() == 1
+
+    def test_subscription_charged_activates_and_extends_the_period(self, env):
+        """subscription.charged (a renewal cycle, not the first
+        activation) must go through the exact same verified _activate()
+        path - never a separate, less-checked code path."""
+        db, biz, razorpay, service = env
+        checkout = service.start_checkout(biz, models.SubscriptionPlan.growth, models.BillingInterval.monthly)
+        now = datetime.utcnow()
+        body = _webhook_body(
+            "subscription.charged", checkout["provider_subscription_id"], payment_id="pay_renewal",
+            current_start=now, current_end=now + timedelta(days=30),
+        )
+        result = service.handle_webhook(body, "sig")
+        assert result["status"] == "processed"
+        sub = service.get(biz)
+        assert sub.status == models.SubscriptionStatus.active
+        assert sub.plan == models.SubscriptionPlan.growth
+        assert db.query(models.Payment).filter(models.Payment.provider_payment_id == "pay_renewal").count() == 1
+
+    def test_payment_failed_with_no_prior_active_subscription_does_not_activate_anything(self, env):
+        """payment.failed must never be able to activate a subscription -
+        it can only ever move an ALREADY-active one to past_due."""
+        db, biz, razorpay, service = env
+        checkout = service.start_checkout(biz, models.SubscriptionPlan.growth, models.BillingInterval.monthly)
+        body = json.dumps({
+            "event": "payment.failed",
+            "payload": {"payment": {"entity": {
+                "id": f"pay_failed_{uuid.uuid4().hex}", "subscription_id": checkout["provider_subscription_id"],
+            }}},
+        })
+        result = service.handle_webhook(body, "sig")
+        assert result["status"] == "processed"
+        sub = service.get(biz)
+        assert sub.status == models.SubscriptionStatus.trialing  # NOT active, NOT past_due either
+        assert db.query(models.Payment).filter(models.Payment.agency_id == biz.id).count() == 0
+
     def test_subscription_cancelled_webhook(self, env):
         db, biz, razorpay, service = env
         checkout = service.start_checkout(biz, models.SubscriptionPlan.growth, models.BillingInterval.monthly)
@@ -339,11 +432,18 @@ class TestWebhookSecurity:
 # ==================================================== UPGRADE / DOWNGRADE ==
 
 class TestPlanChange:
-    def test_trialing_agency_changes_plan_directly_no_checkout_needed(self, env):
+    def test_trialing_agency_always_requires_checkout_even_for_its_first_ever_plan(self, env):
+        """The exact bug reported during Razorpay sandbox testing: a
+        still-trialing agency selecting a plan on the pricing page used
+        to apply it directly, for free, with requires_checkout=False and
+        no Razorpay Checkout ever opening. change_plan() must now always
+        require a real checkout, regardless of trial status."""
         db, biz, razorpay, service = env
         result = service.change_plan(biz, models.SubscriptionPlan.professional, models.BillingInterval.monthly)
-        assert result["requires_checkout"] is False
-        assert service.get(biz).plan == models.SubscriptionPlan.professional
+        assert result["requires_checkout"] is True
+        # And critically: nothing about the agency's entitlements changed
+        # as a side effect of merely calling change_plan.
+        assert service.get(biz) is None or service.get(biz).plan != models.SubscriptionPlan.professional
 
     def test_paying_agency_changing_plan_requires_a_fresh_checkout(self, env):
         db, biz, razorpay, service = env
@@ -355,10 +455,35 @@ class TestPlanChange:
         result = service.change_plan(biz, models.SubscriptionPlan.growth, models.BillingInterval.monthly)
         assert result["requires_checkout"] is True
         assert checkout["provider_subscription_id"] in razorpay.cancelled_subscription_ids
+        # The plan itself must still be the OLD (paid-for) one - change_plan
+        # only validates + cancels the old provider subscription; it never
+        # applies the new plan itself (only a verified checkout does).
+        assert service.get(biz).plan == models.SubscriptionPlan.starter
+
+    def test_start_checkout_cancels_the_old_paid_subscription_when_switching_plans(self, env):
+        """start_checkout() itself (not just change_plan()) must cancel an
+        existing REAL paid Razorpay subscription before creating a new
+        one for a different plan, so the agency is never billed twice."""
+        db, biz, razorpay, service = env
+        first_checkout = service.start_checkout(biz, models.SubscriptionPlan.starter, models.BillingInterval.monthly)
+        service.confirm_checkout(
+            biz, razorpay_payment_id="pay_switch1",
+            razorpay_subscription_id=first_checkout["provider_subscription_id"], razorpay_signature="sig",
+        )
+        service.start_checkout(biz, models.SubscriptionPlan.professional, models.BillingInterval.monthly)
+        assert first_checkout["provider_subscription_id"] in razorpay.cancelled_subscription_ids
 
     def test_invalid_downgrade_is_blocked_with_a_clear_message(self, env):
         db, biz, razorpay, service = env
-        service.change_plan(biz, models.SubscriptionPlan.growth, models.BillingInterval.monthly)
+        # Get the agency onto Growth for real (verified checkout), not via
+        # the old free-switch shortcut this test used to rely on.
+        checkout = service.start_checkout(biz, models.SubscriptionPlan.growth, models.BillingInterval.monthly)
+        service.confirm_checkout(
+            biz, razorpay_payment_id="pay_downgrade_setup",
+            razorpay_subscription_id=checkout["provider_subscription_id"], razorpay_signature="sig",
+        )
+        assert service.get(biz).plan == models.SubscriptionPlan.growth
+
         from app.services.inventory.project_service import ProjectService
         from app import schemas as app_schemas
         for i in range(5):
@@ -369,6 +494,24 @@ class TestPlanChange:
         assert "5 projects" in exc_info.value.violations[0]
         # plan must be unchanged after a blocked attempt
         assert service.get(biz).plan == models.SubscriptionPlan.growth
+
+    def test_invalid_downgrade_is_also_blocked_directly_at_checkout(self, env):
+        """The same guard must apply to start_checkout() directly, not
+        just change_plan() - a client could otherwise skip change_plan
+        entirely and check out for a plan its current usage doesn't fit."""
+        db, biz, razorpay, service = env
+        checkout = service.start_checkout(biz, models.SubscriptionPlan.growth, models.BillingInterval.monthly)
+        service.confirm_checkout(
+            biz, razorpay_payment_id="pay_downgrade_setup2",
+            razorpay_subscription_id=checkout["provider_subscription_id"], razorpay_signature="sig",
+        )
+        from app.services.inventory.project_service import ProjectService
+        from app import schemas as app_schemas
+        for i in range(5):
+            ProjectService(db).create(biz.id, app_schemas.ProjectCreate(name=f"Q{i}", city="Bengaluru"))
+
+        with pytest.raises(PlanChangeBlockedError):
+            service.start_checkout(biz, models.SubscriptionPlan.starter, models.BillingInterval.monthly)
 
     def test_cannot_self_serve_change_to_enterprise(self, env):
         db, biz, razorpay, service = env

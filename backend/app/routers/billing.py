@@ -120,6 +120,8 @@ def create_checkout(
         return SubscriptionService(db).start_checkout(agency, plan, interval)
     except CheckoutNotPossibleError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except PlanChangeBlockedError as exc:
+        raise HTTPException(status_code=409, detail={"message": str(exc), "violations": exc.violations})
     except PaymentsNotConfiguredError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 

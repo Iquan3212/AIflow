@@ -11,7 +11,7 @@ import { LoadingState, ErrorState } from "../../components/ui/States";
 import { getErrorMessage } from "../../services/api";
 import { getCurrentAgency } from "../../services/agency";
 import {
-    changePlan, confirmCheckout, createCheckout, getSubscription, listPlans,
+    confirmCheckout, createCheckout, getSubscription, listPlans,
 } from "../../services/billing";
 import { openRazorpaySubscriptionCheckout } from "../../utils/razorpayCheckout";
 import { FEATURE_LABELS } from "../../types/billing";
@@ -71,14 +71,12 @@ export default function Pricing() {
         }
         setPendingPlan(plan.id);
         try {
-            const changeResult = await changePlan(plan.id, interval);
-            if (!changeResult.requires_checkout) {
-                // Still trialing, no payment method on file yet - the plan
-                // switch is immediate and free; nothing to check out.
-                await load();
-                navigate("/billing?updated=1");
-                return;
-            }
+            // Every plan selection here goes through a REAL Razorpay
+            // Checkout - a Subscription object existing (or even an
+            // agency still being on its free trial) is never treated as
+            // proof of payment. The backend only ever flips this
+            // agency's plan/status after a verified checkout
+            // confirmation (see subscription_service.py's _activate()).
             const checkout = await createCheckout(plan.id, interval);
             const result = await openRazorpaySubscriptionCheckout({
                 keyId: checkout.key_id,
