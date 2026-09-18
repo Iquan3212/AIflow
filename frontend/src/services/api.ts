@@ -97,4 +97,11 @@ export function getErrorMessage(error: unknown): string {
     return "Something went wrong. Please try again.";
 }
 
+/** True for a 402 from a plan-limit check (see
+ * app.services.billing.entitlement_service) - callers use this to show
+ * the UpgradePrompt component instead of a plain error banner. */
+export function isPlanLimitError(error: unknown): boolean {
+    return axios.isAxiosError(error) && error.response?.status === 402;
+}
+
 export default api;

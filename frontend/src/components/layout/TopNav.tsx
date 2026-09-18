@@ -13,6 +13,7 @@ import {
     Building2,
     Handshake,
     BarChart3,
+    CreditCard,
     Settings as SettingsIcon,
     LogOut,
     ChevronDown,
@@ -71,6 +72,7 @@ const SOLO_LINKS: NavLeaf[] = [
     { to: "/inventory", label: "Inventory", description: "", icon: Building2 },
     { to: "/knowledge", label: "Knowledge", description: "", icon: BookOpen },
     { to: "/analytics", label: "Analytics", description: "", icon: BarChart3 },
+    { to: "/billing", label: "Billing", description: "", icon: CreditCard },
 ];
 
 function isGroupActive(group: NavGroup, pathname: string) {

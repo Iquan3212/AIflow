@@ -3,7 +3,8 @@ import { useState, type FormEvent } from "react";
 import Modal from "../ui/Modal";
 import Button from "../ui/Button";
 import Input, { Label } from "../ui/Input";
-import { getErrorMessage } from "../../services/api";
+import UpgradePrompt from "../billing/UpgradePrompt";
+import { getErrorMessage, isPlanLimitError } from "../../services/api";
 import { createProject, updateProject } from "../../services/projects";
 import { AMENITY_LABELS, CANONICAL_AMENITIES, PROPERTY_TYPES } from "../../types/inventory";
 import type { Project, ProjectCreateInput, PropertyType } from "../../types/inventory";
@@ -31,6 +32,7 @@ export default function ProjectFormModal({ project, onClose, onSaved }: ProjectF
     const [amenities, setAmenities] = useState<string[]>(project?.amenities ?? []);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
+    const [limitReached, setLimitReached] = useState(false);
 
     function toggleAmenity(key: string) {
         setAmenities((current) => (current.includes(key) ? current.filter((a) => a !== key) : [...current, key]));
@@ -40,6 +42,7 @@ export default function ProjectFormModal({ project, onClose, onSaved }: ProjectF
         e.preventDefault();
         setSaving(true);
         setError("");
+        setLimitReached(false);
         try {
             const payload: ProjectCreateInput = {
                 ...form,
@@ -58,6 +61,9 @@ export default function ProjectFormModal({ project, onClose, onSaved }: ProjectF
             onSaved(saved);
             onClose();
         } catch (err) {
+            if (isPlanLimitError(err)) {
+                setLimitReached(true);
+            }
             setError(getErrorMessage(err));
         } finally {
             setSaving(false);
@@ -67,7 +73,13 @@ export default function ProjectFormModal({ project, onClose, onSaved }: ProjectF
     return (
         <Modal title={project ? "Edit project" : "New project"} onClose={onClose}>
             <form onSubmit={handleSubmit} className="space-y-4">
-                {error && <div className="bg-red-50 border border-red-200 text-red-600 rounded-lg p-3 text-sm">{error}</div>}
+                {error && (
+                    limitReached ? (
+                        <UpgradePrompt message={error} />
+                    ) : (
+                        <div className="bg-red-50 border border-red-200 text-red-600 rounded-lg p-3 text-sm">{error}</div>
+                    )
+                )}
 
                 <div>
                     <Label htmlFor="name">Project name</Label>

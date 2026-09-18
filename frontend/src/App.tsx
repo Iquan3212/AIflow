@@ -38,6 +38,8 @@ import BuyerSiteVisits from "./pages/Buyer/BuyerSiteVisits";
 import BuyerBookings from "./pages/Buyer/BuyerBookings";
 import BuyerAssistant from "./pages/Buyer/BuyerAssistant";
 import BuyerProfile from "./pages/Buyer/BuyerProfile";
+import Pricing from "./pages/Billing/Pricing";
+import Billing from "./pages/Billing/Billing";
 import NotFoundRedirect from "./layouts/NotFoundRedirect";
 
 export default function App() {
@@ -98,6 +100,8 @@ export default function App() {
                     <Route path="/inventory/properties/:propertyId" element={<PropertyDetail />} />
                     <Route path="/bookings" element={<Bookings />} />
                     <Route path="/analytics" element={<Analytics />} />
+                    <Route path="/pricing" element={<Pricing />} />
+                    <Route path="/billing" element={<Billing />} />
                     <Route path="/settings" element={<Settings />} />
                 </Route>
 

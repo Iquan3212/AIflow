@@ -1,7 +1,8 @@
 import { useState } from "react";
 
 import Button from "../ui/Button";
-import { getErrorMessage } from "../../services/api";
+import UpgradePrompt from "../billing/UpgradePrompt";
+import { getErrorMessage, isPlanLimitError } from "../../services/api";
 import { ALLOWED_STATUS_TRANSITIONS } from "../../types/inventory";
 import { PropertyStatusBadge } from "./StatusBadge";
 import type { PropertyStatus } from "../../types/inventory";
@@ -20,13 +21,18 @@ export default function StatusTransitionControl({
 }) {
     const [pending, setPending] = useState<PropertyStatus | null>(null);
     const [error, setError] = useState("");
+    const [limitReached, setLimitReached] = useState(false);
 
     async function handleClick(next: PropertyStatus) {
         setPending(next);
         setError("");
+        setLimitReached(false);
         try {
             await onChange(next);
         } catch (err) {
+            if (isPlanLimitError(err)) {
+                setLimitReached(true);
+            }
             setError(getErrorMessage(err));
         } finally {
             setPending(null);
@@ -52,7 +58,7 @@ export default function StatusTransitionControl({
                     </Button>
                 ))}
             </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && (limitReached ? <UpgradePrompt message={error} /> : <p className="text-sm text-red-600">{error}</p>)}
         </div>
     );
 }
