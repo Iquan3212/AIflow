@@ -47,9 +47,12 @@ from app.agents.prompt_guard import (
     INJECTION_REINFORCEMENT,
     leaks_system_prompt,
     SAFE_FALLBACK_REPLY,
+    AI_ACTION_LIMIT_MESSAGE,
     is_fallback_reply,
 )
 from app.services.knowledge.retrieval import retrieve_context
+from app.services.billing.entitlement_service import EntitlementService
+from app.services.ai_workforce.execution_service import AgentExecutionService
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -244,6 +247,18 @@ def process_message_for_agency(
 
     save_message(db=db, conversation_id=conversation.id, role="user", content=message)
 
+    # Billing phase: this is the one and only place a customer message
+    # reaches the LLM (see this function's own docstring/module comment),
+    # so it's the one place an exhausted AI-action allowance is checked -
+    # before any further cost (knowledge retrieval, the tool loop) is
+    # incurred, never after. Declines gracefully to the customer (never
+    # mentions billing to them) and records nothing, since no AI action
+    # actually happened.
+    allowed, _reason = EntitlementService(db).can_use_ai_action(agency)
+    if not allowed:
+        save_message(db=db, conversation_id=conversation.id, role="assistant", content=AI_ACTION_LIMIT_MESSAGE)
+        return {"conversation_id": conversation.id, "reply": AI_ACTION_LIMIT_MESSAGE}
+
     lead = _get_or_create_lead(db, agency.id, conversation.id)
     orchestrator = AIOrchestrator(db=db,agency=agency,conversation=conversation,lead=lead,)
 
@@ -353,6 +368,17 @@ def process_message_for_agency(
 
     reply_text = orchestrator.after_llm(reply_text)
 
+    # One AI action per customer turn, mirroring how the tool-calling AI
+    # Workforce path (app.agents.tool_calling_employee) already records
+    # its own turns into the same table - a provider failure still counts
+    # as an attempted action (it cost a real LLM call), same as that path.
+    AgentExecutionService(db).record(
+        agency.id,
+        employee="customer_conversation",
+        status=models.AgentExecutionStatus.failed if is_fallback_reply(reply_text) else models.AgentExecutionStatus.succeeded,
+        conversation_id=conversation.id,
+        lead_id=lead.id,
+    )
 
     save_message(db=db, conversation_id=conversation.id, role="assistant", content=reply_text)
     return {"conversation_id": conversation.id, "reply": reply_text}

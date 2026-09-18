@@ -14,6 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import models, schemas
+from app.services.billing.entitlement_service import EntitlementService
 from app.services.inventory.config import CANONICAL_AMENITIES
 from app.services.inventory.status import is_available_status
 
@@ -106,6 +107,10 @@ class ProjectService:
     def create(self, agency_id: UUID, payload: schemas.ProjectCreate) -> models.Project:
         _validate_amenities(payload.amenities)
         project_type = _to_project_type(payload.project_type)
+
+        agency = self.db.query(models.Agency).filter(models.Agency.id == agency_id).first()
+        if agency is not None:
+            EntitlementService(self.db).can_create_project(agency)
 
         project = models.Project(
             agency_id=agency_id,

@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
 from app.deps import get_current_agency
+from app.services.billing.entitlement_service import ProjectLimitReachedError
 from app.services.inventory.media_service import InvalidMediaUploadError, PropertyMediaService, content_type_for
 from app.services.inventory.project_service import (
     InvalidAmenityError,
@@ -60,6 +61,8 @@ def create_project(
         return ProjectService(db).create(agency.id, payload)
     except (InvalidAmenityError, InvalidProjectTypeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except ProjectLimitReachedError as exc:
+        raise HTTPException(status_code=402, detail=str(exc))
 
 
 @router.get("/{project_id}", response_model=schemas.ProjectWithCountsOut)

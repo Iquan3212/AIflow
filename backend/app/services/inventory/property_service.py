@@ -21,7 +21,7 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
 
 from app import models, schemas
-from app.services.inventory.config import PLAN_ACTIVE_LISTING_LIMITS
+from app.services.billing.entitlement_service import EntitlementService
 from app.services.inventory.status import validate_status_transition
 
 
@@ -162,15 +162,13 @@ class PropertyService:
 
     def _enforce_active_listing_limit(self, agency_id: UUID) -> None:
         agency = self.db.query(models.Agency).filter(models.Agency.id == agency_id).first()
-        limit = PLAN_ACTIVE_LISTING_LIMITS.get(agency.plan) if agency else None
+        if agency is None:
+            return
+        entitlements = EntitlementService(self.db)
+        limit = entitlements.get_active_property_limit(agency)
         if limit is None:
             return
-        active_count = (
-            self.db.query(models.Property)
-            .filter(models.Property.agency_id == agency_id, models.Property.status == models.PropertyStatus.active)
-            .count()
-        )
-        if active_count >= limit:
+        if entitlements.count_active_properties(agency) >= limit:
             raise ListingLimitReachedError(limit)
 
     def delete(self, property_id: str, agency_id: UUID) -> bool:

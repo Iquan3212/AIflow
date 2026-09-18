@@ -23,7 +23,9 @@ from app.agents.registry import Registry
 from app.agents.tool_router import ToolRouter
 from app.agents.tool_loop import run_bounded_tool_loop, ToolLoopResult
 from app.agents.realestate_tool_schemas import REALESTATE_TOOL_SCHEMAS
+from app.agents.prompt_guard import AI_ACTION_LIMIT_MESSAGE
 from app.services.ai_workforce.execution_service import AgentExecutionService
+from app.services.billing.entitlement_service import EntitlementService
 from app import models
 
 # Same as app.agents.llm_reply.MAX_HISTORY_MESSAGES - independently
@@ -80,6 +82,10 @@ def run_tool_calling_employee_turn(
     prose must never override live inventory state."""
     if not registry.employee_is_tool_calling(employee):
         raise ValueError(f"Employee '{employee}' is not registered as tool_calling; use the legacy single-shot path instead.")
+
+    allowed, _reason = EntitlementService(db).can_use_ai_action(agency)
+    if not allowed:
+        return ToolLoopResult(reply=AI_ACTION_LIMIT_MESSAGE, terminated_reason="ai_action_limit_reached")
 
     schemas_by_tool = tool_schemas if tool_schemas is not None else REALESTATE_TOOL_SCHEMAS
     allowed_tool_names = registry.employee_tools(employee)
