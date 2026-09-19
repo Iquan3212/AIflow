@@ -118,3 +118,14 @@ def require_billing_owner(
     if user.role != "owner":
         raise HTTPException(status_code=403, detail="Only an agency owner can manage billing.")
     return agency
+
+
+def require_team_manager(
+    agency: models.Agency = Depends(get_current_agency),
+    user: models.User = Depends(get_current_user),
+) -> models.Agency:
+    """Team management (inviting/removing/re-roling staff) is owner- or
+    admin-only. Viewing the team roster has no such restriction."""
+    if user.role not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Only an agency owner or admin can manage the team.")
+    return agency

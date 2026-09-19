@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.logging_config import configure_logging, get_logger, set_request_id
 from app.rate_limit import limiter, log_rate_limit_exceeded
 
-from app.routers import employee, workforce, analytics, drafts, support_tickets, notifications, gmail, knowledge, workflows, projects, properties, marketplace, buyer_saved_properties, bookings, buyer_marketplace, buyer_profile, ai_approvals, billing
+from app.routers import employee, workforce, analytics, drafts, support_tickets, notifications, gmail, knowledge, workflows, projects, properties, marketplace, buyer_saved_properties, bookings, buyer_marketplace, buyer_profile, ai_approvals, billing, team
 
 from app.routers import (
     auth,
@@ -304,6 +304,7 @@ app.include_router(buyer_marketplace.router)
 app.include_router(buyer_profile.router)
 app.include_router(ai_approvals.router)
 app.include_router(billing.router)
+app.include_router(team.router)
 
 
 @app.get("/")

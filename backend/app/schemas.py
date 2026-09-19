@@ -58,6 +58,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     agency_id: UUID
     agency_slug: str
+    user_role: str
 
 
 class RefreshRequest(BaseModel):
@@ -74,6 +75,44 @@ class UserResponse(BaseModel):
     id: UUID
     email: EmailStr
     role: str
+
+
+# =====================================================
+# TEAM (staff invitations)
+# =====================================================
+
+class TeamMemberOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    email: EmailStr
+    role: str
+    created_at: datetime
+
+
+class TeamInviteCreate(BaseModel):
+    email: EmailStr
+    role: str = Field(pattern="^(member|admin)$")
+
+
+class TeamInviteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    email: EmailStr
+    role: str
+    status: str
+    expires_at: datetime
+    created_at: datetime
+
+
+class TeamMemberRoleUpdate(BaseModel):
+    role: str = Field(pattern="^(member|admin)$")
+
+
+class TeamInviteAcceptRequest(BaseModel):
+    token: str
+    password: str = Field(min_length=8, max_length=128)
 
 
 # =====================================================

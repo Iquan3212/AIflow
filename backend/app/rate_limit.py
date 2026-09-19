@@ -52,3 +52,7 @@ CHAT_RATE_LIMIT = "20/minute"
 # out.
 LOGIN_RATE_LIMIT = "10/minute"
 SIGNUP_RATE_LIMIT = "5/minute"
+
+# Public invite-accept endpoint: same class of unauthenticated account-
+# creation endpoint as signup, same limit.
+INVITE_ACCEPT_RATE_LIMIT = "5/minute"

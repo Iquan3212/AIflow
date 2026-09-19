@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Trash2, Building2, Sparkles, Plug, Bell, ShieldCheck } from "lucide-react";
+import { Check, Trash2, Building2, Sparkles, Plug, Bell, ShieldCheck, Users, Mail } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import AppShell from "../../components/layout/AppShell";
@@ -9,7 +9,18 @@ import Card from "../../components/ui/Card";
 import Button from "../../components/ui/Button";
 import Badge from "../../components/ui/Badge";
 import { ErrorState, LoadingState, EmptyState } from "../../components/ui/States";
-import { getErrorMessage, baseURL } from "../../services/api";
+import { getErrorMessage, isPlanLimitError, baseURL } from "../../services/api";
+import { getUserRole } from "../../services/tokenStorage";
+import {
+    listMembers,
+    listInvites,
+    inviteMember,
+    revokeInvite,
+    updateMemberRole,
+    removeMember,
+} from "../../services/team";
+import type { TeamMember, TeamInvite, AssignableRole } from "../../types/team";
+import UpgradePrompt from "../../components/billing/UpgradePrompt";
 import { getCurrentAgency, updateCurrentAgency } from "../../services/agency";
 import { getChatbotConfig, updateChatbotConfig } from "../../services/chatbot";
 import { listSessions, revokeSession, type Session } from "../../services/sessions";
@@ -41,7 +52,7 @@ import {
     type GmailPendingAction,
 } from "../../services/gmail";
 
-const TABS = ["Agency", "AI", "Integrations", "Notifications", "Security"] as const;
+const TABS = ["Agency", "AI", "Integrations", "Notifications", "Team", "Security"] as const;
 type Tab = (typeof TABS)[number];
 
 function SavedBadge({ show }: { show: boolean }) {
@@ -861,11 +872,215 @@ function SecurityTab() {
     );
 }
 
+function TeamTab() {
+    const canManage = getUserRole() === "owner" || getUserRole() === "admin";
+
+    const [members, setMembers] = useState<TeamMember[] | null>(null);
+    const [invites, setInvites] = useState<TeamInvite[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [limitMessage, setLimitMessage] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
+
+    const [email, setEmail] = useState("");
+    const [role, setRole] = useState<AssignableRole>("member");
+    const [inviting, setInviting] = useState(false);
+
+    async function load() {
+        setError(null);
+        try {
+            const [m, i] = await Promise.all([listMembers(), canManage ? listInvites() : Promise.resolve([])]);
+            setMembers(m);
+            setInvites(i);
+        } catch (err) {
+            setError(getErrorMessage(err));
+        }
+    }
+
+    useEffect(() => {
+        void load();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    async function handleInvite(e: FormEvent) {
+        e.preventDefault();
+        setActionError(null);
+        setLimitMessage(null);
+        setInviting(true);
+        try {
+            await inviteMember(email.trim(), role);
+            setEmail("");
+            setRole("member");
+            await load();
+        } catch (err) {
+            if (isPlanLimitError(err)) {
+                setLimitMessage(getErrorMessage(err));
+            } else {
+                setActionError(getErrorMessage(err));
+            }
+        } finally {
+            setInviting(false);
+        }
+    }
+
+    async function handleRevoke(inviteId: string) {
+        setActionError(null);
+        try {
+            await revokeInvite(inviteId);
+            await load();
+        } catch (err) {
+            setActionError(getErrorMessage(err));
+        }
+    }
+
+    async function handleRoleChange(userId: string, newRole: AssignableRole) {
+        setActionError(null);
+        try {
+            await updateMemberRole(userId, newRole);
+            await load();
+        } catch (err) {
+            setActionError(getErrorMessage(err));
+        }
+    }
+
+    async function handleRemove(userId: string) {
+        setActionError(null);
+        try {
+            await removeMember(userId);
+            await load();
+        } catch (err) {
+            setActionError(getErrorMessage(err));
+        }
+    }
+
+    if (error) {
+        return <ErrorState message={error} onRetry={load} />;
+    }
+    if (!members) {
+        return <LoadingState label="Loading team…" />;
+    }
+
+    return (
+        <div className="space-y-6 max-w-2xl">
+            {actionError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3.5 text-sm" role="alert">
+                    {actionError}
+                </div>
+            )}
+
+            {canManage && (
+                <Card className="p-5">
+                    <h3 className="text-sm font-semibold text-slate-700 mb-1">Invite a team member</h3>
+                    <p className="text-xs text-slate-500 mb-4">
+                        They'll get an email with a link to activate their account.
+                    </p>
+                    {limitMessage && (
+                        <div className="mb-4">
+                            <UpgradePrompt message={limitMessage} />
+                        </div>
+                    )}
+                    <form onSubmit={handleInvite} className="flex flex-col sm:flex-row gap-3">
+                        <input
+                            type="email"
+                            required
+                            placeholder="teammate@company.com"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10"
+                        />
+                        <select
+                            value={role}
+                            onChange={(e) => setRole(e.target.value as AssignableRole)}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-brand-500"
+                        >
+                            <option value="member">Member</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                        <Button type="submit" loading={inviting}>Send invite</Button>
+                    </form>
+                </Card>
+            )}
+
+            <Card className="p-5">
+                <h3 className="text-sm font-semibold text-slate-700 mb-4">Team members</h3>
+                <ul className="divide-y divide-slate-100">
+                    {members.map((m) => (
+                        <li key={m.id} className="py-3 flex items-center justify-between gap-4">
+                            <div className="min-w-0">
+                                <p className="text-sm text-slate-800 truncate">{m.email}</p>
+                                <p className="text-xs text-slate-400">
+                                    Joined {new Date(m.created_at).toLocaleDateString()}
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                {m.role === "owner" ? (
+                                    <Badge tone="brand">Owner</Badge>
+                                ) : canManage ? (
+                                    <>
+                                        <select
+                                            value={m.role}
+                                            onChange={(e) => handleRoleChange(m.id, e.target.value as AssignableRole)}
+                                            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-brand-500"
+                                        >
+                                            <option value="member">Member</option>
+                                            <option value="admin">Admin</option>
+                                        </select>
+                                        <button
+                                            onClick={() => handleRemove(m.id)}
+                                            aria-label="Remove member"
+                                            className="text-slate-400 hover:text-red-600"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </>
+                                ) : (
+                                    <Badge tone="neutral">{m.role === "admin" ? "Admin" : "Member"}</Badge>
+                                )}
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            </Card>
+
+            {canManage && (
+                <Card className="p-5">
+                    <h3 className="text-sm font-semibold text-slate-700 mb-1">Pending invites</h3>
+                    <p className="text-xs text-slate-500 mb-4">Not yet accepted.</p>
+                    {invites && invites.length === 0 && (
+                        <EmptyState icon={<Mail size={22} />} title="No pending invites" />
+                    )}
+                    {invites && invites.length > 0 && (
+                        <ul className="divide-y divide-slate-100">
+                            {invites.map((inv) => (
+                                <li key={inv.id} className="py-3 flex items-center justify-between gap-4">
+                                    <div className="min-w-0">
+                                        <p className="text-sm text-slate-800 truncate">{inv.email}</p>
+                                        <p className="text-xs text-slate-400">
+                                            Invited as {inv.role} · expires {new Date(inv.expires_at).toLocaleDateString()}
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => handleRevoke(inv.id)}
+                                        aria-label="Revoke invite"
+                                        className="text-slate-400 hover:text-red-600 shrink-0"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </Card>
+            )}
+        </div>
+    );
+}
+
 const TAB_META: Record<Tab, { description: string; icon: LucideIcon }> = {
     Agency: { description: "Name, industry, timezone, and public profile.", icon: Building2 },
     AI: { description: "Chatbot persona, services, and lead questions.", icon: Sparkles },
     Integrations: { description: "Gmail, WhatsApp, and Instagram connections.", icon: Plug },
     Notifications: { description: "Who gets notified, and on which channel.", icon: Bell },
+    Team: { description: "Invite staff and manage roles.", icon: Users },
     Security: { description: "Sessions and account protection.", icon: ShieldCheck },
 };
 
@@ -904,6 +1119,7 @@ export default function Settings() {
             {tab === "AI" && <AiTab />}
             {tab === "Integrations" && <IntegrationsTab />}
             {tab === "Notifications" && <NotificationsTab />}
+            {tab === "Team" && <TeamTab />}
             {tab === "Security" && <SecurityTab />}
         </AppShell>
     );

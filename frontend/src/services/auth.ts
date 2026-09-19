@@ -18,6 +18,7 @@ export interface TokenResponse {
     token_type: string;
     agency_id: string;
     agency_slug: string;
+    user_role: string;
 }
 
 export async function login(payload: LoginRequest): Promise<TokenResponse> {

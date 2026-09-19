@@ -44,6 +44,7 @@ def _issue_tokens(db: Session, user: models.User, agency: models.Agency, request
         refresh_token=refresh_token,
         agency_id=agency.id,
         agency_slug=agency.slug,
+        user_role=user.role,
     )
 
 

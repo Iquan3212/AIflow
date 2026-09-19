@@ -67,6 +67,7 @@ class Agency(Base):
     subscription = relationship(
         "Subscription", back_populates="agency", uselist=False, cascade="all, delete-orphan"
     )
+    invites = relationship("AgencyInvite", back_populates="agency", cascade="all, delete-orphan")
 
 
 class User(Base):
@@ -169,6 +170,45 @@ class UserSession(Base):
         "User",
         back_populates="sessions",
     )
+
+
+class InviteStatus(str, enum.Enum):
+    pending = "pending"
+    accepted = "accepted"
+    revoked = "revoked"
+
+
+class AgencyInvite(Base):
+    """A pending staff invitation - the only way a second User row can be
+    created for an agency, other than the owner created at signup (see
+    routers/auth.py's signup()). `token` is a random, single-use, DB-stored
+    secret (not a JWT) so a specific invite can be individually revoked,
+    expired, or checked for prior use - the same shape as
+    UserSession.refresh_token, not a new pattern."""
+
+    __tablename__ = "agency_invites"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id"), nullable=False, index=True)
+
+    email = Column(String(255), nullable=False, index=True)
+
+    # "member" or "admin" - never "owner"; there is exactly one owner per
+    # agency, set once at signup, and this flow can never create another.
+    role = Column(String(32), nullable=False)
+
+    token = Column(String(128), unique=True, nullable=False, index=True)
+
+    status = Column(SAEnum(InviteStatus), default=InviteStatus.pending, nullable=False)
+
+    invited_by_user_id = Column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
+
+    expires_at = Column(DateTime, nullable=False)
+    accepted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    agency = relationship("Agency", back_populates="invites")
 
 
 # =====================================================================

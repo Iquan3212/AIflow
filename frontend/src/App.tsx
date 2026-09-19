@@ -40,6 +40,7 @@ import BuyerAssistant from "./pages/Buyer/BuyerAssistant";
 import BuyerProfile from "./pages/Buyer/BuyerProfile";
 import Pricing from "./pages/Billing/Pricing";
 import Billing from "./pages/Billing/Billing";
+import AcceptInvite from "./pages/Team/AcceptInvite";
 import NotFoundRedirect from "./layouts/NotFoundRedirect";
 
 export default function App() {
@@ -53,6 +54,11 @@ export default function App() {
                     <Route path="/login" element={<Login />} />
                     <Route path="/register" element={<Register />} />
                 </Route>
+
+                {/* Public - the invitee has no session yet either way, so this
+                    can't live inside PublicOnlyLayout (which redirects an
+                    already-signed-in agency user away) or ProtectedLayout. */}
+                <Route path="/invite/accept" element={<AcceptInvite />} />
 
                 {/* Buyer marketplace — genuinely separate auth/session from the
                     agency dashboard above (see BuyerAuthContext), so an agency
