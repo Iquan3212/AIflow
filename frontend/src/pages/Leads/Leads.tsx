@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Building2, Download, Handshake, Mail, Phone, Plus, Search, Trash2, Users, Wallet } from "lucide-react";
+import { Building2, Download, Handshake, Mail, Phone, PhoneCall, Plus, Search, Trash2, Users, Wallet } from "lucide-react";
 
 import AppShell from "../../components/layout/AppShell";
 import PageHeader from "../../components/ui/PageHeader";
@@ -12,23 +12,96 @@ import { LoadingState, ErrorState, EmptyState } from "../../components/ui/States
 import { getErrorMessage } from "../../services/api";
 import { createLead, deleteLead, listLeads, updateLeadStatus } from "../../services/leads";
 import { createBooking } from "../../services/bookings";
+import { assignCallback, cancelCallback, completeCallback, markCallbackContacted } from "../../services/callbacks";
 import { LEAD_STATUSES, type Lead, type LeadStatus } from "../../types/lead";
+import type { CallbackRequest } from "../../types/callback";
 import { downloadCsv } from "../../utils/csv";
+
+const CALLBACK_STATUS_LABEL: Record<CallbackRequest["status"], string> = {
+    requested: "Requested",
+    assigned: "Assigned",
+    contacted: "Contacted",
+    completed: "Completed",
+    cancelled: "Cancelled",
+};
+
+function CallbackPanel({ callback, onChanged }: { callback: CallbackRequest; onChanged: (updated: CallbackRequest) => void }) {
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+
+    async function run(action: () => Promise<CallbackRequest>) {
+        setBusy(true);
+        setError("");
+        try {
+            onChanged(await action());
+        } catch (err) {
+            setError(getErrorMessage(err));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    const isTerminal = callback.status === "completed" || callback.status === "cancelled";
+
+    return (
+        <div className="rounded-xl border border-flare-300/60 bg-flare-50 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-ink-950 flex items-center gap-1.5">
+                    <PhoneCall size={13} /> Callback requested
+                </p>
+                <Badge tone={isTerminal ? (callback.status === "completed" ? "success" : "neutral") : "warning"}>
+                    {CALLBACK_STATUS_LABEL[callback.status]}
+                </Badge>
+            </div>
+            <p className="text-xs text-slate-600">{callback.phone_number}</p>
+            {callback.preferred_time && <p className="text-xs text-slate-500">Preferred: {callback.preferred_time}</p>}
+            {error && <p className="text-xs text-red-600">{error}</p>}
+            {!isTerminal && (
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {callback.status === "requested" && (
+                        <Button size="sm" variant="secondary" loading={busy} onClick={() => run(() => assignCallback(callback.id))}>
+                            Assign to me
+                        </Button>
+                    )}
+                    {callback.status !== "contacted" && (
+                        <Button size="sm" variant="secondary" loading={busy} onClick={() => run(() => markCallbackContacted(callback.id))}>
+                            Mark contacted
+                        </Button>
+                    )}
+                    <Button size="sm" variant="secondary" loading={busy} onClick={() => run(() => completeCallback(callback.id))}>
+                        Complete
+                    </Button>
+                    <Button size="sm" variant="danger" loading={busy} onClick={() => run(() => cancelCallback(callback.id))}>
+                        Cancel
+                    </Button>
+                </div>
+            )}
+        </div>
+    );
+}
 
 /** The real pipeline stages this backend's Lead model actually defines
  * (app/models.py's `status` column) - no invented stages beyond what's
  * real. Phase 9 adds the marketplace/real-estate-specific stages
  * (site_visit_scheduled/visited/negotiating) additively; the original
- * five keep their exact original meaning and colors. */
-const STAGE_META: Record<LeadStatus, { label: string; tone: "neutral" | "info" | "warning" | "success" | "danger" }> = {
-    new: { label: "New", tone: "info" },
-    contacted: { label: "Contacted", tone: "warning" },
-    qualified: { label: "Qualified", tone: "warning" },
-    site_visit_scheduled: { label: "Site Visit Scheduled", tone: "warning" },
-    visited: { label: "Visited", tone: "warning" },
-    negotiating: { label: "Negotiating", tone: "warning" },
-    converted: { label: "Converted", tone: "success" },
-    lost: { label: "Lost", tone: "danger" },
+ * five keep their exact original meaning and colors.
+ *
+ * `source` says who/what actually moves a lead into this stage (Final
+ * Hardening) - "System" means AIFlow advances it automatically once real
+ * evidence exists (an appointment/booking reaching the matching real
+ * state); "AI" means the Lead Qualification employee's own assessment;
+ * "Staff" means a human sets it manually. A stage can always still be
+ * changed manually regardless of its usual source - this is provenance,
+ * not a restriction. */
+const STAGE_META: Record<LeadStatus, { label: string; tone: "neutral" | "info" | "warning" | "success" | "danger"; source: string }> = {
+    new: { label: "New", tone: "info", source: "System" },
+    contacted: { label: "Contacted", tone: "warning", source: "Staff" },
+    qualified: { label: "Qualified", tone: "warning", source: "AI" },
+    site_visit_scheduled: { label: "Site Visit Scheduled", tone: "warning", source: "System" },
+    visited: { label: "Visited", tone: "warning", source: "System" },
+    negotiating: { label: "Negotiating", tone: "warning", source: "AI / Staff" },
+    converted: { label: "Converted", tone: "success", source: "System" },
+    lost: { label: "Lost", tone: "danger", source: "Staff" },
 };
 
 // The top overview cards stay exactly as they were before Phase 9 - the
@@ -166,9 +239,10 @@ function CreateBookingModal({ lead, onClose, onCreated }: { lead: Lead; onClose:
 }
 
 function LeadCard({
-    lead, onStatusChange, onDelete, onBookingCreated,
+    lead, onStatusChange, onDelete, onBookingCreated, onCallbackChanged,
 }: {
     lead: Lead; onStatusChange: (status: LeadStatus) => void; onDelete: () => void; onBookingCreated: () => void;
+    onCallbackChanged: (callback: CallbackRequest) => void;
 }) {
     const meta = STAGE_META[lead.status];
     const [showBooking, setShowBooking] = useState(false);
@@ -237,17 +311,24 @@ function LeadCard({
                 />
             )}
 
+            {lead.callback_request && (
+                <CallbackPanel callback={lead.callback_request} onChanged={onCallbackChanged} />
+            )}
+
             <div className="flex items-center justify-between gap-2 pt-1">
-                <select
-                    value={lead.status}
-                    onChange={(e) => onStatusChange(e.target.value as LeadStatus)}
-                    aria-label={`Status for ${lead.name ?? "lead"}`}
-                    className="text-xs font-medium rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 outline-none focus:border-brand-500"
-                >
-                    {LEAD_STATUSES.map((s) => (
-                        <option key={s} value={s}>{STAGE_META[s].label}</option>
-                    ))}
-                </select>
+                <div className="flex flex-col gap-0.5">
+                    <select
+                        value={lead.status}
+                        onChange={(e) => onStatusChange(e.target.value as LeadStatus)}
+                        aria-label={`Status for ${lead.name ?? "lead"}`}
+                        className="text-xs font-medium rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 outline-none focus:border-brand-500"
+                    >
+                        {LEAD_STATUSES.map((s) => (
+                            <option key={s} value={s}>{STAGE_META[s].label}</option>
+                        ))}
+                    </select>
+                    <span className="text-[10px] text-slate-400 pl-0.5">{meta.source}</span>
+                </div>
                 <Badge tone={meta.tone}>{meta.label}</Badge>
             </div>
         </Card>
@@ -314,6 +395,10 @@ export default function Leads() {
             setLeads(previous ?? null);
             setError(getErrorMessage(err));
         }
+    }
+
+    function handleCallbackChanged(lead: Lead, callback: CallbackRequest) {
+        setLeads((current) => current?.map((l) => (l.id === lead.id ? { ...l, callback_request: callback } : l)) ?? current);
     }
 
     async function handleDelete(lead: Lead) {
@@ -437,6 +522,7 @@ export default function Leads() {
                                     onStatusChange={(status) => handleStatusChange(lead, status)}
                                     onDelete={() => handleDelete(lead)}
                                     onBookingCreated={() => setBookingToast("Booking created — see it on the Bookings page.")}
+                                    onCallbackChanged={(callback) => handleCallbackChanged(lead, callback)}
                                 />
                             ))}
                         </div>

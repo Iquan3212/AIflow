@@ -1,3 +1,5 @@
+import type { CallbackRequest } from "./callback";
+
 // Phase 9 extends this vocabulary additively (site_visit_scheduled,
 // visited, negotiating) - the original 5 values and their meaning are
 // unchanged; see backend app/models.py's Lead.status comment and
@@ -32,6 +34,7 @@ export interface Lead {
     buyer_id?: string | null;
     property_id?: string | null;
     property?: LeadPropertySummary | null;
+    callback_request?: CallbackRequest | null;
 }
 
 export interface LeadCreateInput {
