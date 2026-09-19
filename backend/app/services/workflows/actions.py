@@ -8,11 +8,13 @@ never a raw SQL/HTTP/shell escape hatch. `execute_action()` is the single
 entrypoint the engine calls; an action_type not in ACTION_EXECUTORS is a
 real error, not a silent no-op.
 
-Every executor is deterministic and LLM-free: any text it sends (a
-notification body, a Gmail draft/send body) is built by safe, literal
-string substitution against the workflow's OWN configured template and
-the trigger's structured data - never a model call, so a workflow's
-per-execution behavior is fully predictable and testable without an LLM.
+Every executor except run_ai_specialist is deterministic and LLM-free:
+any text it sends (a notification body, a Gmail draft/send body) is
+built by safe, literal string substitution against the workflow's OWN
+configured template and the trigger's structured data - never a model
+call, so that per-execution behavior is fully predictable and testable
+without an LLM. run_ai_specialist is the one exception (Phase 11) - it
+runs a real, metered AI Workforce turn; see its own docstring.
 """
 
 from __future__ import annotations
@@ -196,6 +198,16 @@ def _action_run_ai_specialist(db: Session, agency: models.Agency, trigger_data: 
     human decision before the specialist is even allowed to run at all -
     no new gating code needed for that; it already works for any action
     type.
+
+    Billing: deliberately does NOT check can_use_ai_action() or record an
+    AgentExecution itself - `_run_one_employee()` below calls the
+    specialist's own `.respond()`, which for every name in SPECIALIST_ORDER
+    already runs through app.agents.tool_calling_employee.
+    run_tool_calling_employee_turn(), and that function already checks
+    the AI-action limit before calling the LLM and records the resulting
+    AgentExecution row unconditionally (record_execution defaults to
+    True.) Checking or recording again here would double-count the exact
+    same underlying LLM call.
     """
     # Lazy import: keeps this module's top-level import surface limited
     # to what every OTHER action already needs (Gmail/notifications), and

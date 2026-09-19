@@ -11,12 +11,16 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app import models
+from app.agents.manager_agent import SPECIALIST_ORDER
 from app.agents.orchestrator import AIOrchestrator
+from app.agents.prompt_guard import AI_ACTION_LIMIT_MESSAGE, is_fallback_reply
 from app.repositories.conversation_repository import (
     get_or_create_employee_conversation,
     load_history,
     save_message,
 )
+from app.services.ai_workforce.execution_service import AgentExecutionService
+from app.services.billing.entitlement_service import EntitlementService
 
 
 class EmployeeAgent:
@@ -30,6 +34,27 @@ class EmployeeAgent:
 
         conversation = get_or_create_employee_conversation(self.db, agency.id, conversation_id=conversation_id)
         save_message(self.db, conversation.id, "user", message)
+
+        # Same billing-phase rule as the customer-facing widget (see
+        # services/shared/conversation_service.py): checked before any
+        # LLM cost is incurred, degrades gracefully rather than erroring
+        # (an agency user is on the other end of this chat, same as a
+        # customer is on the other end of the widget), and records
+        # nothing, since no AI action actually happened.
+        allowed, _reason = EntitlementService(self.db).can_use_ai_action(agency)
+        if not allowed:
+            save_message(self.db, conversation.id, "assistant", AI_ACTION_LIMIT_MESSAGE)
+            return {
+                "conversation_id": conversation.id,
+                "reply": AI_ACTION_LIMIT_MESSAGE,
+                "intent": "general",
+                "tool": None,
+                "confidence": 0.0,
+                "tool_result": None,
+                "plan": None,
+                "manager_result": {"final_reply": AI_ACTION_LIMIT_MESSAGE, "employee_results": {}, "memory": {"summary": None, "facts": []}},
+            }
+
         history = load_history(self.db, conversation.id)
 
         orchestrator = AIOrchestrator(self.db, agency, conversation, lead=None)
@@ -38,8 +63,6 @@ class EmployeeAgent:
         manager_result = agent_context["manager_result"]
         reply = manager_result.get("final_reply") or "Sorry, I couldn't process that just now."
         reply = orchestrator.after_llm(reply)
-
-        save_message(self.db, conversation.id, "assistant", reply)
 
         plan = agent_context.get("plan")
         intent = getattr(plan, "intent", "general") if plan else "general"
@@ -51,6 +74,24 @@ class EmployeeAgent:
             (res.get("tool_result") for res in employee_results.values() if res.get("tool_result")),
             None,
         )
+
+        # One AI action per dashboard chat turn - but only record it here
+        # if no real-estate specialist ran, since any of SPECIALIST_ORDER
+        # already records its own AgentExecution row inside its own
+        # tool-calling turn (app.agents.tool_calling_employee); recording
+        # again here would double-count the exact same underlying LLM
+        # call. This only covers the "legacy single-shot" employees
+        # (receptionist/finance/marketing/support/analytics/sales/
+        # manager-only replies), which have never recorded anything.
+        if not any(name in SPECIALIST_ORDER for name in employee_results):
+            AgentExecutionService(self.db).record(
+                agency.id,
+                employee="ai_manager",
+                status=models.AgentExecutionStatus.failed if is_fallback_reply(reply) else models.AgentExecutionStatus.succeeded,
+                conversation_id=conversation.id,
+            )
+
+        save_message(self.db, conversation.id, "assistant", reply)
 
         shared_memory = agent_context.get("shared_memory") or {}
 

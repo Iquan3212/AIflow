@@ -414,3 +414,35 @@ class TestAgentExecutionObservability:
         employees_recorded = {r.employee for r in rows}
         assert employees_recorded == {"lead_qualifier", "property_matcher"}
         assert all(r.status == models.AgentExecutionStatus.succeeded for r in rows)
+
+    def test_a_legacy_single_shot_employee_turn_is_recorded_as_ai_manager(self, agency):
+        """Final Hardening phase: the legacy single-shot employees
+        (sales/support/receptionist/analytics/marketing/finance) have no
+        tool-calling loop of their own to record an AgentExecution, so
+        EmployeeAgent.process() records one itself under 'ai_manager' -
+        this was a real AI-metering gap before this fix (see
+        ARCHITECTURE.md's Billing & Subscriptions section)."""
+        db, biz = agency
+        with patch("app.agents.tool_loop.chat_completion"):
+            with patch("app.services.llm_client.chat_completion") as mock_legacy_chat:
+                mock_legacy_chat.return_value = SimpleNamespace(content="Here's our pricing.", tool_calls=None)
+                EmployeeAgent(db).process(
+                    agency_id=biz.id, conversation_id=None, message="What's the price for this?",
+                )
+
+        rows = AgentExecutionService(db).list_for_agency(biz.id)
+        assert len(rows) == 1
+        assert rows[0].employee == "ai_manager"
+        assert rows[0].status == models.AgentExecutionStatus.succeeded
+
+    def test_dashboard_chat_declines_gracefully_once_the_ai_action_limit_is_reached(self, agency):
+        db, biz = agency
+        from app.agents.prompt_guard import AI_ACTION_LIMIT_MESSAGE
+        from app.services.billing.entitlement_service import EntitlementService
+        with patch.object(EntitlementService, "can_use_ai_action", return_value=(False, "limit reached")):
+            result = EmployeeAgent(db).process(
+                agency_id=biz.id, conversation_id=None, message="What's the price for this?",
+            )
+        assert result["reply"] == AI_ACTION_LIMIT_MESSAGE
+        # Never reaches the LLM, and records nothing - no AI action actually happened.
+        assert AgentExecutionService(db).list_for_agency(biz.id) == []
