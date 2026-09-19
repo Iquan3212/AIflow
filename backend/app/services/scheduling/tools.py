@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.logging_config import get_logger
-from app.services.notifications.dispatcher import NotificationDispatcher
 from app.services.notifications import preferences as notif_prefs
 from app.services.scheduling.appointment_service import AppointmentService
 from app.services.scheduling.datetime_utils import to_local, humanize, now_utc, get_tz
@@ -111,6 +110,44 @@ def tool_definitions(include_similar_properties: bool = False) -> list[dict]:
                 "parameters": {"type": "object", "properties": {}},
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "request_callback",
+                "description": (
+                    "Send a real callback request to the agency's team, asking a HUMAN staff member to "
+                    "call the customer back. This does NOT place a phone call and does NOT mean AIFlow "
+                    "or an AI will call - only that the agency team is notified and can call using the "
+                    "phone number given. Call this whenever the customer asks to be called, asks for a "
+                    "callback, or asks for the sales team/someone to contact them. Requires a phone "
+                    "number - use one already on file for this lead if known, otherwise ask for it first."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "phone_number": {"type": "string", "description": "Phone number to call. Use the lead's known phone if already provided."},
+                        "preferred_time": {"type": "string", "description": "When the customer would like to be called, in their own words, e.g. 'tomorrow around 4pm'. Optional."},
+                        "notes": {"type": "string", "description": "Anything else useful for whoever calls back. Optional."},
+                    },
+                    "required": ["phone_number"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "record_purchase_intent",
+                "description": (
+                    "Record that the customer has clearly expressed real intent to proceed with a "
+                    "purchase/booking (e.g. 'I want to go ahead with this one', 'let's proceed', "
+                    "explicit negotiation about price/terms) - NOT for general interest or questions "
+                    "like 'tell me more' or 'what's the price'. Only works after the customer has "
+                    "actually completed a site visit for this lead; it will fail harmlessly otherwise, "
+                    "which is expected - do not call it before a visit has happened."
+                ),
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
     ]
     if include_similar_properties:
         tools.append({
@@ -187,20 +224,26 @@ class ToolDispatcher:
 
         newly_identified = was_unidentified and any([self.lead.name, self.lead.phone, self.lead.email])
         if newly_identified:
-            try:
-                NotificationDispatcher().notify_owner(
-                    db=self.db, agency=self.agency, event_type=notif_prefs.NEW_LEAD,
-                    subject=f"New lead — {self.agency.name}",
-                    body=(
-                        f"A new lead came in: {self.lead.name or 'unnamed'}"
-                        f" ({self.lead.phone or self.lead.email or 'no contact info'})."
-                        f" Interested in: {self.lead.service_interested or 'not specified'}."
+            from app.services import notification_service
+
+            # Idempotency: a retried request (e.g. a network timeout retry
+            # of this same tool call) must never create a second "New lead
+            # captured" notification for the same real lead.
+            if not notification_service.already_notified_for_lead(
+                self.db, self.agency.id, self.lead.id, models.NotificationType.new_lead,
+            ):
+                notification_service.create_for_agency(
+                    self.db, self.agency,
+                    type=models.NotificationType.new_lead,
+                    title="New lead captured",
+                    message=(
+                        f"{self.lead.name or 'A new lead'} is interested in "
+                        f"{self.lead.service_interested or 'your services'}."
+                        f" Contact: {self.lead.phone or self.lead.email or 'not provided'}."
                     ),
+                    event_id=str(self.lead.id), lead_id=self.lead.id,
+                    email_event_type=notif_prefs.NEW_LEAD,
                 )
-            except Exception:
-                logger.exception("notification.new_lead_failed", extra={"ctx": {
-                    "event": "notification.new_lead_failed", "agency_id": self.agency.id, "lead_id": self.lead.id,
-                }})
 
             fire_trigger(
                 self.db, self.agency.id, models.WorkflowTriggerType.lead_created,
@@ -208,6 +251,59 @@ class ToolDispatcher:
             )
 
         return json.dumps({"ok": True, "saved": changed})
+
+    def _request_callback(self, args: dict) -> str:
+        """CURRENT CALLBACK MODEL: buyer requests -> AIFlow creates a real
+        CallbackRequest + notifies the agency -> a HUMAN agency staff
+        member calls back, entirely outside AIFlow. This tool never
+        places a call and never will by itself - see
+        app/services/callback_service.py's module docstring. The AI must
+        only confirm success to the customer after this tool actually
+        returns ok=True (see app/services/prompt_builder.py's callback
+        rules) - never before, never speculatively."""
+        from app.services import callback_service
+
+        phone_number = (args.get("phone_number") or self.lead.phone or "").strip()
+        if not phone_number:
+            return json.dumps({"ok": False, "error": "missing_phone_number",
+                               "message": "Ask the customer for a phone number before requesting a callback."})
+
+        try:
+            callback = callback_service.create(
+                self.db, self.agency, lead=self.lead, phone_number=phone_number,
+                buyer_id=self.lead.buyer_id, property_id=self.current_property.id if self.current_property else None,
+                preferred_time=args.get("preferred_time"), notes=args.get("notes"),
+            )
+        except callback_service.CallbackValidationError as exc:
+            return json.dumps({"ok": False, "error": "validation_failed", "message": str(exc)})
+
+        return json.dumps({
+            "ok": True, "callback_request_id": callback.id, "status": callback.status.value,
+            "phone_number": callback.phone_number, "preferred_time": callback.preferred_time,
+        })
+
+    def _record_purchase_intent(self, args: dict) -> str:
+        """Explicit tool action for NEGOTIATING (Final Hardening) - the
+        only way a lead moves to `negotiating` short of a human manually
+        setting it. Deliberately gated on the lead already being
+        `visited`: a real completed site visit is the "reliable system
+        evidence" this requires, since no reliable free-text purchase-
+        intent classifier exists anywhere in this codebase (see the
+        Final Hardening audit) - a bare "I'm interested" earlier in the
+        conversation can never satisfy this precondition."""
+        from app.services.marketplace import lead_lifecycle
+
+        if self.lead.status != "visited":
+            return json.dumps({
+                "ok": False, "error": "no_visit_yet",
+                "message": "This lead has not completed a site visit yet - purchase intent can only be recorded after a visit.",
+            })
+
+        changed = lead_lifecycle.system_advance(
+            self.db, self.lead, self.agency.id, "negotiating",
+            caused_by="buyer expressed purchase intent (record_purchase_intent tool)",
+        )
+        return json.dumps({"ok": True, "status": self.lead.status, "changed": changed})
 
     def _check_availability(self, args: dict) -> str:
         tz = self.agency.timezone

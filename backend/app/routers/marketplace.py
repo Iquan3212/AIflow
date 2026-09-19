@@ -27,7 +27,6 @@ from app.database import get_db
 from app.deps import get_current_buyer
 from app.services.marketplace.inquiry_service import PropertyNotPublicError, get_or_create_marketplace_lead
 from app.services.marketplace.media_service import MediaNotPublicError, get_public_project_media_content, get_public_property_media_content
-from app.services.marketplace.lead_lifecycle import advance_if_further
 from app.services.marketplace.project_service import MarketplaceProjectService
 from app.services.marketplace.property_service import InvalidSortError, MarketplacePropertyService
 from app.services.scheduling.appointment_service import AppointmentService
@@ -195,11 +194,9 @@ def request_site_visit(
         property_id=property_id,
     )
 
-    if outcome.ok:
-        # A real site visit got a real slot - this is genuinely further
-        # along the funnel than merely having inquired (Step 4).
-        if advance_if_further(lead, "site_visit_scheduled"):
-            db.commit()
+    # Lead -> site_visit_scheduled now happens inside AppointmentService.book()
+    # itself (Final Hardening) - covers every caller that creates a real,
+    # lead-linked appointment, not just this one endpoint.
 
     return schemas.SiteVisitRequestOut(
         ok=outcome.ok,

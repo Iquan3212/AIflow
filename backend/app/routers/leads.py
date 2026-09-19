@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app import schemas
+from app import models, schemas
 from app.database import get_db
 from app.deps import get_current_agency
 from app.models import Agency
@@ -13,6 +13,31 @@ router = APIRouter(
 )
 
 
+def _attach_latest_callback(db: Session, agency_id, leads: list[models.Lead]) -> list[models.Lead]:
+    """LeadOut's `callback_request` field has no real SQLAlchemy
+    relationship behind it (a Lead can have several CallbackRequest rows
+    over time; only the most recent one is shown) - so it's computed
+    here and set as a plain attribute, the same way Pydantic's
+    from_attributes already reads `lead.property` off the real
+    relationship. Missing entirely just means "no callback" (Pydantic's
+    from_attributes defaults an unset field to None - see LeadOut)."""
+    lead_ids = [lead.id for lead in leads]
+    if not lead_ids:
+        return leads
+    callbacks = (
+        db.query(models.CallbackRequest)
+        .filter(models.CallbackRequest.agency_id == agency_id, models.CallbackRequest.lead_id.in_(lead_ids))
+        .order_by(models.CallbackRequest.requested_at.desc())
+        .all()
+    )
+    latest_by_lead = {}
+    for cb in callbacks:
+        latest_by_lead.setdefault(cb.lead_id, cb)
+    for lead in leads:
+        lead.callback_request = latest_by_lead.get(lead.id)
+    return leads
+
+
 @router.get(
     "/",
     response_model=list[schemas.LeadOut],
@@ -22,7 +47,8 @@ def list_leads(
     db: Session = Depends(get_db),
 ):
     service = LeadService(db)
-    return service.get_all(agency.id)
+    leads = service.get_all(agency.id)
+    return _attach_latest_callback(db, agency.id, leads)
 
 
 @router.post(
@@ -66,6 +92,7 @@ def update_existing_lead(
             detail="Lead not found",
         )
 
+    _attach_latest_callback(db, agency.id, [lead])
     return lead
 
 

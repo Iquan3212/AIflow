@@ -408,6 +408,93 @@ class Lead(Base):
     )
 
 
+class NotificationType(str, enum.Enum):
+    """Every in-app notification AIFlow can raise for an agency. Kept
+    small and specific (never a free-text "type") so the frontend can
+    render an icon/action per type without parsing anything."""
+    new_lead = "new_lead"
+    callback_requested = "callback_requested"
+
+
+class Notification(Base):
+    """A persisted, in-app, agency-facing notification - distinct from
+    (and created ALONGSIDE, never instead of) the existing email-only
+    NotificationDispatcher.notify_owner() path. Nothing before this model
+    let a frontend query "what has this agency been notified about" -
+    NotificationDispatcher only ever sends an email/SMS/WhatsApp message
+    and persists nothing. `lead_id`/`callback_request_id` are both
+    nullable and SET NULL (a notification is a historical record; it
+    must survive the thing it referenced being deleted)."""
+
+    __tablename__ = "notifications"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    type = Column(SAEnum(NotificationType, name="notification_type"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+
+    lead_id = Column(UUID(as_uuid=False), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)
+    callback_request_id = Column(UUID(as_uuid=False), ForeignKey("callback_requests.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    read_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    agency = relationship("Agency")
+    lead = relationship("Lead")
+
+
+class CallbackStatus(str, enum.Enum):
+    requested = "requested"
+    assigned = "assigned"
+    contacted = "contacted"
+    completed = "completed"
+    cancelled = "cancelled"
+
+
+class CallbackRequest(Base):
+    """A buyer's explicit request for a HUMAN agency staff member to call
+    them back. AIFlow never places a call itself - see
+    app/services/callback_service.py's module docstring for the exact
+    model this implements: buyer requests -> AIFlow creates this record
+    -> agency is notified -> a human contacts the buyer using the phone
+    number here, entirely outside this application.
+
+    `lead_id` is required (a callback always belongs to a real, already-
+    tenant-scoped Lead - never created standalone) but SET NULL rather
+    than CASCADE, since the callback is itself a historical record of
+    what the buyer asked for, independent of the Lead row surviving.
+    `property_id` is optional (a buyer may ask for a callback about a
+    specific listing, or generally)."""
+
+    __tablename__ = "callback_requests"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=gen_uuid)
+    agency_id = Column(UUID(as_uuid=False), ForeignKey("agencies.id", ondelete="CASCADE"), nullable=False, index=True)
+    buyer_id = Column(UUID(as_uuid=False), ForeignKey("buyers.id", ondelete="SET NULL"), nullable=True, index=True)
+    lead_id = Column(UUID(as_uuid=False), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)
+    property_id = Column(UUID(as_uuid=False), ForeignKey("properties.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    phone_number = Column(String(32), nullable=False)
+    preferred_time = Column(String(255), nullable=True)  # free text (e.g. "Tomorrow 4pm") - never parsed/scheduled by AIFlow itself
+    notes = Column(Text, nullable=True)
+
+    status = Column(SAEnum(CallbackStatus, name="callback_status"), nullable=False, default=CallbackStatus.requested, index=True)
+    assigned_to = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    assigned_at = Column(DateTime, nullable=True)
+    contacted_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    agency = relationship("Agency")
+    lead = relationship("Lead")
+    assignee = relationship("User")
+
+
 # =====================================================================
 # PHASE 3 — AI RECEPTIONIST (appointments, availability, reminders)
 # =====================================================================

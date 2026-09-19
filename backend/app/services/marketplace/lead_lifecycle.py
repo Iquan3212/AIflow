@@ -20,6 +20,10 @@ the two vocabularies never overlap or drift apart.
 
 from __future__ import annotations
 
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 # Only the transitions Phase 9's own code actually needs to perform
 # automatically. This is NOT an exhaustive state machine for every
 # possible manual edit - the manual path stays unrestricted by design.
@@ -54,6 +58,24 @@ def advance_if_further(lead, candidate: str) -> bool:
     return False
 
 
+def mark_converted(lead) -> bool:
+    """Sets lead.status = "converted" - the one and only "won" terminal
+    status (see module docstring), deliberately outside _FUNNEL_ORDER so
+    advance_if_further() never touches it. Called only when the existing
+    Booking lifecycle reaches its own real terminal success state
+    (BookingStatus.completed - see booking_service.py's
+    ALLOWED_BOOKING_TRANSITIONS) - never merely because a booking was
+    created or reserved. A lead an agency already explicitly marked
+    `lost` is left alone (a human's explicit close should not be
+    silently overwritten by a later automatic event) - the agency can
+    still reopen it manually via the existing unrestricted PUT
+    /leads/{id} path. Returns whether it changed anything."""
+    if lead.status in ("converted", "lost"):
+        return False
+    lead.status = "converted"
+    return True
+
+
 def reactivate_if_lost(lead) -> bool:
     """A buyer re-inquiring about a property whose existing Lead was
     marked `lost` is a genuine renewed-interest signal, not noise - move
@@ -64,3 +86,43 @@ def reactivate_if_lost(lead) -> bool:
         lead.status = "new"
         return True
     return False
+
+
+def system_advance(db, lead, agency_id, candidate: str, *, caused_by: str) -> bool:
+    """The one function every automatic (system-driven) Lead.status
+    transition in the app should call - Final Hardening's lead-lifecycle
+    automation (appointment scheduled/completed, purchase-intent tool,
+    booking completed) all funnel through here, rather than each call
+    site mutating lead.status directly and manually re-implementing
+    "only if it's actually a forward/terminal step, and fire the same
+    audit trail a manual edit already gets."
+
+    Unlike advance_if_further()/mark_converted() above (which only decide
+    AND mutate the in-memory object, leaving the caller to commit), this
+    goes through LeadService.update() - the one authoritative Lead-write
+    path - so the exact same lead_status_changed workflow trigger a
+    dashboard PUT /leads/{id} or the AI qualifier's update_lead_qualification
+    already fires also fires here; no second, parallel commit/trigger
+    path. Returns whether anything changed. `caused_by` is a short,
+    human-readable description (e.g. "appointment 123 completed") - always
+    logged (structured, see logger.info below) so "what caused this stage
+    change, and was it system/AI/human" stays answerable without a
+    separate audit-log table (Final Hardening spec's own observability
+    requirement)."""
+    from app import schemas
+    from app.services.lead_service import LeadService
+
+    if candidate == "converted":
+        would_change = lead.status not in ("converted", "lost")
+    else:
+        would_change = is_further_in_funnel(lead.status, candidate)
+    if not would_change:
+        return False
+
+    previous_status = lead.status
+    LeadService(db).update(lead.id, agency_id, schemas.LeadUpdate(status=candidate))
+    logger.info("lead.status_changed_by_system", extra={"ctx": {
+        "event": "lead.status_changed_by_system", "agency_id": agency_id, "lead_id": lead.id,
+        "from_status": previous_status, "to_status": candidate, "caused_by": caused_by,
+    }})
+    return True

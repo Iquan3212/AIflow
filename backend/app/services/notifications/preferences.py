@@ -34,11 +34,14 @@ SUPPORT_ESCALATION = "support_escalation"
 # distinct from what the marketplace UI already shows them live).
 BOOKING_CONFIRMED = "booking_confirmed"
 BOOKING_COMPLETED = "booking_completed"
+# Lead lifecycle: a buyer explicitly requested a human callback - see
+# app/services/callback_service.py.
+CALLBACK_REQUESTED = "callback_requested"
 
 CUSTOMER_EVENTS = frozenset({
     APPOINTMENT_CONFIRMED, APPOINTMENT_REMINDER, APPOINTMENT_CANCELLED, APPOINTMENT_RESCHEDULED,
 })
-OWNER_EVENTS = frozenset({NEW_LEAD, SUPPORT_ESCALATION, BOOKING_CONFIRMED, BOOKING_COMPLETED})
+OWNER_EVENTS = frozenset({NEW_LEAD, SUPPORT_ESCALATION, BOOKING_CONFIRMED, BOOKING_COMPLETED, CALLBACK_REQUESTED})
 ALL_EVENTS = CUSTOMER_EVENTS | OWNER_EVENTS
 
 CUSTOMER_CHANNELS = ("email", "sms", "whatsapp")
@@ -53,6 +56,7 @@ EVENT_LABELS = {
     SUPPORT_ESCALATION: "Support ticket escalated",
     BOOKING_CONFIRMED: "Booking confirmed",
     BOOKING_COMPLETED: "Booking completed",
+    CALLBACK_REQUESTED: "Buyer requested a callback",
 }
 
 

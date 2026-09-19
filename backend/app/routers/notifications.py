@@ -5,9 +5,40 @@ from app import schemas
 from app.database import get_db
 from app.deps import get_current_agency
 from app.models import Agency
+from app.services import notification_service
 from app.services.notifications import preferences as notif_prefs
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
+
+
+@router.get("", response_model=list[schemas.NotificationOut])
+def list_notifications(
+    unread_only: bool = False,
+    agency: Agency = Depends(get_current_agency),
+    db: Session = Depends(get_db),
+):
+    return notification_service.list_for_agency(db, agency.id, unread_only=unread_only)
+
+
+@router.post("/{notification_id}/read", response_model=schemas.NotificationOut)
+def mark_notification_read(
+    notification_id: str,
+    agency: Agency = Depends(get_current_agency),
+    db: Session = Depends(get_db),
+):
+    notification = notification_service.mark_read(db, agency.id, notification_id)
+    if notification is None:
+        raise HTTPException(status_code=404, detail="Notification not found.")
+    return notification
+
+
+@router.post("/read-all", response_model=schemas.MessageResponse)
+def mark_all_notifications_read(
+    agency: Agency = Depends(get_current_agency),
+    db: Session = Depends(get_db),
+):
+    count = notification_service.mark_all_read(db, agency.id)
+    return schemas.MessageResponse(message=f"Marked {count} notification(s) read.")
 
 
 @router.get("/preferences", response_model=list[schemas.NotificationPreferenceItem])

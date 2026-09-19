@@ -48,6 +48,19 @@ KNOWN_LEAD_STATUSES = frozenset({
     "visited", "negotiating", "converted", "lost",
 })
 
+# Final Hardening: these four require real backend evidence an AI
+# assessment alone can never provide - a scheduled/completed appointment
+# (site_visit_scheduled/visited) or a completed Booking (converted), or
+# an explicit purchase-intent tool call gated on the lead already being
+# `visited` (negotiating - see ToolDispatcher._mark_negotiating in
+# app/services/scheduling/tools.py). Letting this tool set any of these
+# directly would let the AI's own free-text judgment fabricate stage
+# progress with zero system evidence - exactly what the spec forbids.
+# Still settable manually by a human via the existing, unrestricted
+# PUT /leads/{id} (see lead_lifecycle.py's module docstring for why that
+# path stays unrestricted).
+SYSTEM_ONLY_LEAD_STATUSES = frozenset({"site_visit_scheduled", "visited", "negotiating", "converted"})
+
 
 def _lead_summary(lead: models.Lead) -> dict:
     return {
@@ -139,6 +152,16 @@ class UpdateLeadQualificationTool:
             return {"success": False, "error": "missing_arguments"}
         if status is not None and status not in KNOWN_LEAD_STATUSES:
             return {"success": False, "error": "invalid_status", "message": f"Unknown lead status: {status!r}"}
+        if status is not None and status in SYSTEM_ONLY_LEAD_STATUSES:
+            return {
+                "success": False, "error": "system_only_status",
+                "message": (
+                    f"'{status}' can only be set automatically by AIFlow when real evidence exists "
+                    "(a scheduled/completed site visit, a completed booking, or an explicit purchase-"
+                    "intent action) - it cannot be set directly here. A human can still set it manually "
+                    "from the dashboard."
+                ),
+            }
 
         update_fields = {}
         if status is not None:

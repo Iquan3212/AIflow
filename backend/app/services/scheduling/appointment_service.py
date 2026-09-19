@@ -19,6 +19,7 @@ from app.services.calendar.factory import get_calendar_for
 from app.services.calendar.base import CalendarEvent
 from app.services.notifications.dispatcher import NotificationDispatcher
 from app.services.notifications import preferences as notif_prefs
+from app.services.marketplace import lead_lifecycle
 from app.services.workflows.triggers import appointment_data, fire_trigger
 
 logger = get_logger(__name__)
@@ -203,6 +204,20 @@ class AppointmentService:
             self.db, agency.id, models.WorkflowTriggerType.appointment_created,
             appointment_data(appt), event_id=str(appt.id),
         )
+        # Final Hardening: "a real appointment/site visit record has been
+        # successfully created and is scheduled" - system-driven, forward-
+        # only (never overwrites a lead a human/later event already moved
+        # further, e.g. visited/negotiating) - covers every caller (the
+        # buyer-widget chat tool, the marketplace site-visit endpoint, a
+        # dashboard-booked appointment), not just one of them, since this
+        # is the one place any of them actually persists the appointment.
+        if appt.lead_id:
+            lead = self.db.query(models.Lead).filter(models.Lead.id == appt.lead_id, models.Lead.agency_id == agency.id).first()
+            if lead is not None:
+                lead_lifecycle.system_advance(
+                    self.db, lead, agency.id, "site_visit_scheduled",
+                    caused_by=f"appointment {appt.id} created",
+                )
         return BookingOutcome(True, appointment=appt,
                               message=f"Booked for {humanize(start_utc, tz)}.")
 
@@ -310,6 +325,18 @@ class AppointmentService:
             self.db, agency.id, models.WorkflowTriggerType.appointment_completed,
             appointment_data(appt), event_id=str(appt.id),
         )
+        # Final Hardening: "the actual site-visit appointment has been
+        # marked/completed" - never merely booked, requested, or
+        # cancelled (validate_appointment_action above already refused
+        # any transition to `completed` except from a real prior state
+        # this app considers visit-worthy).
+        if appt.lead_id:
+            lead = self.db.query(models.Lead).filter(models.Lead.id == appt.lead_id, models.Lead.agency_id == agency.id).first()
+            if lead is not None:
+                lead_lifecycle.system_advance(
+                    self.db, lead, agency.id, "visited",
+                    caused_by=f"appointment {appt.id} completed",
+                )
         return BookingOutcome(True, appointment=appt, message="Site visit marked completed.")
 
     def mark_no_show(self, agency: models.Agency, appointment_id: str) -> BookingOutcome:

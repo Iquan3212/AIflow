@@ -77,6 +77,22 @@ def _execute_send_customer_message(db: Session, agency: models.Agency, approval:
     # delivered". Its own ok/sent/queued_for_approval/error distinctions
     # are preserved verbatim in `outcome` - never collapsed into a
     # fabricated "sent" claim.
+
+    # Final Hardening: CONTACTED = "a verified outbound communication
+    # event", never merely "an approval was approved" - only when
+    # result["sent"] is True (a real, immediate send - never
+    # "queued_for_approval").
+    if result.get("sent") is True:
+        lead_id = approval.payload.get("lead_id")
+        if lead_id:
+            lead = db.query(models.Lead).filter(models.Lead.id == lead_id, models.Lead.agency_id == agency.id).first()
+            if lead is not None:
+                from app.services.marketplace import lead_lifecycle
+                lead_lifecycle.system_advance(
+                    db, lead, agency.id, "contacted",
+                    caused_by=f"customer message sent (approval {approval.id})",
+                )
+
     return {"executed": result.get("ok", False), "service": "GmailService.send", "outcome": result}
 
 

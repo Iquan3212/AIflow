@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 from app import models, schemas
 from app.services.lead_ai_service import extract_lead_information
 from app.services.lead_service import LeadService
-from app.services.notifications.dispatcher import NotificationDispatcher
 from app.services.notifications import preferences as notif_prefs
 from app.services.workflows.triggers import fire_trigger, lead_created_data
 from app.logging_config import get_logger
@@ -100,22 +99,25 @@ class LeadTool:
 
         newly_identified = was_unidentified and any([target.name, target.phone, target.email])
         if created or newly_identified:
-            # Best-effort: a notification failure must never undo or mask a
-            # real, already-committed lead.
-            try:
-                NotificationDispatcher().notify_owner(
-                    db=db, agency=agency, event_type=notif_prefs.NEW_LEAD,
-                    subject=f"New lead — {agency.name}",
-                    body=(
-                        f"A new lead came in: {target.name or 'unnamed'}"
-                        f" ({target.phone or target.email or 'no contact info'})."
-                        f" Interested in: {target.service_interested or 'not specified'}."
+            from app.services import notification_service
+
+            # Idempotency: a retried call for the same lead must never
+            # create a second "New lead captured" notification.
+            if not notification_service.already_notified_for_lead(
+                db, agency.id, target.id, models.NotificationType.new_lead,
+            ):
+                notification_service.create_for_agency(
+                    db, agency,
+                    type=models.NotificationType.new_lead,
+                    title="New lead captured",
+                    message=(
+                        f"{target.name or 'A new lead'} is interested in "
+                        f"{target.service_interested or 'your services'}."
+                        f" Contact: {target.phone or target.email or 'not provided'}."
                     ),
+                    event_id=str(target.id), lead_id=target.id,
+                    email_event_type=notif_prefs.NEW_LEAD,
                 )
-            except Exception:
-                logger.exception("notification.new_lead_failed", extra={"ctx": {
-                    "event": "notification.new_lead_failed", "agency_id": agency.id, "lead_id": target.id,
-                }})
 
             if not created:
                 fire_trigger(

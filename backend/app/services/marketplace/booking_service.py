@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session, joinedload
 from app import models, schemas
 from app.services.inventory.status import validate_status_transition
 from app.services.inventory.status import InvalidStatusTransitionError as InvalidPropertyTransitionError
+from app.services.marketplace import lead_lifecycle
 from app.services.workflows.triggers import booking_data, fire_trigger
 
 ALLOWED_BOOKING_TRANSITIONS: dict[models.BookingStatus, frozenset[models.BookingStatus]] = {
@@ -331,4 +332,20 @@ class BookingService:
                 self.db, agency_id, trigger_type,
                 booking_data(booking), event_id=f"{booking.id}:{requested.value}",
             )
+
+        # Final Hardening: "only after the existing booking lifecycle
+        # reaches the defined successful conversion state" - `completed`
+        # is the one real terminal success status (ALLOWED_BOOKING_
+        # TRANSITIONS above: only confirmed -> completed, never merely
+        # initiated/pending/confirmed, and never from cancelled). Never
+        # fires for `confirmed` alone (that's "sold", not yet "done") or
+        # for `cancelled` (booking_service.py's own cancel path above
+        # never reaches this branch since requested != completed there).
+        if requested == models.BookingStatus.completed and booking.lead_id:
+            lead = self.db.query(models.Lead).filter(models.Lead.id == booking.lead_id, models.Lead.agency_id == agency_id).first()
+            if lead is not None:
+                lead_lifecycle.system_advance(
+                    self.db, lead, agency_id, "converted",
+                    caused_by=f"booking {booking.id} reached completed",
+                )
         return booking

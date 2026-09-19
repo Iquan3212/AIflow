@@ -305,6 +305,7 @@ class LeadOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     property: LeadPropertySummaryOut | None = None
+    callback_request: "CallbackRequestOut | None" = None
 
 
 class AIDraftOut(BaseModel):
@@ -1309,3 +1310,55 @@ class PaymentOut(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# =====================================================
+# NOTIFICATIONS (in-app)
+# =====================================================
+
+class NotificationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    type: str
+    title: str
+    message: str
+    lead_id: UUID | None = None
+    callback_request_id: UUID | None = None
+    read_at: datetime | None = None
+    created_at: datetime
+
+
+# =====================================================
+# CALLBACK REQUESTS
+# =====================================================
+
+class CallbackRequestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    agency_id: UUID
+    buyer_id: UUID | None = None
+    lead_id: UUID | None = None
+    property_id: UUID | None = None
+    phone_number: str
+    preferred_time: str | None = None
+    notes: str | None = None
+    status: str
+    assigned_to: UUID | None = None
+    requested_at: datetime
+    assigned_at: datetime | None = None
+    contacted_at: datetime | None = None
+    completed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CallbackAssignRequest(BaseModel):
+    assigned_to_user_id: UUID | None = None
+
+
+# LeadOut references CallbackRequestOut by forward-ref string (defined
+# above, after LeadOut, to keep this file's existing domain ordering) -
+# resolve it now that both names exist.
+LeadOut.model_rebuild()

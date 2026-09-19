@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.logging_config import configure_logging, get_logger, set_request_id
 from app.rate_limit import limiter, log_rate_limit_exceeded
 
-from app.routers import employee, workforce, analytics, drafts, support_tickets, notifications, gmail, knowledge, workflows, projects, properties, marketplace, buyer_saved_properties, bookings, buyer_marketplace, buyer_profile, ai_approvals, billing, team
+from app.routers import employee, workforce, analytics, drafts, support_tickets, notifications, gmail, knowledge, workflows, projects, properties, marketplace, buyer_saved_properties, bookings, buyer_marketplace, buyer_profile, ai_approvals, billing, team, callbacks
 
 from app.routers import (
     auth,
@@ -71,7 +71,14 @@ async def lifespan(app: FastAPI):
 # README.md. (Previously this called Base.metadata.create_all() on every
 # startup, which has no way to express or reverse a schema change; Phase 8
 # replaced that with tracked, reversible migrations.)
-app = FastAPI(title="AIFlow API", version="0.3.0", lifespan=lifespan)
+app = FastAPI(
+    title="AIFlow API",
+    version="0.3.0",
+    lifespan=lifespan,
+    docs_url=None if settings.disable_api_docs else "/docs",
+    redoc_url=None if settings.disable_api_docs else "/redoc",
+    openapi_url=None if settings.disable_api_docs else "/openapi.json",
+)
 
 
 class RequestContextMiddleware:
@@ -305,6 +312,7 @@ app.include_router(buyer_profile.router)
 app.include_router(ai_approvals.router)
 app.include_router(billing.router)
 app.include_router(team.router)
+app.include_router(callbacks.router)
 
 
 @app.get("/")
