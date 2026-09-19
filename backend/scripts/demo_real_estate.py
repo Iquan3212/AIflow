@@ -17,13 +17,14 @@ What this script does NOT do (and why):
   SiteVisit/Inquiry model exists yet (Phase 9) - the generic Lead/
   Appointment models remain the honest stand-in for "buyer inquiry" /
   "site visit" until those phases land.
-- No staff-invite endpoint exists (see app/routers/auth.py) - additional
-  staff users are inserted directly as a documented, clearly-labeled
-  exception ("supporting data with no UI/API path"), not through a real
-  endpoint that doesn't exist. The same applies to bumping the demo
-  agency's plan tier below (no self-service plan-upgrade endpoint exists
-  yet - Phase 7 only built the *hooks* a future billing system would use,
-  per its own explicit scope).
+- Final Hardening phase added a real staff-invite API (app/routers/
+  team.py) - staff users are now created through that real invite/accept
+  flow, not inserted directly (see git history for the earlier version
+  of this script, from before that endpoint existed). The demo agency's
+  plan/trial state now also comes entirely from the real Subscription
+  row every agency gets at signup (app/routers/auth.py) - there is no
+  separate plan-tier bump here anymore; that legacy PlanTier field predates
+  billing and is superseded once a real Subscription row exists.
 
 Run:  PYTHONPATH=. ./venv/bin/python scripts/demo_real_estate.py
 Env:  DEMO_BASE_URL (default http://127.0.0.1:8000)
@@ -49,6 +50,14 @@ BUYER_EMAIL = "rahul.mehta@urbannest-realty-demo.com"
 BUYER_PASSWORD = "BuyerDemo!2026"
 BUYER_NAME = "Rahul Mehta"
 BUYER_PHONE = "+91-98450-11223"
+
+# A second, independent buyer - exists purely so buyer/buyer isolation
+# (each buyer only ever sees their own saved properties/inquiries/site
+# visits/bookings, never the other's) can be manually verified.
+BUYER2_EMAIL = "meera.krishnan@urbannest-realty-demo.com"
+BUYER2_PASSWORD = "BuyerDemo!2026"
+BUYER2_NAME = "Meera Krishnan"
+BUYER2_PHONE = "+91-98220-55667"
 
 PROVIDER_CALLS = {"embedding_operations": 0, "llm_turns": 0}
 
@@ -158,12 +167,23 @@ INVENTORY = [
              "target_status": "active", "description": "3 BHK, Tower A, 4th floor, South-facing."},
             {"building": "Tower A", "floor": 11, "unit_number": "U-LH-1102", "bhk": 4,
              "carpet_area_sqft": "2050.00", "facing": "east", "price": "19500000.00",
-             # ensure_phase9_conversion() below deliberately runs this
-             # exact unit through a real, completed booking every time
-             # the demo runs - it ends the run permanently `sold` (one-way,
-             # Phase 7), so that must be this entry's steady-state target,
-             # not its original pre-Phase-9 "active".
-             "target_status": "sold", "description": "4 BHK, Tower A, 11th floor, East-facing."},
+             # Final Hardening fix: this MUST start "active", not "sold".
+             # ensure_phase9_conversion() below needs this exact unit to
+             # still be public (searchable via /marketplace/properties)
+             # so it can walk it through a real inquiry -> site visit ->
+             # booking -> sold. Setting it to "sold" here directly (as an
+             # earlier version of this comment argued for "steady state")
+             # meant ensure_inventory() ran first and force-transitioned
+             # it to sold via the raw status API before phase9 ever got a
+             # chance to run - permanently short-circuiting that whole
+             # demo step on every fresh reset (found and fixed during
+             # Final Hardening: a real run produced 0 bookings and 0
+             # completed site visits because of exactly this). Once
+             # ensure_phase9_conversion() actually runs, it sells this
+             # unit itself, through the real booking flow - which is a
+             # one-way transition (Phase 7), so it stays sold on every
+             # subsequent re-run without ensure_inventory's help.
+             "target_status": "active", "description": "4 BHK, Tower A, 11th floor, East-facing."},
             {"building": "Tower B", "floor": 2, "unit_number": "U-LH-0207", "bhk": 2,
              "carpet_area_sqft": "1020.00", "facing": "north", "price": "9200000.00",
              "target_status": "blocked", "description": "2 BHK, Tower B, 2nd floor, North-facing. Under legal verification."},
@@ -254,6 +274,19 @@ def ensure_inventory(token: str) -> dict[str, str]:
 
             if unit["status"] == target_status:
                 continue
+            if unit["status"] == "sold":
+                # "sold" is a one-way terminal state throughout this app
+                # (see property_service.py) - never attempt to revert it,
+                # regardless of this entry's nominal target_status. Real
+                # scenario this guards against: U-LH-1102 seeds as
+                # "active" (ensure_phase9_conversion needs it public to
+                # sell it through a real booking flow), but once that
+                # flow has actually run - on a re-run of this idempotent
+                # script - it is legitimately already sold, and forcing
+                # it back to "active" would both be wrong and get
+                # rejected by the API as an illegal transition.
+                log(f"Property '{unit_number}' is sold (one-way) — leaving as-is.")
+                continue
             for step_status in _STATUS_PATH[target_status]:
                 if unit["status"] == step_status:
                     continue
@@ -341,70 +374,59 @@ def ensure_agency_profile(token: str) -> None:
     log("Configured UrbanNest Realty agency profile + chatbot config via real API.")
 
 
-def ensure_staff_users(agency_id: str) -> list[str]:
-    """No staff-invite endpoint exists anywhere in this codebase (grepped
-    app/routers/*.py) - there is no real API path to add a second User to
-    an existing Agency. To honestly satisfy 'at least 2 staff/users', we
-    insert additional User rows directly, clearly documented here and in
-    DEMO_RUN.md as supporting data created because no such endpoint
-    exists, not as something the real product lets an owner do today."""
+def ensure_staff_users(token: str) -> list[str]:
+    """Final Hardening phase added a real staff-invite API (POST
+    /team/invites, POST /team/invites/accept - app/routers/team.py) - this
+    now exercises that real flow end-to-end instead of inserting User
+    rows directly (see git history for the earlier, pre-invite-API
+    version of this function). One demo-only shortcut remains: reading
+    the invite's own token straight from the DB rather than an inbox,
+    since no SMTP is configured in this dev environment (the real invite
+    email is only ever logged, never sent - see
+    services/notifications/email_notifier.py); a seed script reasonably
+    plays the part of "the invitee checking their email" for exactly that
+    one field. One invited as 'admin', one as 'member', so Settings ->
+    Team has both supported roles to manually test against."""
     from app.database import SessionLocal
     from app import models
-    from app.security import hash_password
 
     staff = [
-        ("priya.sharma@urbannest-realty-demo.com", "Sales Manager"),
-        ("arjun.rao@urbannest-realty-demo.com", "Site Visit Coordinator"),
+        ("priya.sharma@urbannest-realty-demo.com", "admin", "StaffDemo!2026"),
+        ("arjun.rao@urbannest-realty-demo.com", "member", "StaffDemo!2026"),
     ]
     created = []
-    db = SessionLocal()
-    try:
-        for email, role in staff:
-            existing = db.query(models.User).filter(models.User.email == email).first()
-            if existing:
+    for email, role, password in staff:
+        db = SessionLocal()
+        try:
+            if db.query(models.User).filter(models.User.email == email).first():
                 created.append(email)
                 continue
-            db.add(models.User(
-                agency_id=agency_id, email=email,
-                hashed_password=hash_password("StaffDemo!2026"),
-                role="staff",
-            ))
-            db.commit()
-            created.append(email)
-            log(f"Created supporting staff user {email} ({role}) directly in DB — no invite endpoint exists.")
-    finally:
-        db.close()
+
+            invite = (
+                db.query(models.AgencyInvite)
+                .filter(models.AgencyInvite.email == email, models.AgencyInvite.status == models.InviteStatus.pending)
+                .first()
+            )
+            if invite is None:
+                resp = api("POST", "/team/invites", token=token, json={"email": email, "role": role})
+                resp.raise_for_status()
+                invite = (
+                    db.query(models.AgencyInvite)
+                    .filter(models.AgencyInvite.email == email, models.AgencyInvite.status == models.InviteStatus.pending)
+                    .first()
+                )
+            invite_token = invite.token
+        finally:
+            db.close()
+
+        resp = api("POST", "/team/invites/accept", json={"token": invite_token, "password": password})
+        resp.raise_for_status()
+        created.append(email)
+        log(f"Invited and activated staff user {email} (role={role}) via the real team-invite API.")
     return created
 
 
 # ----------------------------------------------------------------- buyer --
-
-def ensure_demo_plan_tier(agency_id: str) -> None:
-    """No self-service plan-upgrade endpoint exists anywhere in this
-    codebase (grepped app/routers/*.py) - Phase 7 only built the plan ->
-    active-listing-limit *hooks* a future billing system would enforce
-    (app/services/inventory/config.py's PLAN_ACTIVE_LISTING_LIMITS), not
-    billing itself. The free plan's 5-active-listing cap is real and
-    correctly enforced (see ensure_inventory below, which needs more than
-    5 units active across 3 projects) - bumping the demo agency to
-    'starter' (limit 25) directly in the DB is the same kind of
-    documented, no-real-endpoint-exists exception as
-    ensure_staff_users above, not something a real agency owner can do
-    today."""
-    from app.database import SessionLocal
-    from app import models
-
-    db = SessionLocal()
-    try:
-        agency = db.query(models.Agency).filter(models.Agency.id == agency_id).first()
-        if agency.plan == models.PlanTier.free:
-            agency.plan = models.PlanTier.starter
-            db.commit()
-            log(f"Bumped demo agency plan free -> starter directly in DB — no self-service upgrade endpoint exists.")
-        else:
-            log(f"Demo agency plan already '{agency.plan.value}' — skipping bump.")
-    finally:
-        db.close()
 
 
 def ensure_buyer() -> dict:
@@ -417,6 +439,23 @@ def ensure_buyer() -> dict:
     if resp.status_code == 400:
         log(f"Buyer {BUYER_EMAIL} already exists - logging in instead.")
         resp = api("POST", "/buyer/auth/login", json={"email": BUYER_EMAIL, "password": BUYER_PASSWORD})
+        resp.raise_for_status()
+        return resp.json()
+    resp.raise_for_status()
+
+
+def ensure_second_buyer() -> dict:
+    """A second, independent buyer purely for isolation testing - see the
+    BUYER2_* constants' comment."""
+    resp = api("POST", "/buyer/auth/signup", json={
+        "name": BUYER2_NAME, "email": BUYER2_EMAIL, "password": BUYER2_PASSWORD, "phone": BUYER2_PHONE,
+    })
+    if resp.status_code == 200:
+        log(f"Created buyer account for {BUYER2_NAME} ({BUYER2_EMAIL}).")
+        return resp.json()
+    if resp.status_code == 400:
+        log(f"Buyer {BUYER2_EMAIL} already exists - logging in instead.")
+        resp = api("POST", "/buyer/auth/login", json={"email": BUYER2_EMAIL, "password": BUYER2_PASSWORD})
         resp.raise_for_status()
         return resp.json()
     resp.raise_for_status()
@@ -816,9 +855,25 @@ def ensure_site_visits(token: str) -> None:
         return appt
 
     from datetime import datetime, timedelta
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%dT11:00")
-    in_3_days = (datetime.now() + timedelta(days=3)).strftime("%Y-%m-%dT15:00")
-    in_5_days = (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%dT12:00")
+
+    def _next_open_day(d: datetime) -> datetime:
+        # Demo business hours are closed Sundays (see the same fix in the
+        # backend test suite) - walk forward so this never depends on
+        # which weekday the demo happens to run on.
+        while d.weekday() == 6:
+            d += timedelta(days=1)
+        return d
+
+    # 13:00, not 11:00 - ensure_phase9_conversion() below independently
+    # books its own real marketplace site visit for "next open day at
+    # 11:00" too; two different demo steps landing on the exact same
+    # slot is a real, observed collision (one silently fails with a 409
+    # "already booked"), not a duplicate-data bug - just two unrelated
+    # generators picking the same default time. Business hours are
+    # 10:00-18:00 (see appointment_service.py's _DEFAULT_HOURS).
+    tomorrow = _next_open_day(datetime.now() + timedelta(days=1)).strftime("%Y-%m-%dT13:00")
+    in_3_days = _next_open_day(datetime.now() + timedelta(days=3)).strftime("%Y-%m-%dT15:00")
+    in_5_days = _next_open_day(datetime.now() + timedelta(days=5)).strftime("%Y-%m-%dT12:00")
 
     a1 = book("Ananya Iyer", "+91-99001-22334", "ananya.iyer@urbannest-realty-demo.com", "Site visit - Lakeview Heights", tomorrow)
     a2 = book("Karthik Nair", "+91-98802-33445", "karthik.nair@urbannest-realty-demo.com", "Site visit - Urban Crest", in_3_days)
@@ -1207,13 +1262,13 @@ def main():
 
     agency_auth = ensure_agency()
     OWNER_TOKEN = agency_auth["access_token"]
-    agency_id = agency_auth["agency_id"]
 
     ensure_agency_profile(OWNER_TOKEN)
-    ensure_staff_users(agency_id)
-    ensure_demo_plan_tier(agency_id)
+    ensure_staff_users(OWNER_TOKEN)
     buyer_auth = ensure_buyer()
     buyer_token = buyer_auth["access_token"]
+    ensure_second_buyer()
+    log(f"Second buyer account ready: {BUYER2_EMAIL} (for buyer-isolation manual testing).")
 
     project_ids = ensure_inventory(OWNER_TOKEN)
     ensure_inventory_media(OWNER_TOKEN, project_ids)
