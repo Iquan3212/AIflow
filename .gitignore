@@ -12,6 +12,9 @@ frontend/dist/
 backend/.env
 frontend/.env
 
+# Local-only credential docs (never committed - real synthetic passwords)
+PILOT_ACCESS_LOCAL.md
+
 # macOS
 .DS_Store
 

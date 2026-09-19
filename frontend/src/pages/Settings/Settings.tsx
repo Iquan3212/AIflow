@@ -546,7 +546,14 @@ function ChannelCard({
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const webhookUrl = `${baseURL}/webhooks/${channel}`;
+    // baseURL is normally a relative "/api" path (see services/api.ts)
+    // so the browser's own API calls stay same-origin behind the Vite
+    // proxy - but this one is DISPLAYED for an external service (Meta)
+    // to call, which needs a real absolute URL, so a relative baseURL is
+    // resolved against the current page origin; an already-absolute
+    // baseURL (the alternate VITE_API_URL config) is used as-is.
+    const absoluteBaseURL = /^https?:\/\//.test(baseURL) ? baseURL : `${window.location.origin}${baseURL}`;
+    const webhookUrl = `${absoluteBaseURL}/webhooks/${channel}`;
     const isConnected = credential.status === "connected";
 
     async function handleConnect() {

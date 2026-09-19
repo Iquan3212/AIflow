@@ -1,10 +1,15 @@
 # AIFlow — Final Manual Test Checklist
 
 Run this after `scripts/reset_dev_database.py --yes-i-am-sure` followed by
-`scripts/demo_real_estate.py` (see `DEMO_RUN.md` for exact commands and
-the demo credentials list). Backend on `http://127.0.0.1:8000`, frontend
-on `http://localhost:5174` (see `DEMO_RUN.md`/`README.md` if Vite picked
-a different port).
+`scripts/demo_real_estate.py` (Agency 1) and `scripts/seed_pilot_agencies.py`
+(Agencies 2 and 3) — see `DEMO_RUN.md`/`PILOT_ACCESS_LOCAL.md` for exact
+commands and credentials. Works identically whether accessed locally
+(`http://localhost:5174`) or through the pilot's Cloudflare tunnel URL
+(see `DEMO_REMOTE_ACCESS.md`).
+
+Sections A and B use **Agency 1 (UrbanNest Realty)** and **Buyer 1**
+unless noted. Section C (multi-tenant) explicitly exercises all three
+agencies and both buyers.
 
 Check off each item as you verify it. Anything that fails: note the
 exact URL, action, and what you observed/expected.
@@ -31,6 +36,7 @@ exact URL, action, and what you observed/expected.
 - [ ] 12. **Pricing** (`/pricing`) — all 4 plans render with correct prices/limits; monthly/annual toggle works.
 - [ ] 13. **Billing** (`/billing`) — current plan/status/usage (properties, projects, users, AI actions) all show real numbers, not placeholders.
 - [ ] 14. **Subscription/trial state** — confirm the demo agency shows `trialing` on Starter (not an already-paid plan) with a real trial end date.
+- [ ] 15. **Logout** — confirm it returns to `/login` and protected pages then redirect there too.
 
 ## Section B — Buyer
 
@@ -49,18 +55,28 @@ exact URL, action, and what you observed/expected.
 - [ ] 13. **My Activity** (`/buyer/activity`) — recent actions (saves, inquiries, visits) are listed.
 - [ ] 14. **Booking** (`/buyer/bookings`) — the demo booking appears with correct state.
 - [ ] 15. **Profile/settings** (`/buyer/profile`) — edit profile info, confirm it saves.
+- [ ] 16. **Booking** (`/buyer/bookings`) — the demo booking appears with correct state. *(listed here per Section B's own numbering; same booking as Section A.8.)*
+- [ ] 17. **Logout** — confirm it returns to `/buyer/login`.
 
-## Section C — Cross-system
+## Section C — Multi-tenant
 
-- [ ] 1. **Buyer inquiry appears to Agency** — submit as buyer, confirm agency Leads shows it within a normal refresh/poll.
-- [ ] 2. **AI qualification** — a new lead gets qualified (via Manager AI or the workflow-triggered specialist); confirm the qualification result is visible on the lead.
-- [ ] 3. **Property matching** — ask the AI Assistant/Manager for matches against stated buyer requirements; confirm matches are real, current inventory (never a sold/blocked unit presented as available).
-- [ ] 4. **Site visit state** — confirm a requested visit moves confirmed → completed correctly and consistently between buyer and agency views.
-- [ ] 5. **Booking state** — confirm a booked property's status (sold/reserved) is consistent everywhere it's shown (Inventory, Discover, buyer's own view).
-- [ ] 6. **Buyer isolation** — log in as the second demo buyer; confirm you see NONE of the first buyer's saved properties/inquiries/site visits/bookings.
-- [ ] 7. **Agency isolation** — (if a second agency exists in your environment) confirm neither agency's dashboard shows the other's data.
-- [ ] 8. **Plan-limit enforcement** — as the demo agency (Starter: 25 properties / 3 users / 3 projects / 300 AI actions), attempt to exceed one limit (e.g. invite a 4th team member) and confirm a clear, honest rejection - never a silent failure or a bypass.
-- [ ] 9. **Locked-feature behavior** — visit a feature gated to a higher plan; confirm it's visibly present with an upgrade prompt, not hidden or broken.
+Three real, independent agencies exist for this pilot: **UrbanNest
+Realty**, **PrimeStone Properties**, **BluePeak Estates** — plus two
+buyer accounts. Log in as each where indicated.
+
+1. **Agency A cannot see Agency B** — log in as UrbanNest's owner; confirm no PrimeStone or BluePeak projects/properties/leads/appointments/bookings/Knowledge Base/team members/billing appear anywhere.
+2. **Agency B cannot see Agency A** — log in as PrimeStone's owner; confirm the reverse (and repeat for BluePeak).
+3. **Buyer A cannot see Buyer B** — log in as Buyer 2 (Meera); confirm she has zero saved properties/inquiries/site visits/bookings (all of Buyer 1's activity is invisible).
+4. **Buyer cannot access Agency CRM** — while signed in as a buyer, confirm there is no way to reach Leads/Team/Billing (not just hidden nav — the API itself rejects it).
+5. **Agency cannot access Buyer-private information** — confirm an agency only ever sees a buyer's info through a legitimate Lead/inquiry relationship, never a buyer's full account (saved properties, other inquiries, etc.).
+6. **AI tools remain tenant-scoped** — ask each agency's AI Manager a question; confirm answers are grounded only in that agency's own inventory/Knowledge Base, never another agency's.
+7. **Buyer inquiry appears to Agency** — submit as Buyer 1 on an UrbanNest property, confirm UrbanNest's Leads shows it (not PrimeStone's or BluePeak's).
+8. **AI qualification** — a new lead gets qualified; confirm the result is visible on the lead within its own agency only.
+9. **Property matching** — ask the AI Assistant/Manager for matches; confirm matches are real, current inventory for that agency only (never a sold/blocked unit presented as available, never another agency's units).
+10. **Site visit state** — confirm a requested visit moves confirmed → completed correctly and consistently between buyer and agency views.
+11. **Booking state** — confirm a booked property's status (sold/reserved) is consistent everywhere it's shown.
+12. **Plan-limit enforcement** — pick one agency (Starter: 25 properties / 3 users / 3 projects / 300 AI actions); attempt to exceed one limit (e.g. invite a 4th team member — all three demo agencies already have exactly 3 users, at the Starter cap) and confirm a clear, honest rejection - never a silent failure or a bypass.
+13. **Locked-feature behavior** — visit a feature gated to a higher plan; confirm it's visibly present with an upgrade prompt, not hidden or broken.
 
 ## Section D — Billing
 
@@ -78,4 +94,4 @@ existing, is never proof of payment.
 
 ---
 
-**Resetting between test passes**: `scripts/reset_dev_database.py --yes-i-am-sure` then `scripts/demo_real_estate.py` reproduces this exact same starting state - safe to run repeatedly.
+**Resetting between test passes**: `scripts/reset_dev_database.py --yes-i-am-sure` then `scripts/demo_real_estate.py` (Agency 1) then `scripts/seed_pilot_agencies.py` (Agencies 2 and 3) reproduces this exact same starting state - safe to run repeatedly, verified idempotent (no duplicate agencies/users/properties/leads/appointments/bookings/subscriptions across repeated runs).

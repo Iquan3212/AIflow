@@ -31,6 +31,14 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:5173"
 
+    # Off by default (normal local dev keeps /docs, /redoc, /openapi.json)
+    # - set DISABLE_API_DOCS=true when this backend is reachable from
+    # somewhere other than just the developer's own machine (e.g. a
+    # Cloudflare Quick Tunnel pilot), so the full API schema isn't
+    # publicly browsable. Every endpoint still requires the same real
+    # auth either way - this only removes the docs UI itself.
+    disable_api_docs: bool = False
+
     # Plain Python logging level name (DEBUG/INFO/WARNING/ERROR). Format
     # (JSON vs. human-readable) is derived from app_env, not configured
     # separately - see app/logging_config.py.
