@@ -950,6 +950,93 @@ Customer/owner message
   `EMBEDDING_PROVIDER` shipped defaulting to `mock` throughout - Gemini
   was opt-in via `.env`, and was fully removed in Phase 11 (see above).
 
+## Lead lifecycle & callback requests (Final Hardening)
+
+Connects pieces that already existed (Lead, Appointment, Booking, the
+`fire_trigger()` domain-event system, `AIActionApproval`) into one
+coherent, system-driven pipeline, and adds a real (non-voice) callback
+request workflow. No new event-bus was introduced - every automatic
+transition below reuses `fire_trigger()` (Phase 5) and the one
+authoritative write path each domain already had
+(`LeadService`/`AppointmentService`/`BookingService`).
+
+### Lead stage automation
+
+`app/services/marketplace/lead_lifecycle.py`'s `system_advance()` is the
+one function every automatic (non-human) `Lead.status` transition goes
+through - forward-only within the funnel (`new -> contacted -> qualified
+-> site_visit_scheduled -> visited -> negotiating`), plus a separate
+`mark_converted()` for the one "won" terminal status. It always goes
+through `LeadService.update()` (never a bare `lead.status = ...`), so
+every automatic transition fires the exact same `lead_status_changed`
+workflow trigger a manual dashboard edit already does, and is logged
+(`lead.status_changed_by_system`, structured, with `from_status`/
+`to_status`/`caused_by`) for observability.
+
+| Stage | Fires when | Where |
+|---|---|---|
+| `new` | Lead created | `LeadService.create()` (unchanged) |
+| `contacted` | A customer message is actually sent (`result["sent"] is True`, not merely queued for a second approval layer) - or a human sets it manually | `action_execution._execute_send_customer_message` |
+| `qualified` | The existing Lead Qualification AI assessment | `update_lead_qualification` tool (unchanged) |
+| `site_visit_scheduled` | A real, lead-linked Appointment is successfully created - covers every caller (buyer widget chat, marketplace site-visit endpoint, a dashboard booking), not just one | `AppointmentService.book()` |
+| `visited` | That appointment is marked `completed` (never merely booked/confirmed/cancelled - `appointment_status.py`'s own validated transitions already forbid completing anything but a `confirmed` visit) | `AppointmentService.complete()` |
+| `negotiating` | The buyer-facing `record_purchase_intent` tool - gated on the lead already being `visited`, since no reliable free-text purchase-intent signal exists anywhere in this codebase (the only near-miss, `LeadService.detect_buying_intent()`, is dead code) - or a human sets it manually | `ToolDispatcher._record_purchase_intent` |
+| `converted` | A Booking reaches `BookingStatus.completed` - the one real terminal success state (`confirmed -> completed` only; never merely `confirmed`/`reserved`, never from `cancelled`) | `BookingService.update_status()` |
+| `lost` | Manual only - never inferred automatically | dashboard `PUT /leads/{id}` (unchanged) |
+
+**The AI cannot fabricate stage progress.** `UpdateLeadQualificationTool`
+(the AI's one direct Lead-status-writing tool) refuses
+`site_visit_scheduled`/`visited`/`negotiating`/`converted` outright
+(`SYSTEM_ONLY_LEAD_STATUSES`) - those four require the real evidence
+above. It still allows `new`/`contacted`/`qualified`/`lost`, matching
+existing, already-tested AI Workforce behavior. The manual dashboard
+`PUT /leads/{id}` path is deliberately untouched and can still set any
+status - a human's judgment was never restricted.
+
+**Never moves a lead backward** - `system_advance()` is a no-op if the
+lead is already at or past the candidate stage (e.g. a new appointment
+for an already-`negotiating` lead never pulls it back to
+`site_visit_scheduled`), and a lead already `lost`/`converted` is never
+silently reopened by a later automatic event.
+
+### Callback requests
+
+**Current model**: buyer requests a callback -> AIFlow creates a
+`CallbackRequest` -> the agency is notified (in-app + email) -> a human
+agency staff member calls the buyer, entirely outside AIFlow. AIFlow
+does not, and cannot, place a phone call - there is no telephony/voice
+integration anywhere in this codebase. A future AI voice-calling phase,
+if ever built, would be a separate, distinct capability.
+
+The buyer-facing `request_callback` tool (`app/services/scheduling/
+tools.py`) validates the phone number and any supplied `property_id`
+against the agency before creating the record
+(`app/services/callback_service.py`), then notifies the agency the same
+way a new lead does. Status machine: `requested -> assigned -> contacted
+-> completed`, or `cancelled` from any non-terminal state
+(`_ALLOWED_TRANSITIONS`); any signed-in team member (owner/admin/member)
+can view and act on a callback, the same authorization level every other
+CRM object already uses (`GET/POST /callbacks/...`).
+
+The buyer-facing system prompt (`app/services/prompt_builder.py`) has an
+explicit rule: never claim "I'll call you"/"our team will call
+you"/"I've arranged your call" unless `request_callback` has already
+returned success - and even then, only describe what actually happened
+(a request was sent), never a promised call time. This rule extends to
+every other action (appointments, bookings) the assistant can take.
+
+### In-app notifications (`app/models.py`'s `Notification`, new)
+
+Nothing before this let a frontend query "what has this agency been
+notified about" - the existing `NotificationDispatcher.notify_owner()`
+only ever sends an email and persists nothing. `notification_service.py`
+creates a real, tenant-scoped, queryable `Notification` row for every
+new lead and every callback request, alongside (never instead of) the
+existing email path - `GET /notifications`, `POST /notifications/
+{id}/read`. Idempotent: `already_notified_for_lead()` prevents a retried
+lead-identification call from creating a second "New lead captured" row
+for the same lead.
+
 ## Controlled Workflow Automation (`backend/app/services/workflows/`, Phase 5)
 
 A deterministic execution layer, explicitly **not** an autonomous AI
