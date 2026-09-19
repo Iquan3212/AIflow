@@ -47,7 +47,10 @@ def _make_agency(suffix: str):
 def _book_real_appointment(db, agency, *, phone="9000000010"):
     svc = AppointmentService(db)
     svc.ensure_defaults(agency)
-    start_local = (to_local(now_utc(), agency.timezone) + dt.timedelta(days=1)).replace(hour=11, minute=0, second=0, microsecond=0)
+    start_local = to_local(now_utc(), agency.timezone) + dt.timedelta(days=1)
+    while start_local.weekday() == 6:  # demo business hours are closed Sundays
+        start_local += dt.timedelta(days=1)
+    start_local = start_local.replace(hour=11, minute=0, second=0, microsecond=0)
     outcome = svc.book(
         agency, start_local_iso=start_local.strftime("%Y-%m-%dT%H:%M"),
         customer_name="Site Visit Buyer", customer_phone=phone, customer_email=None,
@@ -133,7 +136,10 @@ class TestAvailableSlotRetrieval:
         db, biz = agency
         orch = AIOrchestrator(db=db, agency=biz, conversation=None, lead=None)
         router = ToolRouter(orch.registry, db=db, agency=biz)
-        tomorrow = (to_local(now_utc(), biz.timezone) + dt.timedelta(days=1)).date().isoformat()
+        tomorrow_dt = to_local(now_utc(), biz.timezone) + dt.timedelta(days=1)
+        while tomorrow_dt.weekday() == 6:  # demo business hours are closed Sundays
+            tomorrow_dt += dt.timedelta(days=1)
+        tomorrow = tomorrow_dt.date().isoformat()
         result = router.execute(employee="site_visit", tool_name="get_available_slots", message="x", date_local=tomorrow)
         assert result["result"]["success"] is True
         assert len(result["result"]["slots"]) > 0
@@ -198,7 +204,10 @@ class TestSchedulingProposalsNeverMutateDirectly:
 
         orch = AIOrchestrator(db=db, agency=biz, conversation=None, lead=None)
         router = ToolRouter(orch.registry, db=db, agency=biz)
-        tomorrow = (to_local(now_utc(), biz.timezone) + dt.timedelta(days=1)).strftime("%Y-%m-%dT11:00")
+        tomorrow_dt = to_local(now_utc(), biz.timezone) + dt.timedelta(days=1)
+        while tomorrow_dt.weekday() == 6:  # demo business hours are closed Sundays
+            tomorrow_dt += dt.timedelta(days=1)
+        tomorrow = tomorrow_dt.strftime("%Y-%m-%dT11:00")
         result = router.execute(
             employee="site_visit", tool_name="propose_visit", message="x",
             lead_id=lead.id, property_id=unit.id, start_local_iso=tomorrow, requested_by_employee="site_visit",

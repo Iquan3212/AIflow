@@ -113,9 +113,11 @@ def _tool_call(name, arguments, call_id="call_1"):
 
 
 def _tomorrow_iso(agency, hour=11):
-    local = to_local(now_utc(), agency.timezone).replace(hour=hour, minute=0, second=0, microsecond=0)
     import datetime as dt
-    local = local + dt.timedelta(days=1)
+    local = to_local(now_utc(), agency.timezone) + dt.timedelta(days=1)
+    while local.weekday() == 6:  # demo business hours are closed Sundays
+        local += dt.timedelta(days=1)
+    local = local.replace(hour=hour, minute=0, second=0, microsecond=0)
     return local.strftime("%Y-%m-%dT%H:%M")
 
 

@@ -314,7 +314,10 @@ class TestApprovalGatedToolsNeverMutateRealState:
         svc.ensure_defaults(biz)
         from app.services.scheduling.datetime_utils import now_utc, to_local
         import datetime as dt
-        start_local = (to_local(now_utc(), biz.timezone) + dt.timedelta(days=1)).replace(hour=12, minute=0, second=0, microsecond=0)
+        start_local = to_local(now_utc(), biz.timezone) + dt.timedelta(days=1)
+        while start_local.weekday() == 6:  # demo business hours are closed Sundays
+            start_local += dt.timedelta(days=1)
+        start_local = start_local.replace(hour=12, minute=0, second=0, microsecond=0)
         booked = svc.book(biz, start_local_iso=start_local.strftime("%Y-%m-%dT%H:%M"),
                            customer_name="Confirm Me", customer_phone="9000000002", customer_email=None)
         assert booked.ok is True

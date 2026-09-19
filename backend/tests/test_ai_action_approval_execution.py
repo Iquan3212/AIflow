@@ -61,7 +61,10 @@ def _make_user(db, agency):
 def _book_real_appointment(db, agency):
     svc = AppointmentService(db)
     svc.ensure_defaults(agency)
-    start_local = (to_local(now_utc(), agency.timezone) + dt.timedelta(days=1)).replace(hour=11, minute=0, second=0, microsecond=0)
+    start_local = to_local(now_utc(), agency.timezone) + dt.timedelta(days=1)
+    while start_local.weekday() == 6:  # demo business hours are closed Sundays
+        start_local += dt.timedelta(days=1)
+    start_local = start_local.replace(hour=11, minute=0, second=0, microsecond=0)
     outcome = svc.book(
         agency, start_local_iso=start_local.strftime("%Y-%m-%dT%H:%M"),
         customer_name="Exec Test Buyer", customer_phone="9000000099", customer_email=None,

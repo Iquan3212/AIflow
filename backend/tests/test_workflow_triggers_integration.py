@@ -242,8 +242,11 @@ class TestAppointmentServiceFiresAppointmentEvents:
         svc = AppointmentService(db)
         svc.ensure_defaults(biz)
         from app.services.scheduling.datetime_utils import now_utc, to_local
-        tomorrow_local = to_local(now_utc(), biz.timezone).replace(hour=11, minute=0, second=0, microsecond=0)
-        tomorrow_local = tomorrow_local.replace(day=tomorrow_local.day) + __import__("datetime").timedelta(days=1)
+        import datetime as _dt
+        tomorrow_local = to_local(now_utc(), biz.timezone) + _dt.timedelta(days=1)
+        while tomorrow_local.weekday() == 6:  # demo business hours are closed Sundays
+            tomorrow_local += _dt.timedelta(days=1)
+        tomorrow_local = tomorrow_local.replace(hour=11, minute=0, second=0, microsecond=0)
         iso = tomorrow_local.strftime("%Y-%m-%dT%H:%M")
 
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
@@ -263,7 +266,10 @@ class TestAppointmentServiceFiresAppointmentEvents:
         svc.ensure_defaults(biz)
         from app.services.scheduling.datetime_utils import now_utc, to_local
         import datetime as dt
-        start_local = (to_local(now_utc(), biz.timezone) + dt.timedelta(days=1)).replace(hour=12, minute=0, second=0, microsecond=0)
+        start_local = to_local(now_utc(), biz.timezone) + dt.timedelta(days=1)
+        while start_local.weekday() == 6:  # demo business hours are closed Sundays
+            start_local += dt.timedelta(days=1)
+        start_local = start_local.replace(hour=12, minute=0, second=0, microsecond=0)
         iso = start_local.strftime("%Y-%m-%dT%H:%M")
 
         with patch("app.services.workflows.engine.execute_action") as mock_exec:
