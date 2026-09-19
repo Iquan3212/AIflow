@@ -5,29 +5,30 @@ schema/migrations/extensions - for local development/demo use only.
 Safety: this script refuses to run unless DATABASE_URL's hostname looks
 like a Neon dev branch this project already uses, and it never touches
 `alembic_version` or any schema object (no DROP TABLE, no DROP EXTENSION).
-It only empties the 27 application data tables via TRUNCATE ... CASCADE,
+It only empties every application data table via TRUNCATE ... CASCADE,
 which preserves table structure, columns, indexes, and constraints
 exactly as-is - only rows are removed.
 
-Run: ./venv/bin/python scripts/reset_dev_database.py --yes-i-am-sure
+The table list is derived from app.models' own SQLAlchemy metadata
+(Base.metadata.tables), not a hand-maintained list - a hardcoded list
+silently went stale across several phases (billing, buyer marketplace,
+AI Workforce observability, team invites all added new tables this
+script never learned about, so a "reset" was leaving a dozen tables'
+worth of stale data - including every property, project, subscription,
+and payment - completely untouched). Deriving it from metadata means a
+future model addition can never cause the same silent gap again.
+
+Run: PYTHONPATH=. ./venv/bin/python scripts/reset_dev_database.py --yes-i-am-sure
 """
 
 import sys
 
-from app.database import SessionLocal, engine
+from app.database import Base, SessionLocal, engine
+from app import models  # noqa: F401 - import registers every table on Base.metadata
 from app.config import get_settings
 from sqlalchemy import text
 
-DATA_TABLES = [
-    "agencies", "ai_drafts", "appointments", "approval_requests",
-    "business_hours", "buyer_sessions", "buyers", "calendar_credentials",
-    "channel_credentials", "channel_webhook_events", "chatbot_configs",
-    "conversations", "email_logs", "gmail_credentials",
-    "gmail_pending_actions", "knowledge_chunks", "knowledge_documents",
-    "leads", "messages", "notification_preferences",
-    "scheduling_settings", "support_tickets", "user_sessions", "users",
-    "workflow_runs", "workflow_step_runs", "workflows",
-]
+DATA_TABLES = sorted(Base.metadata.tables.keys())
 
 
 def main():
