@@ -1197,6 +1197,94 @@ second notification system, no second approval system. Migration
   signature values). Nothing beyond Gmail and the existing notification/
   conversation channels was built or claimed for Phase 11.
 
+## Billing & Subscriptions (`backend/app/services/billing/`, Phase 11)
+
+Agency-facing monetization: four plans (Starter/Growth/Professional/
+Enterprise, prices and limits in `services/billing/plans.py` - the one
+source of truth every entitlement check reads from, never a hardcoded
+number anywhere else), a 14-day Starter trial from signup, and a real
+Razorpay Subscriptions integration.
+
+- **Domain model**: `Subscription` (one per agency, plan/status/billing
+  period), `Payment` (one row per confirmed charge), `WebhookEvent`
+  (idempotency ledger - see below), `ProviderPlan` (a cache mapping this
+  app's plan+interval to the Razorpay plan id `create_plan()` returned,
+  so the same Razorpay plan object is reused instead of creating a new
+  one on every checkout).
+- **Never trusts the client or an unconfirmed Razorpay object as proof of
+  payment** - this is the single load-bearing rule the whole design
+  protects. `start_checkout()` creates a Razorpay Subscription and
+  stores its id/`provider_plan_id` for later reference, but deliberately
+  never writes `Subscription.plan`/`billing_interval`/`status` at that
+  point. Those entitlement-bearing fields are only ever changed inside
+  `subscription_service.py`'s `_activate()` - reached either from
+  `confirm_checkout()` (a verified Razorpay payment-signature check) or
+  from a verified webhook (`handle_webhook()`). A real incident during
+  this phase's own QA found a subscription becoming "active" the instant
+  a Razorpay Subscription object was created, before any payment - fixed
+  by this exact deferred-resolution pattern; see the git history on
+  `subscription_service.py` for the full incident writeup and the
+  regression tests added in `tests/test_billing_subscription_payments.py`
+  (`test_creating_a_razorpay_subscription_does_not_activate_or_change_plan`
+  and neighbors).
+- **Webhooks**: signature-verified (`X-Razorpay-Signature` against the
+  raw, unparsed request body) before anything is parsed as JSON. Each
+  event's SHA-256 body hash is recorded in `WebhookEvent` and checked
+  before processing, so a redelivered event is a safe no-op, never a
+  double-charge or a re-run side effect. Only 6 event types are handled
+  (`subscription.activated/charged/cancelled/pending/halted`,
+  `payment.failed`) - Razorpay's Dashboard surfaces other event families
+  (`invoice.*`, `order.*`) this app never subscribes to or needs.
+- **Entitlements**: `EntitlementService` (`entitlement_service.py`) is
+  the one centralized place every plan/limit/feature check goes through
+  - active property slots, projects, team seats, AI actions (metered
+  live off real `AgentExecution` rows since the current billing period
+  started, never a separate incrementable counter that could drift), and
+  feature flags. An Agency predating the billing system (no Subscription
+  row) is never newly restricted - see that file's own module docstring.
+- **AI-action metering covers every customer-accessible AI path**: the
+  customer-facing widget/WhatsApp/Instagram conversation pipeline, the
+  tool-calling AI Workforce specialists (lead qualifier, property
+  matcher, real-estate sales, site visit, customer relations - metered
+  once inside `tool_calling_employee.run_tool_calling_employee_turn`,
+  reused by every caller of `.respond()` including a workflow's
+  `run_ai_specialist` action, so it is never double-counted there), and
+  the dashboard AI Manager chat (`EmployeeAgent.process()`, covering the
+  legacy single-shot employees - receptionist/finance/marketing/support/
+  analytics/sales - that have no tool-calling loop of their own). Every
+  path degrades gracefully (a plain, honest reply, never an HTTP error)
+  when an agency's AI-action allowance is exhausted.
+
+### Known Razorpay TEST MODE sandbox limitation
+
+During this phase's own live sandbox QA, a real test-mode subscription
+payment attempt using Razorpay's own officially-documented Subscriptions
+test card (`4718 6091 0820 4366`, a domestic Visa credit card - not a
+random or incorrect card) failed twice with Razorpay's own generic
+error: `error_code=SERVER_ERROR`, `error_reason=server_error`,
+`error_source=internal`, `error_step=card_mandate_process` (the
+recurring-mandate/e-mandate authorization step unique to Subscriptions,
+distinct from a one-time Order payment) - surfaced to the customer as
+"We are facing some trouble completing your request at the moment.
+Please try again shortly." The same failure was reproduced directly
+inside the Razorpay Dashboard's own test-subscription flow, ruling out
+an AIFlow-side integration bug. Razorpay's own `/v1/methods` API
+confirms this account's recurring/mandate configuration explicitly
+supports Visa credit-card recurring charges (no account-level
+restriction explains the failure either) - and `error_source=internal`
+means Razorpay's own words attribute this to their side, not a business
+rule. AIFlow's Subscription state was independently confirmed to remain
+correctly un-activated (`status=trialing`, zero `Payment` rows) across
+every failed attempt, in agreement with Razorpay's own subscription
+record (`status: "created"`, `paid_count: 0`) - the entitlement-safety
+design held throughout. **Do not "fix" this by weakening the payment-
+confirmation requirement** (e.g. trusting a created-but-unpaid
+Subscription, or accepting `payment.captured` in place of a verified
+`subscription.*` event) - the correct next step is retrying the sandbox
+payment later (possibly a transient Razorpay test-environment issue) or
+opening a support case with Razorpay, never a code change to this
+service's activation rules.
+
 ## Logging & observability (`backend/app/logging_config.py`)
 
 Production hardening sub-phase 3. Every module gets a logger the normal way
@@ -1304,6 +1392,22 @@ metadata), so they can be listed and individually revoked from Settings →
 Security — refreshing rotates the token and retires the old one. Every JWT
 carries a random `jti` so two tokens minted in the same second (same claims,
 same `exp` to the second) never collide on the database's unique index.
+
+### Team management (`backend/app/services/team_service.py`, `backend/app/routers/team.py`, Final Hardening phase)
+
+Three roles per agency: `owner` (exactly one, set once at signup,
+immutable - never assignable or removable through this router),
+`admin`, and `member`. Owner and admin can both invite/re-role/remove
+staff (`require_team_manager`); billing stays owner-only, unchanged
+(`require_billing_owner`). An invite is a random, single-use, DB-stored
+token (`AgencyInvite`, the same shape as `UserSession.refresh_token`, not
+a new pattern) with a 7-day expiry, emailed via the existing
+`EmailNotifier` (logged, not sent, when SMTP isn't configured - same
+dev-mode behavior every other notification already has). The plan's
+`user_limit` (`EntitlementService.can_add_user()`) is checked both when
+an invite is created AND again when it's accepted - the second check
+closes the race where several outstanding invites are accepted
+concurrently and would otherwise overshoot the limit.
 
 ## Frontend (`frontend/src/`)
 

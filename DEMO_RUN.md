@@ -3,7 +3,11 @@
 **Demo date:** 2026-09-11 (Phase 6). **Updated 2026-09-14** for Phase 7
 (real estate Project/Property inventory) — see §3a and §17. **Updated
 2026-09-15** for Phase 9 (buyer inquiry → lead → site visit → booking) —
-see §20.
+see §20. **Updated 2026-09-20** for the Final Hardening pass (Gemini
+removal confirmed complete, real staff team-invite API, a second buyer,
+AI-metering completeness, and several real demo-script bugs found and
+fixed) — see §22. §1's credentials below reflect the CURRENT state, not
+any one historical run.
 **Backend:** http://127.0.0.1:8000 (FastAPI, real Postgres/Neon dev database)
 **Frontend:** http://localhost:5174 (Vite dev server)
 **Demo script:** `backend/scripts/demo_real_estate.py` — safe to re-run (idempotent; skips anything that already exists)
@@ -28,15 +32,16 @@ real email inbox.
 - Email: `owner@urbannest-realty-demo.com`
 - Password: `UrbanNestDemo!2026`
 
-### Supporting staff users (see §7 "Known limitations" — no invite endpoint exists, so these were created directly in the database, not through the product)
-- `priya.sharma@urbannest-realty-demo.com` / `StaffDemo!2026` (role: staff)
-- `arjun.rao@urbannest-realty-demo.com` / `StaffDemo!2026` (role: staff)
+### Staff users (Final Hardening: created via the real staff-invite API — Settings → Team — not inserted directly; see §22)
+- `priya.sharma@urbannest-realty-demo.com` / `StaffDemo!2026` (role: **admin**)
+- `arjun.rao@urbannest-realty-demo.com` / `StaffDemo!2026` (role: **member**)
 
-### Buyer account (marketplace auth, Phase 6)
-- Signup/login endpoints: `POST /buyer/auth/signup`, `POST /buyer/auth/login` (no buyer-facing UI exists yet — Phase 8 builds that)
-- Email: `rahul.mehta@urbannest-realty-demo.com`
-- Password: `BuyerDemo!2026`
-- Name: Rahul Mehta — buyer persona: budget ₹1.2–1.5 Cr, Whitefield, 3BHK, self-use
+### Buyer accounts (marketplace auth)
+- Signup/login: http://localhost:5174/buyer/login (`POST /buyer/auth/signup`, `POST /buyer/auth/login`)
+- Primary buyer — Email: `rahul.mehta@urbannest-realty-demo.com` / Password: `BuyerDemo!2026`
+  - Name: Rahul Mehta — buyer persona: budget ₹1.2–1.5 Cr, Whitefield, 3BHK, self-use
+- Second buyer (Final Hardening, for buyer-isolation testing — see §22) — Email: `meera.krishnan@urbannest-realty-demo.com` / Password: `BuyerDemo!2026`
+  - Name: Meera Krishnan — has no saved properties/inquiries/bookings of her own; used only to confirm she never sees Rahul's
 
 ---
 
@@ -470,3 +475,60 @@ than hand-editing the shared dev database outside a migration.
 10. Dashboard → Inventory (Phase 7, §3a): see the real projects with cover photos and live availability counts; open one to see its units as cards; open a unit to see full detail, the controlled status-transition control, and its photo/floor-plan gallery.
 11. Buyer: log in at http://localhost:5174/buyer/login with the buyer credentials in §1 → Buyer Home now shows real "My inquiries", "My site visits", and "My bookings" (Phase 9, §20), replacing the old roadmap placeholder.
 12. Re-run the whole demo any time: `cd backend && PYTHONPATH=. ./venv/bin/python scripts/demo_real_estate.py` — it is idempotent and will skip anything that already exists.
+
+## 22. Final Hardening pass (2026-09-20)
+
+Gemini removal was already fully complete (Phase 11, commit `fc3c01f`) -
+this pass only confirmed it (repo-wide audit, one stray `.pyc` cleaned)
+and fixed the one real remaining date-dependent test flaw (`tomorrow`
+landing on Sunday, when demo business hours are closed). Also added: a
+real Agency Team Management feature (staff invite → accept, owner/admin/
+member roles, plan seat-limit enforcement at both invite- and accept-
+time - `backend/app/routers/team.py`); closed a real AI-metering gap
+(the dashboard "AI Manager" chat for the legacy single-shot employees -
+receptionist/finance/marketing/support/analytics/sales - was never
+counted against the plan's AI-action limit; real-estate specialists and
+the customer widget already were, and still are, exactly once each -
+see `ARCHITECTURE.md`'s Billing & Subscriptions section).
+
+**A critical, verified bug was found and fixed in `reset_dev_database.py`**:
+its hardcoded table list had gone stale across several phases and was
+silently skipping 12 tables on every "reset" - including every
+`property`, `project`, `subscription`, and `payment` row. A reset never
+actually cleared them. Fixed by deriving the table list from
+`Base.metadata.tables` instead of a hand-maintained list, so this can't
+silently recur. Confirmed via a real before/after run: the old list
+would have left 9 projects, 14 properties, 32 subscriptions, and 114
+`agent_executions` rows behind.
+
+**Two real, pre-existing demo-script bugs were found and fixed** while
+verifying `demo_real_estate.py`'s idempotency across repeated runs (not
+speculative - both were directly observed):
+- `U-LH-1102` was seeded with `target_status: "sold"` directly, before
+  `ensure_phase9_conversion()` ever got to run its own real inquiry →
+  site-visit → booking → sold flow against it - so on every fresh reset,
+  that whole demo step (which produces the one "completed site visit"
+  and the one real booking Task 10 asks for) silently skipped with "not
+  found or no longer public". Fixed by seeding it `active` instead (the
+  Knowledge Base text already said "status: available" for this exact
+  unit - the code just didn't match), and by teaching the inventory
+  seeder to never try to revert an already-`sold` unit (a real one-way
+  business rule) on a later idempotent re-run.
+- Two independent demo steps (the dashboard-sourced "Ananya Iyer" site
+  visit and the marketplace buyer's own real site-visit request) both
+  independently computed "next open business day at 11:00" and
+  collided, so Ananya's appointment silently failed to book on every
+  run. Fixed by moving it to 13:00.
+
+Verified via 5 consecutive runs against a real reset dev database (one
+fresh, four idempotent re-runs, one final fresh reset+reseed left as the
+canonical state): stable at 4 leads, 4 appointments (1 scheduled/
+upcoming, 1 confirmed, 1 cancelled, 1 completed), 1 booking, 0 warnings,
+0 tracebacks, no duplicate leads/bookings on any re-run.
+
+Full backend regression: `pytest -q` → 841 passed, 0 failed (date-fix
+included; pre-existing `datetime.utcnow()` deprecation warnings only,
+not failures - out of this pass's scope, a larger cross-cutting cleanup
+if ever addressed). Frontend: `npm run build` and `npm run lint` both
+clean. Migration `971e1fdf663c` (adds `agency_invites`) verified via a
+real upgrade → downgrade → upgrade cycle.
