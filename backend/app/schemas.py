@@ -1329,6 +1329,10 @@ class NotificationOut(BaseModel):
     created_at: datetime
 
 
+class NotificationUnreadCountOut(BaseModel):
+    unread_count: int
+
+
 # =====================================================
 # CALLBACK REQUESTS
 # =====================================================

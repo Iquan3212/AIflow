@@ -97,11 +97,25 @@ def already_notified_for_lead(db: Session, agency_id: str, lead_id: str, type: m
     )
 
 
-def list_for_agency(db: Session, agency_id: str, *, unread_only: bool = False, limit: int = 50) -> list[models.Notification]:
+def list_for_agency(
+    db: Session, agency_id: str, *, unread_only: bool = False, limit: int = 50, offset: int = 0,
+) -> list[models.Notification]:
     query = db.query(models.Notification).filter(models.Notification.agency_id == agency_id)
     if unread_only:
         query = query.filter(models.Notification.read_at.is_(None))
-    return query.order_by(models.Notification.created_at.desc()).limit(limit).all()
+    return query.order_by(models.Notification.created_at.desc()).offset(offset).limit(limit).all()
+
+
+def unread_count(db: Session, agency_id: str) -> int:
+    """A dedicated COUNT(*) query - the notification bell's badge needs
+    only this number, not up to `limit` full rows, and must stay correct
+    even once an agency has more unread notifications than any single
+    page would ever fetch."""
+    return (
+        db.query(models.Notification)
+        .filter(models.Notification.agency_id == agency_id, models.Notification.read_at.is_(None))
+        .count()
+    )
 
 
 def mark_read(db: Session, agency_id: str, notification_id: str) -> models.Notification | None:

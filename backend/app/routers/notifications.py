@@ -14,10 +14,22 @@ router = APIRouter(prefix="/notifications", tags=["Notifications"])
 @router.get("", response_model=list[schemas.NotificationOut])
 def list_notifications(
     unread_only: bool = False,
+    limit: int = 50,
+    offset: int = 0,
     agency: Agency = Depends(get_current_agency),
     db: Session = Depends(get_db),
 ):
-    return notification_service.list_for_agency(db, agency.id, unread_only=unread_only)
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    return notification_service.list_for_agency(db, agency.id, unread_only=unread_only, limit=limit, offset=offset)
+
+
+@router.get("/unread-count", response_model=schemas.NotificationUnreadCountOut)
+def get_unread_notification_count(
+    agency: Agency = Depends(get_current_agency),
+    db: Session = Depends(get_db),
+):
+    return schemas.NotificationUnreadCountOut(unread_count=notification_service.unread_count(db, agency.id))
 
 
 @router.post("/{notification_id}/read", response_model=schemas.NotificationOut)
