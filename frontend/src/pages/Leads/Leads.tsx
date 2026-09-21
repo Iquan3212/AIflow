@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Building2, Download, Handshake, Mail, Phone, PhoneCall, Plus, Search, Trash2, Users, Wallet } from "lucide-react";
 
 import AppShell from "../../components/layout/AppShell";
@@ -239,15 +240,29 @@ function CreateBookingModal({ lead, onClose, onCreated }: { lead: Lead; onClose:
 }
 
 function LeadCard({
-    lead, onStatusChange, onDelete, onBookingCreated, onCallbackChanged,
+    lead, onStatusChange, onDelete, onBookingCreated, onCallbackChanged, highlighted,
 }: {
     lead: Lead; onStatusChange: (status: LeadStatus) => void; onDelete: () => void; onBookingCreated: () => void;
     onCallbackChanged: (callback: CallbackRequest) => void;
+    /** Set when this card is the target of a notification deep link
+     * (?id=<lead_id> on this page) - a brief ring + auto-scroll, not a
+     * permanent visual state. */
+    highlighted?: boolean;
 }) {
     const meta = STAGE_META[lead.status];
     const [showBooking, setShowBooking] = useState(false);
+    const cardRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (highlighted) cardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, [highlighted]);
+
     return (
-        <Card interactive className="p-5 flex flex-col gap-3">
+        <Card
+            ref={cardRef}
+            interactive
+            className={`p-5 flex flex-col gap-3 transition-shadow ${highlighted ? "ring-2 ring-brand-500 ring-offset-2" : ""}`}
+        >
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <p className="font-display font-medium text-ink-950 truncate">{lead.name ?? "Unnamed lead"}</p>
@@ -342,6 +357,32 @@ export default function Leads() {
     const [statusFilter, setStatusFilter] = useState<LeadStatus | "all">("all");
     const [showAddModal, setShowAddModal] = useState(false);
     const [bookingToast, setBookingToast] = useState<string | null>(null);
+
+    // A notification deep link (e.g. from the bell) lands here as
+    // /leads?id=<lead_id> - no per-lead detail route exists in this app,
+    // so this scrolls to and highlights the matching card instead of
+    // navigating to a page that isn't real.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const highlightedLeadId = searchParams.get("id");
+
+    useEffect(() => {
+        if (!highlightedLeadId || !leads) return;
+        const target = leads.find((l) => l.id === highlightedLeadId);
+        if (!target) return;
+        // The target lead must actually be visible - never leave it
+        // hidden behind whatever filter/search happened to be active.
+        setStatusFilter("all");
+        setSearch("");
+        const t = setTimeout(() => {
+            setSearchParams((prev) => {
+                const next = new URLSearchParams(prev);
+                next.delete("id");
+                return next;
+            }, { replace: true });
+        }, 2500);
+        return () => clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [highlightedLeadId, leads]);
 
     useEffect(() => {
         if (!bookingToast) return;
@@ -523,6 +564,7 @@ export default function Leads() {
                                     onDelete={() => handleDelete(lead)}
                                     onBookingCreated={() => setBookingToast("Booking created — see it on the Bookings page.")}
                                     onCallbackChanged={(callback) => handleCallbackChanged(lead, callback)}
+                                    highlighted={lead.id === highlightedLeadId}
                                 />
                             ))}
                         </div>

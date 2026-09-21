@@ -39,6 +39,7 @@ import BuyerBookings from "./pages/Buyer/BuyerBookings";
 import BuyerAssistant from "./pages/Buyer/BuyerAssistant";
 import BuyerProfile from "./pages/Buyer/BuyerProfile";
 import Pricing from "./pages/Billing/Pricing";
+import Notifications from "./pages/Notifications/Notifications";
 import Billing from "./pages/Billing/Billing";
 import AcceptInvite from "./pages/Team/AcceptInvite";
 import NotFoundRedirect from "./layouts/NotFoundRedirect";
@@ -109,6 +110,7 @@ export default function App() {
                     <Route path="/pricing" element={<Pricing />} />
                     <Route path="/billing" element={<Billing />} />
                     <Route path="/settings" element={<Settings />} />
+                    <Route path="/notifications" element={<Notifications />} />
                 </Route>
 
                 {/* Anything else: a signed-in buyer goes to their home, an

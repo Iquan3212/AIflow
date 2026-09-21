@@ -1,3 +1,4 @@
+import { forwardRef } from "react";
 import type { HTMLAttributes } from "react";
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
@@ -8,17 +9,23 @@ interface CardProps extends HTMLAttributes<HTMLDivElement> {
     depth?: boolean;
 }
 
-export default function Card({ className = "", interactive = false, depth = false, ...props }: CardProps) {
-    return (
-        <div
-            className={`bg-white rounded-2xl border border-slate-200/70 shadow-soft ${
-                depth
-                    ? "tilt-card hover:shadow-lifted hover:border-slate-300/80"
-                    : interactive
-                      ? "transition-all duration-200 hover:shadow-card hover:border-slate-300"
-                      : ""
-            } ${className}`}
-            {...props}
-        />
-    );
-}
+const Card = forwardRef<HTMLDivElement, CardProps>(
+    ({ className = "", interactive = false, depth = false, ...props }, ref) => {
+        return (
+            <div
+                ref={ref}
+                className={`bg-white rounded-2xl border border-slate-200/70 shadow-soft ${
+                    depth
+                        ? "tilt-card hover:shadow-lifted hover:border-slate-300/80"
+                        : interactive
+                          ? "transition-all duration-200 hover:shadow-card hover:border-slate-300"
+                          : ""
+                } ${className}`}
+                {...props}
+            />
+        );
+    }
+);
+Card.displayName = "Card";
+
+export default Card;

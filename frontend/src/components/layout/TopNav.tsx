@@ -23,6 +23,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import Logo from "../brand/Logo";
+import NotificationBell from "./NotificationBell";
 import { useAuth } from "../../context/AuthContext";
 import { useAgency } from "../../context/AgencyContext";
 
@@ -324,6 +325,7 @@ export default function TopNav() {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
+                        <NotificationBell />
                         <div className="hidden lg:block">
                             <AccountMenu />
                         </div>

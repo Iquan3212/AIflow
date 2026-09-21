@@ -6,6 +6,7 @@ import App from "./App";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { AuthProvider } from "./context/AuthContext";
 import { AgencyProvider } from "./context/AgencyContext";
+import { NotificationsProvider } from "./context/NotificationsContext";
 import { BuyerAuthProvider } from "./context/BuyerAuthContext";
 import { CompareProvider } from "./context/CompareContext";
 
@@ -23,15 +24,19 @@ ReactDOM.createRoot(
 
                 <AgencyProvider>
 
-                    <BuyerAuthProvider>
+                    <NotificationsProvider>
 
-                        <CompareProvider>
+                        <BuyerAuthProvider>
 
-                            <App />
+                            <CompareProvider>
 
-                        </CompareProvider>
+                                <App />
 
-                    </BuyerAuthProvider>
+                            </CompareProvider>
+
+                        </BuyerAuthProvider>
+
+                    </NotificationsProvider>
 
                 </AgencyProvider>
 
